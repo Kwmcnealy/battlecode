@@ -143,6 +143,23 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
+  const liveUnifiedDiffByTurnId = useMemo(() => {
+    const byTurnId = new Map<TurnId, string>();
+    for (const activity of activeThread?.activities ?? []) {
+      if (activity.kind !== "turn.diff.updated" || !activity.turnId) {
+        continue;
+      }
+      const payload =
+        activity.payload && typeof activity.payload === "object"
+          ? (activity.payload as { unifiedDiff?: unknown })
+          : null;
+      if (typeof payload?.unifiedDiff !== "string") {
+        continue;
+      }
+      byTurnId.set(activity.turnId, payload.unifiedDiff);
+    }
+    return byTurnId;
+  }, [activeThread?.activities]);
   const orderedTurnDiffSummaries = useMemo(
     () =>
       [...turnDiffSummaries].toSorted((left, right) => {
@@ -160,11 +177,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
 
   const selectedTurnId = diffSearch.diffTurnId ?? null;
   const selectedFilePath = selectedTurnId !== null ? (diffSearch.diffFilePath ?? null) : null;
+  const selectedLivePatch =
+    selectedTurnId !== null ? liveUnifiedDiffByTurnId.get(selectedTurnId) : undefined;
   const selectedTurn =
     selectedTurnId === null
       ? undefined
       : (orderedTurnDiffSummaries.find((summary) => summary.turnId === selectedTurnId) ??
-        orderedTurnDiffSummaries[0]);
+        (selectedLivePatch ? undefined : orderedTurnDiffSummaries[0]));
   const selectedCheckpointTurnCount =
     selectedTurn &&
     (selectedTurn.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[selectedTurn.turnId]);
@@ -203,13 +222,15 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   );
   const activeCheckpointRange = selectedTurn
     ? selectedCheckpointRange
-    : conversationCheckpointRange;
+    : selectedTurnId !== null
+      ? null
+      : conversationCheckpointRange;
   const conversationCacheScope = useMemo(() => {
-    if (selectedTurn || orderedTurnDiffSummaries.length === 0) {
+    if (selectedTurn || selectedTurnId !== null || orderedTurnDiffSummaries.length === 0) {
       return null;
     }
     return `conversation:${orderedTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
-  }, [orderedTurnDiffSummaries, selectedTurn]);
+  }, [orderedTurnDiffSummaries, selectedTurn, selectedTurnId]);
   const activeCheckpointDiffQuery = useQuery(
     checkpointDiffQueryOptions({
       environmentId: activeThread?.environmentId ?? null,
@@ -234,12 +255,21 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         ? "Failed to load checkpoint diff."
         : null;
 
-  const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
+  const selectedPatch =
+    selectedTurnId !== null
+      ? (selectedTurnCheckpointDiff ?? selectedLivePatch)
+      : conversationCheckpointDiff;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
-    () => getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`),
-    [resolvedTheme, selectedPatch],
+    () =>
+      getRenderablePatch(
+        selectedPatch,
+        selectedTurnId !== null
+          ? `diff-panel:${selectedTurnId}:${resolvedTheme}`
+          : `diff-panel:${resolvedTheme}`,
+      ),
+    [resolvedTheme, selectedPatch, selectedTurnId],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -504,7 +534,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
-      ) : orderedTurnDiffSummaries.length === 0 ? (
+      ) : orderedTurnDiffSummaries.length === 0 && !selectedLivePatch ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           No completed turns yet.
         </div>

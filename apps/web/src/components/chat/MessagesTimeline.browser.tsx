@@ -73,6 +73,7 @@ function buildProps() {
     diffWordWrap: false,
     activeThreadId: null,
     turnDiffSummaryByTurnId: new Map(),
+    liveUnifiedDiffByTurnId: new Map(),
     inferredCheckpointTurnCountByTurnId: {},
     onIsAtEndChange: vi.fn(),
   };

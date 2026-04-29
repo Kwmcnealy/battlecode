@@ -2505,6 +2505,9 @@ describe("ProviderRuntimeIngestion", () => {
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
         ) &&
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.diff.updated",
+        ) &&
         entry.checkpoints.some(
           (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
         ),
@@ -2543,12 +2546,49 @@ describe("ProviderRuntimeIngestion", () => {
     expect(warning?.kind).toBe("runtime.warning");
     expect(warningPayload?.message).toBe("Provider got slow");
 
+    const liveDiffActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-turn-diff-updated",
+    );
+    const liveDiffPayload =
+      liveDiffActivity?.payload && typeof liveDiffActivity.payload === "object"
+        ? (liveDiffActivity.payload as Record<string, unknown>)
+        : undefined;
+    expect(liveDiffActivity?.kind).toBe("turn.diff.updated");
+    expect(liveDiffActivity?.turnId).toBe("turn-p1");
+    expect(liveDiffPayload?.unifiedDiff).toBe("diff --git a/file.txt b/file.txt\n+hello\n");
+
     const checkpoint = thread.checkpoints.find(
       (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
     );
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-turn-diff-updated-2"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-assistant"),
+      payload: {
+        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n+again\n",
+      },
+    });
+
+    const threadAfterSecondDiff = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.filter(
+          (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.diff.updated",
+        ).length === 2,
+    );
+    expect(
+      threadAfterSecondDiff.checkpoints.filter(
+        (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
+      ),
+    ).toHaveLength(1);
   });
 
   it("projects context window updates into normalized thread activities", async () => {

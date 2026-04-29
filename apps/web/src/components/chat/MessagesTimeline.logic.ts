@@ -127,6 +127,7 @@ export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   completionDividerBeforeEntryId: string | null;
   isWorking: boolean;
+  activeTurnId?: TurnId | null;
   activeTurnStartedAt: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
@@ -169,6 +170,9 @@ export function deriveMessagesTimelineRows(input: {
           turnId = ahead.message.turnId ?? null;
           break;
         }
+      }
+      if (turnId === null && input.isWorking && cursor >= input.timelineEntries.length) {
+        turnId = input.activeTurnId ?? null;
       }
       nextRows.push({
         kind: "work",

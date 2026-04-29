@@ -48,6 +48,8 @@ import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   filterParsedFilesByPaths,
   InlineFileDiffsList,
+  parseInlineUnifiedDiffFiles,
+  type ParsedTurnDiffResult,
   useParsedTurnDiff,
 } from "./VerboseInlineFileDiffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
@@ -102,6 +104,7 @@ interface TimelineRowSharedState {
    * after the summary's `assistantMessageId` binding eventually lands.
    */
   turnDiffSummaryByTurnId: ReadonlyMap<TurnId, TurnDiffSummary>;
+  liveUnifiedDiffByTurnId: ReadonlyMap<TurnId, string>;
   /**
    * Fallback for turns whose `TurnDiffSummary.checkpointTurnCount` is
    * undefined (server hasn't echoed it yet). Built from the same
@@ -160,6 +163,7 @@ interface MessagesTimelineProps {
   diffWordWrap: boolean;
   activeThreadId: ThreadId | null;
   turnDiffSummaryByTurnId: ReadonlyMap<TurnId, TurnDiffSummary>;
+  liveUnifiedDiffByTurnId: ReadonlyMap<TurnId, string>;
   inferredCheckpointTurnCountByTurnId: Readonly<Record<TurnId, number>>;
   onIsAtEndChange: (isAtEnd: boolean) => void;
 }
@@ -193,6 +197,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   diffWordWrap,
   activeThreadId,
   turnDiffSummaryByTurnId,
+  liveUnifiedDiffByTurnId,
   inferredCheckpointTurnCountByTurnId,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
@@ -202,6 +207,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         timelineEntries,
         completionDividerBeforeEntryId,
         isWorking,
+        activeTurnId: activeTurnId ?? null,
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
@@ -210,6 +216,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       completionDividerBeforeEntryId,
       isWorking,
+      activeTurnId,
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
@@ -259,6 +266,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       activeThreadId,
       turnDiffSummaryByTurnId,
+      liveUnifiedDiffByTurnId,
       inferredCheckpointTurnCountByTurnId,
       verboseChatMode,
       diffWordWrap,
@@ -280,6 +288,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       activeThreadId,
       turnDiffSummaryByTurnId,
+      liveUnifiedDiffByTurnId,
       inferredCheckpointTurnCountByTurnId,
       verboseChatMode,
       diffWordWrap,
@@ -703,7 +712,9 @@ const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
     activeThreadEnvironmentId,
     activeThreadId,
     turnDiffSummaryByTurnId,
+    liveUnifiedDiffByTurnId,
     inferredCheckpointTurnCountByTurnId,
+    activeTurnInProgress,
     onOpenTurnDiff,
   } = use(TimelineRowCtx);
 
@@ -725,19 +736,23 @@ const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
     () => visibleEntries.some((entry) => (entry.changedFiles?.length ?? 0) > 0),
     [visibleEntries],
   );
+  const liveUnifiedDiff = turnId !== null ? (liveUnifiedDiffByTurnId.get(turnId) ?? null) : null;
+  const hasLiveUnifiedDiff = (liveUnifiedDiff?.trim().length ?? 0) > 0;
   const shouldFetchTurnDiff =
     groupHasFileEdits &&
-    activeThreadId !== null &&
     turnId !== null &&
-    typeof resolvedCheckpointTurnCount === "number";
+    (hasLiveUnifiedDiff ||
+      (activeThreadId !== null && typeof resolvedCheckpointTurnCount === "number"));
 
   const parsedTurnDiff = useParsedTurnDiff({
     environmentId: shouldFetchTurnDiff ? activeThreadEnvironmentId : null,
     threadId: shouldFetchTurnDiff ? activeThreadId : null,
     turnId: shouldFetchTurnDiff ? turnId : null,
     checkpointTurnCount: shouldFetchTurnDiff ? resolvedCheckpointTurnCount : undefined,
+    liveUnifiedDiff: shouldFetchTurnDiff ? liveUnifiedDiff : null,
+    preferLive: activeTurnInProgress,
   });
-  const parsedTurnDiffFiles = shouldFetchTurnDiff ? parsedTurnDiff.files : null;
+  const parsedTurnDiffResult = shouldFetchTurnDiff ? parsedTurnDiff : null;
 
   return (
     <>
@@ -746,10 +761,11 @@ const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
           key={`work-row:${workEntry.id}`}
           workEntry={workEntry}
           workspaceRoot={workspaceRoot}
-          parsedTurnDiffFiles={parsedTurnDiffFiles}
+          parsedTurnDiff={parsedTurnDiffResult}
           turnIdForDiff={turnId}
           resolvedTheme={resolvedTheme}
           diffWordWrap={diffWordWrap}
+          activeTurnInProgress={activeTurnInProgress}
           onOpenTurnDiff={onOpenTurnDiff}
         />
       ))}
@@ -1273,15 +1289,11 @@ function workEntryAccentBorderClass(workEntry: TimelineWorkEntry): string {
 /**
  * Verbose-mode counterpart to SimpleWorkEntryRow.
  *
- * Renders each work entry as an expanded card: tone-coloured left border
- * (terminal-green for bash, amber for file edits, sky-blue for file reads,
- * violet for reasoning, rose for errors), heading + tool-name pill, full
- * monospace command text without truncation, the complete list of
- * changed-file chips, AND — for entries that touch files — the actual
- * inline diff hunks for those files using the same `<FileDiff>` component
- * that the side DiffPanel uses. The parsed turn diff is fetched once by
- * `WorkGroupSection` and threaded in as `parsedTurnDiffFiles`; this row
- * just slices it to its own changedFiles via `filterParsedFilesByPaths`.
+ * Renders each work entry as an expanded card: tone-coloured left border,
+ * heading + tool-name pill, full monospace command text without truncation,
+ * and the complete list of changed-file chips. File-change entries render
+ * their diff hunks below the card so the edit metadata and the actual patch
+ * stay visually connected without nesting diff chrome inside the card.
  *
  * Active when ClientSettings.verboseChatMode is true. Animated entry on
  * mount via the verbose-card-enter keyframe (gated on prefers-reduced-motion).
@@ -1289,26 +1301,21 @@ function workEntryAccentBorderClass(workEntry: TimelineWorkEntry): string {
 const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
-  /**
-   * Parsed FileDiffMetadata array for the entry's containing turn, fetched
-   * once at the WorkGroupSection level. `null` when verbose mode is off,
-   * when the work group has no file-edit entries, or when the turn diff
-   * is not (yet) available. The row filters this array down to its own
-   * `changedFiles` to render inline diffs in place.
-   */
-  parsedTurnDiffFiles: ReadonlyArray<FileDiffMetadata> | null;
+  parsedTurnDiff: ParsedTurnDiffResult | null;
   turnIdForDiff: TurnId | null;
   resolvedTheme: "light" | "dark";
   diffWordWrap: boolean;
+  activeTurnInProgress: boolean;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
   const {
     workEntry,
     workspaceRoot,
-    parsedTurnDiffFiles,
+    parsedTurnDiff,
     turnIdForDiff,
     resolvedTheme,
     diffWordWrap,
+    activeTurnInProgress,
     onOpenTurnDiff,
   } = props;
   const iconConfig = workToneIcon(workEntry.tone);
@@ -1324,6 +1331,12 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
   const rawCommand = workEntryRawCommand(workEntry) ?? workEntry.command ?? null;
   const detail = workEntry.detail ?? null;
   const accentBorder = workEntryAccentBorderClass(workEntry);
+  const changedFilesForRender = workEntry.changedFiles;
+  const hasChangedFiles = (changedFilesForRender?.length ?? 0) > 0;
+  const isFileChange = workEntry.itemType === "file_change" || hasChangedFiles;
+  const displayHeading = isFileChange ? "File change" : heading;
+  const displayPreview =
+    isFileChange && heading !== "File change" ? heading : preview && !rawCommand ? preview : null;
 
   // Slice the per-turn parsed diff down to just the files this entry
   // touched. For a work entry that says "Edit src/foo.ts" we'll match a
@@ -1335,17 +1348,31 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
   // bust the memo. `workspaceRoot` is threaded through so absolute paths
   // from the activity payload normalize to workspace-relative for matching
   // against parsed-diff file names.
-  const changedFilesForRender = workEntry.changedFiles;
   const inlineDiffFiles = useMemo(
     () =>
-      parsedTurnDiffFiles
-        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender, workspaceRoot)
+      parsedTurnDiff
+        ? filterParsedFilesByPaths(parsedTurnDiff.files, changedFilesForRender, workspaceRoot)
         : [],
-    [parsedTurnDiffFiles, changedFilesForRender, workspaceRoot],
+    [parsedTurnDiff, changedFilesForRender, workspaceRoot],
   );
+  const entryInlineDiffFiles = useMemo(() => {
+    if (!workEntry.inlineDiffPatch) {
+      return [];
+    }
+    return parseInlineUnifiedDiffFiles(workEntry.inlineDiffPatch, `work-entry:${workEntry.id}`);
+  }, [workEntry.id, workEntry.inlineDiffPatch]);
+  const inlineDiffFilesForRender =
+    inlineDiffFiles.length > 0
+      ? inlineDiffFiles
+      : entryInlineDiffFiles.length > 0
+        ? entryInlineDiffFiles
+        : parsedTurnDiff?.files.length === 1
+          ? parsedTurnDiff.files
+          : inlineDiffFiles;
 
-  return (
+  const card = (
     <div
+      data-verbose-file-change-card={isFileChange ? "true" : undefined}
       className={cn("verbose-card-enter border-l-2 bg-background/60 px-2.5 py-1.5", accentBorder)}
     >
       <div className="flex items-center gap-2">
@@ -1360,9 +1387,9 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
             workToneClass(workEntry.tone),
           )}
         >
-          <span className="font-medium text-foreground/95">{heading}</span>
-          {preview && !rawCommand ? (
-            <span className="text-muted-foreground/65"> — {preview}</span>
+          <span className="font-medium text-foreground/95">{displayHeading}</span>
+          {displayPreview ? (
+            <span className="text-muted-foreground/65"> — {displayPreview}</span>
           ) : null}
         </p>
       </div>
@@ -1400,18 +1427,117 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
           })}
         </div>
       ) : null}
+    </div>
+  );
 
-      {inlineDiffFiles.length > 0 && turnIdForDiff !== null ? (
-        <div className="ml-7">
-          <InlineFileDiffsList
-            files={inlineDiffFiles}
-            resolvedTheme={resolvedTheme}
-            diffWordWrap={diffWordWrap}
-            turnId={turnIdForDiff}
-            onOpenTurnDiff={onOpenTurnDiff}
-          />
-        </div>
-      ) : null}
+  if (!isFileChange) {
+    return card;
+  }
+
+  return (
+    <div data-verbose-file-change-block="true" className="verbose-card-enter">
+      {card}
+      <VerboseFileChangeDiffBlock
+        changedFiles={changedFilesForRender}
+        inlineDiffFiles={inlineDiffFilesForRender}
+        parsedTurnDiff={parsedTurnDiff}
+        turnIdForDiff={turnIdForDiff}
+        activeTurnInProgress={activeTurnInProgress}
+        resolvedTheme={resolvedTheme}
+        diffWordWrap={diffWordWrap}
+        onOpenTurnDiff={onOpenTurnDiff}
+      />
     </div>
   );
 });
+
+const VerboseFileChangeDiffBlock = memo(function VerboseFileChangeDiffBlock(props: {
+  changedFiles: ReadonlyArray<string> | undefined;
+  inlineDiffFiles: ReadonlyArray<FileDiffMetadata>;
+  parsedTurnDiff: ParsedTurnDiffResult | null;
+  turnIdForDiff: TurnId | null;
+  activeTurnInProgress: boolean;
+  resolvedTheme: "light" | "dark";
+  diffWordWrap: boolean;
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+}) {
+  const {
+    changedFiles,
+    inlineDiffFiles,
+    parsedTurnDiff,
+    turnIdForDiff,
+    activeTurnInProgress,
+    resolvedTheme,
+    diffWordWrap,
+    onOpenTurnDiff,
+  } = props;
+  const hasChangedFiles = (changedFiles?.length ?? 0) > 0;
+
+  if (!hasChangedFiles || turnIdForDiff === null) {
+    return null;
+  }
+
+  const firstChangedFile = changedFiles?.[0];
+  const statusAction =
+    firstChangedFile !== undefined ? (
+      <Button
+        type="button"
+        size="xs"
+        variant="outline"
+        onClick={() => onOpenTurnDiff(turnIdForDiff, firstChangedFile)}
+      >
+        View diff
+      </Button>
+    ) : null;
+
+  let content: ReactNode = null;
+  if (inlineDiffFiles.length > 0) {
+    content = (
+      <InlineFileDiffsList
+        files={inlineDiffFiles}
+        resolvedTheme={resolvedTheme}
+        diffWordWrap={diffWordWrap}
+        turnId={turnIdForDiff}
+        onOpenTurnDiff={onOpenTurnDiff}
+      />
+    );
+  } else if (parsedTurnDiff?.isLoading) {
+    content = <VerboseDiffStatusRow label="Diff loading..." />;
+  } else if (
+    activeTurnInProgress &&
+    parsedTurnDiff?.source !== "live" &&
+    !parsedTurnDiff?.hasLiveDiff
+  ) {
+    content = <VerboseDiffStatusRow label="Waiting for live diff update..." />;
+  } else if ((parsedTurnDiff?.files.length ?? 0) > 0) {
+    content = (
+      <VerboseDiffStatusRow label="Diff available in full turn view" action={statusAction} />
+    );
+  } else if (parsedTurnDiff?.error) {
+    content = <VerboseDiffStatusRow label="Unable to render inline diff" action={statusAction} />;
+  } else if (activeTurnInProgress) {
+    content = <VerboseDiffStatusRow label="Waiting for diff update..." />;
+  }
+
+  if (!content) {
+    return null;
+  }
+
+  return (
+    <div
+      data-verbose-file-change-diff-block="true"
+      className="ml-7 border-l border-dashed border-warning/45 pl-3 pt-1"
+    >
+      {content}
+    </div>
+  );
+});
+
+function VerboseDiffStatusRow({ label, action }: { label: string; action?: ReactNode }) {
+  return (
+    <div className="mt-2 flex items-center justify-between gap-2 border border-dashed border-border/55 bg-card/35 px-2 py-1.5 text-[11px] text-muted-foreground/75">
+      <span>{label}</span>
+      {action}
+    </div>
+  );
+}

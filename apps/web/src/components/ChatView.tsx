@@ -1128,6 +1128,23 @@ export default function ChatView(props: ChatViewProps) {
   const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const liveUnifiedDiffByTurnId = useMemo(() => {
+    const byTurnId = new Map<TurnId, string>();
+    for (const activity of threadActivities) {
+      if (activity.kind !== "turn.diff.updated" || !activity.turnId) {
+        continue;
+      }
+      const payload =
+        activity.payload && typeof activity.payload === "object"
+          ? (activity.payload as { unifiedDiff?: unknown })
+          : null;
+      if (typeof payload?.unifiedDiff !== "string") {
+        continue;
+      }
+      byTurnId.set(activity.turnId, payload.unifiedDiff);
+    }
+    return byTurnId;
+  }, [threadActivities]);
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
@@ -3453,6 +3470,7 @@ export default function ChatView(props: ChatViewProps) {
                   diffWordWrap={diffWordWrap}
                   activeThreadId={activeThread.id}
                   turnDiffSummaryByTurnId={turnDiffSummaryByTurnId}
+                  liveUnifiedDiffByTurnId={liveUnifiedDiffByTurnId}
                   inferredCheckpointTurnCountByTurnId={inferredCheckpointTurnCountByTurnId}
                   onIsAtEndChange={onIsAtEndChange}
                 />

@@ -297,6 +297,23 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "turn.diff.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "turn.diff.updated",
+          summary: "Turn diff updated",
+          payload: {
+            unifiedDiff: event.payload.unifiedDiff,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "user-input.requested": {
       return [
         {

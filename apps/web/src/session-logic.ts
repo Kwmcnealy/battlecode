@@ -45,6 +45,7 @@ export interface WorkLogEntry {
   command?: string;
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
+  inlineDiffPatch?: string;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
@@ -480,6 +481,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started")
     .filter((activity) => activity.kind !== "context-window.updated")
+    .filter((activity) => activity.kind !== "turn.diff.updated")
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
@@ -530,6 +532,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       : null
     : extractToolDetail(payload, title ?? activity.summary);
   const toolCallId = isTaskActivity ? null : extractToolCallId(payload);
+  const itemType = extractWorkLogItemType(payload);
+  const inlineDiffPatch = extractInlineDiffPatch(payload, itemType);
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
@@ -542,7 +546,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
           : activity.tone,
     activityKind: activity.kind,
   };
-  const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
   if (detail) {
     entry.detail = detail;
@@ -555,6 +558,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
+  }
+  if (inlineDiffPatch) {
+    entry.inlineDiffPatch = inlineDiffPatch;
   }
   if (title) {
     entry.toolTitle = title;
@@ -623,6 +629,7 @@ function mergeDerivedWorkLogEntries(
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
   const rawCommand = next.rawCommand ?? previous.rawCommand;
+  const inlineDiffPatch = mergeInlineDiffPatches(previous.inlineDiffPatch, next.inlineDiffPatch);
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
@@ -635,6 +642,7 @@ function mergeDerivedWorkLogEntries(
     ...(command ? { command } : {}),
     ...(rawCommand ? { rawCommand } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    ...(inlineDiffPatch ? { inlineDiffPatch } : {}),
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
@@ -652,6 +660,16 @@ function mergeChangedFiles(
     return [];
   }
   return [...new Set(merged)];
+}
+
+function mergeInlineDiffPatches(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!previous) return next;
+  if (!next) return previous;
+  if (previous === next) return previous;
+  return `${previous.trimEnd()}\n${next.trimStart()}`;
 }
 
 function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
@@ -1042,6 +1060,115 @@ function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {
   target.push(normalized);
 }
 
+interface InlineDiffHunk {
+  path: string;
+  diff: string;
+}
+
+function extractInlineDiffPath(record: Record<string, unknown>): string | null {
+  return (
+    asTrimmedString(record.path) ??
+    asTrimmedString(record.filePath) ??
+    asTrimmedString(record.relativePath) ??
+    asTrimmedString(record.filename) ??
+    asTrimmedString(record.newPath) ??
+    asTrimmedString(record.oldPath)
+  );
+}
+
+function collectInlineDiffHunks(
+  value: unknown,
+  target: InlineDiffHunk[],
+  seen: Set<string>,
+  depth: number,
+) {
+  if (depth > 4 || target.length >= 12) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectInlineDiffHunks(entry, target, seen, depth + 1);
+      if (target.length >= 12) {
+        return;
+      }
+    }
+    return;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+
+  const path = extractInlineDiffPath(record);
+  const diff = asTrimmedString(record.diff);
+  if (path && diff) {
+    const key = `${path}\n${diff}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      target.push({ path, diff });
+    }
+  }
+
+  for (const nestedKey of [
+    "item",
+    "result",
+    "input",
+    "data",
+    "changes",
+    "files",
+    "edits",
+    "patch",
+    "patches",
+    "operations",
+    "content",
+  ]) {
+    if (!(nestedKey in record)) {
+      continue;
+    }
+    collectInlineDiffHunks(record[nestedKey], target, seen, depth + 1);
+    if (target.length >= 12) {
+      return;
+    }
+  }
+}
+
+function buildUnifiedPatchFromInlineHunks(hunks: ReadonlyArray<InlineDiffHunk>): string | null {
+  const patches = hunks
+    .map((hunk) => {
+      const diff = hunk.diff.trim();
+      if (!diff) {
+        return null;
+      }
+      if (diff.startsWith("diff --git ")) {
+        return diff;
+      }
+      const normalizedPath = hunk.path.replaceAll("\\", "/");
+      return [
+        `diff --git a/${normalizedPath} b/${normalizedPath}`,
+        `--- a/${normalizedPath}`,
+        `+++ b/${normalizedPath}`,
+        diff,
+      ].join("\n");
+    })
+    .filter((patch): patch is string => patch !== null);
+
+  return patches.length > 0 ? `${patches.join("\n")}\n` : null;
+}
+
+function extractInlineDiffPatch(
+  payload: Record<string, unknown> | null,
+  itemType: WorkLogEntry["itemType"] | undefined,
+): string | null {
+  if (itemType !== "file_change") {
+    return null;
+  }
+  const hunks: InlineDiffHunk[] = [];
+  collectInlineDiffHunks(asRecord(payload?.data), hunks, new Set<string>(), 0);
+  return buildUnifiedPatchFromInlineHunks(hunks);
+}
+
 function collectChangedFiles(value: unknown, target: string[], seen: Set<string>, depth: number) {
   if (depth > 4 || target.length >= 12) {
     return;
@@ -1079,6 +1206,7 @@ function collectChangedFiles(value: unknown, target: string[], seen: Set<string>
     "patch",
     "patches",
     "operations",
+    "content",
   ]) {
     if (!(nestedKey in record)) {
       continue;

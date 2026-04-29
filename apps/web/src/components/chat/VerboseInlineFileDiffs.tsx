@@ -37,6 +37,8 @@ export interface ParsedTurnDiffInput {
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   turnId: TurnId | null;
+  liveUnifiedDiff?: string | null;
+  preferLive?: boolean;
   /**
    * checkpointTurnCount of the assistant turn whose diff we're rendering.
    * Together with `checkpointTurnCount - 1` this forms the [from, to] range
@@ -51,6 +53,41 @@ export interface ParsedTurnDiffResult {
   files: FileDiffMetadata[];
   isLoading: boolean;
   error: unknown;
+  source: "checkpoint" | "live" | "none";
+  hasLiveDiff: boolean;
+  hasCheckpointDiff: boolean;
+}
+
+export function parseInlineUnifiedDiffFiles(
+  patch: string | null | undefined,
+  cacheScope: string,
+): FileDiffMetadata[] {
+  const trimmedPatch = patch?.trim();
+  if (!trimmedPatch) return [];
+  try {
+    const parsedPatches = parsePatchFiles(
+      trimmedPatch,
+      buildPatchCacheKey(trimmedPatch, cacheScope),
+    );
+    return parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
+  } catch {
+    return [];
+  }
+}
+
+export function selectInlineUnifiedDiffPatch(input: {
+  checkpointPatch: string | null | undefined;
+  livePatch: string | null | undefined;
+}): { patch: string | null; source: ParsedTurnDiffResult["source"] } {
+  const checkpointPatch = input.checkpointPatch?.trim() ? input.checkpointPatch : null;
+  const livePatch = input.livePatch?.trim() ? input.livePatch : null;
+  if (checkpointPatch) {
+    return { patch: checkpointPatch, source: "checkpoint" };
+  }
+  if (livePatch) {
+    return { patch: livePatch, source: "live" };
+  }
+  return { patch: null, source: "none" };
 }
 
 /**
@@ -68,6 +105,12 @@ export function useParsedTurnDiff(input: ParsedTurnDiffInput): ParsedTurnDiffRes
     input.threadId !== null &&
     input.turnId !== null;
   const cacheScope = enabled ? `turn:${input.turnId}` : "turn:disabled";
+  const preferLive = input.preferLive ?? false;
+  const livePatch = input.liveUnifiedDiff?.trim() ? input.liveUnifiedDiff : null;
+  const liveCacheScope =
+    livePatch && input.turnId !== null
+      ? `live-turn:${input.turnId}:${livePatch.length}:${hashPatchForCache(livePatch)}`
+      : "live-turn:disabled";
 
   const diffQuery = useQuery(
     checkpointDiffQueryOptions({
@@ -80,24 +123,23 @@ export function useParsedTurnDiff(input: ParsedTurnDiffInput): ParsedTurnDiffRes
     }),
   );
 
-  const patch = diffQuery.data?.diff;
+  const checkpointPatch = diffQuery.data?.diff?.trim() ? diffQuery.data.diff : null;
+  const selectedPatch = selectInlineUnifiedDiffPatch({ checkpointPatch, livePatch });
+  const selectedCacheScope = selectedPatch.source === "checkpoint" ? cacheScope : liveCacheScope;
   const files = useMemo<FileDiffMetadata[]>(() => {
-    if (!patch || patch.trim().length === 0) return [];
-    try {
-      const parsedPatches = parsePatchFiles(
-        patch.trim(),
-        buildPatchCacheKey(patch.trim(), cacheScope),
-      );
-      return parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
-    } catch {
-      return [];
-    }
-  }, [patch, cacheScope]);
+    return parseInlineUnifiedDiffFiles(selectedPatch.patch, selectedCacheScope);
+  }, [selectedPatch.patch, selectedCacheScope]);
 
   return {
     files,
-    isLoading: enabled && diffQuery.isLoading,
+    isLoading:
+      enabled &&
+      diffQuery.isLoading &&
+      (selectedPatch.source === "none" || (!preferLive && selectedPatch.source === "live")),
     error: diffQuery.error,
+    source: selectedPatch.source,
+    hasLiveDiff: livePatch !== null,
+    hasCheckpointDiff: checkpointPatch !== null,
   };
 }
 
@@ -262,4 +304,12 @@ function stripGitPathPrefix(raw: string): string {
     return raw.slice(2);
   }
   return raw;
+}
+
+function hashPatchForCache(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
 }

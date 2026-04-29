@@ -920,6 +920,90 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("extracts inline diff hunks for immediate file-change rendering", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-tool",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            item: {
+              changes: [
+                {
+                  path: "/Users/caladyne/battlecode/apps/web/src/session-logic.ts",
+                  diff: "@@ -1,1 +1,2 @@\n old\n+new",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.inlineDiffPatch).toContain(
+      "diff --git a//Users/caladyne/battlecode/apps/web/src/session-logic.ts b//Users/caladyne/battlecode/apps/web/src/session-logic.ts",
+    );
+    expect(entry?.inlineDiffPatch).toContain("@@ -1,1 +1,2 @@\n old\n+new");
+  });
+
+  it("keeps live turn diff activities out of the visible work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "live-diff",
+        kind: "turn.diff.updated",
+        summary: "Turn diff updated",
+        payload: {
+          unifiedDiff: "diff --git a/src/file.ts b/src/file.ts\n+new line\n",
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
+  it("preserves changed files when lifecycle rows collapse", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-update",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          data: {
+            toolCallId: "tool-file-1",
+            changes: [{ path: "src/first.ts", diff: "@@ -1,1 +1,2 @@\n old\n+first" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-complete",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          data: {
+            toolCallId: "tool-file-1",
+            changes: [{ path: "src/second.ts", diff: "@@ -1,1 +1,2 @@\n old\n+second" }],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.changedFiles).toEqual(["src/first.ts", "src/second.ts"]);
+    expect(entries[0]?.inlineDiffPatch).toContain("src/first.ts");
+    expect(entries[0]?.inlineDiffPatch).toContain("src/second.ts");
+    expect(entries[0]?.itemType).toBe("file_change");
+  });
+
   it("drops duplicated tool detail when it only repeats the title", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
