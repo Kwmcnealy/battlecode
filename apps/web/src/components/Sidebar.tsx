@@ -41,6 +41,7 @@ import {
   type DesktopUpdateState,
   ProjectId,
   type ScopedThreadRef,
+  type ServerProvider,
   type SidebarProjectGroupingMode,
   type ThreadEnvMode,
   ThreadId,
@@ -153,6 +154,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarThreadProviderBadge,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -162,12 +164,13 @@ import {
   ThreadStatusPill,
 } from "./Sidebar.logic";
 import { sortThreads } from "../lib/threadSort";
+import { PROVIDER_ICON_BY_PROVIDER } from "./chat/providerIconUtils";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
-import { useServerKeybindings } from "../rpc/serverState";
+import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -264,6 +267,7 @@ interface SidebarThreadRowProps {
   isActive: boolean;
   jumpLabel: string | null;
   appSettingsConfirmThreadArchive: boolean;
+  providers: ReadonlyArray<ServerProvider>;
   renamingThreadKey: string | null;
   renamingTitle: string;
   setRenamingTitle: (title: string) => void;
@@ -300,6 +304,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isActive,
     jumpLabel,
     appSettingsConfirmThreadArchive,
+    providers,
     renamingThreadKey,
     renamingTitle,
     setRenamingTitle,
@@ -365,6 +370,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       lastVisitedAt,
     },
   });
+  const providerBadge = useMemo(
+    () => resolveSidebarThreadProviderBadge(thread, providers),
+    [thread, providers],
+  );
+  const ProviderBadgeIcon = PROVIDER_ICON_BY_PROVIDER[providerBadge.provider];
   const pr = resolveThreadPr(thread.branch, gitStatus.data);
   const prStatus = prStatusIndicator(pr);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
@@ -547,6 +557,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         onContextMenu={handleRowContextMenu}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  aria-label={providerBadge.tooltip}
+                  className="inline-flex shrink-0 items-center justify-center text-muted-foreground/70"
+                >
+                  <ProviderBadgeIcon className="size-3.5" aria-hidden="true" />
+                </span>
+              }
+            />
+            <TooltipPopup side="top">{providerBadge.tooltip}</TooltipPopup>
+          </Tooltip>
           {prStatus && (
             <Tooltip>
               <TooltipTrigger
@@ -787,6 +810,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     expandThreadListForProject,
     collapseThreadListForProject,
   } = props;
+  const providers = useServerProviders();
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
 
@@ -817,6 +841,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               isActive={activeRouteThreadKey === threadKey}
               jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
               appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+              providers={providers}
               renamingThreadKey={renamingThreadKey}
               renamingTitle={renamingTitle}
               setRenamingTitle={setRenamingTitle}

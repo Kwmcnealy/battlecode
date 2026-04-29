@@ -144,6 +144,7 @@ export interface SidebarThreadSummary {
   projectId: ProjectId;
   title: string;
   interactionMode: ProviderInteractionMode;
+  modelSelection: ModelSelection;
   session: ThreadSession | null;
   createdAt: string;
   archivedAt: string | null;
