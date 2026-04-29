@@ -3237,7 +3237,7 @@ export default function ChatView(props: ChatViewProps) {
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border px-3 sm:px-5",
+          "border-b border-border bg-card/70 px-3 shadow-[inset_0_-1px_0_color-mix(in_srgb,var(--theme-primary)_24%,transparent)] sm:px-5",
           isElectron
             ? cn(
                 "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]",
@@ -3320,7 +3320,7 @@ export default function ChatView(props: ChatViewProps) {
                 <button
                   type="button"
                   onClick={() => scrollToEnd(true)}
-                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                  className="pointer-events-auto flex items-center gap-1.5 border border-border bg-card px-3 py-1 text-muted-foreground text-xs tracking-[0.08em] uppercase shadow-[var(--glow-standard)] transition-colors hover:border-primary/60 hover:text-foreground hover:cursor-pointer"
                 >
                   <ChevronDownIcon className="size-3.5" />
                   Scroll to bottom
@@ -3330,7 +3330,12 @@ export default function ChatView(props: ChatViewProps) {
           </div>
 
           {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+          <div
+            className={cn(
+              "border-t border-border bg-gradient-to-b from-card/20 to-background px-3 pt-2 sm:px-5 sm:pt-3",
+              isGitRepo ? "pb-1" : "pb-3 sm:pb-4",
+            )}
+          >
             <ChatComposer
               ref={composerRef}
               composerDraftTarget={composerDraftTarget}

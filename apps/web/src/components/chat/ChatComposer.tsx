@@ -248,7 +248,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             className={cn(
               "shrink-0 whitespace-nowrap px-2 sm:px-3",
               props.planSidebarOpen
-                ? "text-blue-400 hover:text-blue-300"
+                ? "text-info hover:text-info-foreground"
                 : "text-muted-foreground/70 hover:text-foreground/80",
             )}
             size="sm"
@@ -1699,7 +1699,7 @@ export const ChatComposer = memo(
       >
         <div
           className={cn(
-            "group rounded-[22px] p-px transition-colors duration-200",
+            "group p-px transition-colors duration-200",
             composerProviderState.composerFrameClassName,
           )}
           onDragEnter={onComposerDragEnter}
@@ -1709,20 +1709,20 @@ export const ChatComposer = memo(
         >
           <div
             className={cn(
-              "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
+              "relative border bg-card transition-colors duration-200 has-focus-visible:border-ring/65 has-focus-visible:shadow-[var(--glow-featured)] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-primary",
               isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
               composerProviderState.composerSurfaceClassName,
             )}
           >
             {activePendingApproval ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="border-b border-border/65 bg-muted/20">
                 <ComposerPendingApprovalPanel
                   approval={activePendingApproval}
                   pendingCount={pendingApprovals.length}
                 />
               </div>
             ) : pendingUserInputs.length > 0 ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="border-b border-border/65 bg-muted/20">
                 <ComposerPendingUserInputPanel
                   pendingUserInputs={pendingUserInputs}
                   respondingRequestIds={respondingRequestIds}
@@ -1733,7 +1733,7 @@ export const ChatComposer = memo(
                 />
               </div>
             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-              <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+              <div className="border-b border-border/65 bg-muted/20">
                 <ComposerPlanFollowUpBanner
                   key={activeProposedPlan.id}
                   planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
@@ -1773,7 +1773,7 @@ export const ChatComposer = memo(
                     {composerImages.map((image) => (
                       <div
                         key={image.id}
-                        className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                        className="relative h-16 w-16 overflow-hidden border border-border/80 bg-background"
                       >
                         {image.previewUrl ? (
                           <button
@@ -1804,7 +1804,7 @@ export const ChatComposer = memo(
                                 <span
                                   role="img"
                                   aria-label="Draft attachment may not persist"
-                                  className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
+                                  className="absolute left-1 top-1 inline-flex items-center justify-center border border-warning/40 bg-background/85 p-0.5 text-warning"
                                 >
                                   <CircleAlertIcon className="size-3" />
                                 </span>

@@ -45,15 +45,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     isActive={isActive}
                     className={
                       isActive
-                        ? "gap-2.5 px-2.5 py-2 text-left text-[13px] font-medium text-foreground"
-                        : "gap-2.5 px-2.5 py-2 text-left text-[13px] text-muted-foreground/70 hover:text-foreground/80"
+                        ? "gap-2.5 border-l border-primary bg-primary/14 px-2.5 py-2 text-left text-[13px] font-medium uppercase tracking-[0.08em] text-foreground"
+                        : "gap-2.5 border-l border-transparent px-2.5 py-2 text-left text-[13px] uppercase tracking-[0.08em] text-muted-foreground/70 hover:border-info/50 hover:text-foreground/80"
                     }
                     onClick={() => void navigate({ to: item.to, replace: true })}
                   >
                     <Icon
                       className={
                         isActive
-                          ? "size-4 shrink-0 text-foreground"
+                          ? "size-4 shrink-0 text-primary"
                           : "size-4 shrink-0 text-muted-foreground/60"
                       }
                     />
@@ -72,7 +72,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="gap-2 px-2 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="gap-2 border-l border-transparent px-2 py-2 text-xs uppercase tracking-[0.08em] text-muted-foreground hover:border-info/50 hover:bg-accent hover:text-foreground"
               onClick={() => window.history.back()}
             >
               <ArrowLeftIcon className="size-4" />

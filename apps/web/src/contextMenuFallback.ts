@@ -60,7 +60,7 @@ export function showContextMenuFallback<T extends string>(
 
       const menu = document.createElement("div");
       menu.className =
-        "fixed z-[10000] min-w-[160px] rounded-md border border-border bg-popover py-1 shadow-xl animate-in fade-in zoom-in-95";
+        "fixed z-[10000] min-w-[160px] border border-border bg-popover py-1 shadow-[0_18px_44px_rgba(0,0,0,0.62)] animate-in fade-in zoom-in-95";
       menu.style.left = `${preferredLeft}px`;
       menu.style.top = `${preferredTop}px`;
       menu.dataset.level = String(level);

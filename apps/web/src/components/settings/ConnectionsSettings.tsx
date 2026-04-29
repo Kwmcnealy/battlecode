@@ -404,7 +404,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
                   onClick={(event) => event.currentTarget.select()}
                 />
                 {shareablePairingUrl ? (
-                  <div className="flex justify-center rounded-xl border border-border/60 bg-muted/30 p-4">
+                  <div className="flex justify-center border border-border/60 bg-muted/30 p-4">
                     <QRCodeSvg
                       value={shareablePairingUrl}
                       size={132}
@@ -488,7 +488,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
             />
             <h3 className="text-sm font-medium text-foreground">{primaryLabel}</h3>
             {clientSession.current ? (
-              <span className="text-[10px] text-muted-foreground/80 rounded-md border border-border/50 bg-muted/50 px-1 py-0.5">
+              <span className="border border-border/50 bg-muted/50 px-1 py-0.5 text-[10px] text-muted-foreground/80">
                 This device
               </span>
             ) : null}
@@ -1180,8 +1180,8 @@ export function ConnectionsSettings() {
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                           {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
+                            ? "Battle.Code will restart to expose this environment over the network."
+                            : "Battle.Code will restart and limit this environment back to this machine."}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -1309,13 +1309,13 @@ export function ConnectionsSettings() {
               <DialogHeader>
                 <DialogTitle>Add Environment</DialogTitle>
                 <DialogDescription>Pair another environment to this client.</DialogDescription>
-                <div className="flex gap-1 rounded-lg border border-border/60 bg-muted/50 p-1">
+                <div className="flex gap-1 border border-border/60 bg-muted/50 p-1">
                   <button
                     type="button"
                     className={cn(
-                      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "flex-1 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.08em] transition-colors",
                       savedBackendMode === "pairing-url"
-                        ? "bg-background text-foreground shadow-xs"
+                        ? "border-l border-primary bg-background text-foreground shadow-[var(--glow-button)]"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                     disabled={isAddingSavedBackend}
@@ -1326,9 +1326,9 @@ export function ConnectionsSettings() {
                   <button
                     type="button"
                     className={cn(
-                      "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "flex-1 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.08em] transition-colors",
                       savedBackendMode === "host-code"
-                        ? "bg-background text-foreground shadow-xs"
+                        ? "border-l border-primary bg-background text-foreground shadow-[var(--glow-button)]"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                     disabled={isAddingSavedBackend}

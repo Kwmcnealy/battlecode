@@ -32,20 +32,20 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 function stepStatusIcon(status: string): React.ReactNode {
   if (status === "completed") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
+      <span className="flex size-5 shrink-0 items-center justify-center border border-success/35 bg-success/15 text-success">
         <CheckIcon className="size-3" />
       </span>
     );
   }
   if (status === "inProgress") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-blue-400">
+      <span className="flex size-5 shrink-0 items-center justify-center border border-info/35 bg-info/15 text-info">
         <LoaderIcon className="size-3 animate-spin" />
       </span>
     );
   }
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+    <span className="flex size-5 shrink-0 items-center justify-center border border-border/60 bg-muted/30">
       <span className="size-1.5 rounded-full bg-muted-foreground/30" />
     </span>
   );
@@ -129,7 +129,7 @@ const PlanSidebar = memo(function PlanSidebar({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-col bg-card/50",
+        "flex min-h-0 flex-col bg-card/70 shadow-[var(--glow-standard)]",
         mode === "sidebar"
           ? "h-full w-[340px] shrink-0 border-l border-border/70"
           : "h-full w-full",
@@ -140,7 +140,7 @@ const PlanSidebar = memo(function PlanSidebar({
         <div className="flex items-center gap-2">
           <Badge
             variant="secondary"
-            className="rounded-md bg-blue-500/10 px-1.5 py-0 text-[10px] font-semibold tracking-wide text-blue-400 uppercase"
+            className="border-info/35 bg-info/10 px-1.5 py-0 text-[10px] font-semibold tracking-wide text-info uppercase"
           >
             {label}
           </Badge>
@@ -211,9 +211,9 @@ const PlanSidebar = memo(function PlanSidebar({
                 <div
                   key={`${step.status}:${step.step}`}
                   className={cn(
-                    "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
-                    step.status === "inProgress" && "bg-blue-500/5",
-                    step.status === "completed" && "bg-emerald-500/5",
+                    "flex items-start gap-2.5 border border-transparent px-2.5 py-2 transition-colors duration-200",
+                    step.status === "inProgress" && "border-info/20 bg-info/5",
+                    step.status === "completed" && "border-success/20 bg-success/5",
                   )}
                 >
                   <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
@@ -252,7 +252,7 @@ const PlanSidebar = memo(function PlanSidebar({
                 </span>
               </button>
               {proposedPlanExpanded ? (
-                <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                <div className="border border-border/50 bg-background/50 p-3">
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}

@@ -22,7 +22,7 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             <button
               type="button"
               aria-label="Dismiss error"
-              className="inline-flex size-6 items-center justify-center rounded-md text-destructive/60 transition-colors hover:text-destructive"
+              className="inline-flex size-6 items-center justify-center text-destructive/60 transition-colors hover:text-destructive"
               onClick={onDismiss}
             >
               <XIcon className="size-3.5" />
