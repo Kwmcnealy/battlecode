@@ -173,22 +173,80 @@ export const InlineFileDiffsList = memo(function InlineFileDiffsList(props: {
 
 /**
  * Filter parsed turn diff files down to a specific list of paths (a work
- * entry's `changedFiles`). Matches by basename of `name`/`prevName`,
- * tolerant of "a/" and "b/" prefixes that show up in unified diff headers.
+ * entry's `changedFiles`).
+ *
+ * The two sides this matches across come from different sources and are
+ * formatted differently:
+ *
+ * - `paths`: usually absolute (e.g. `/Users/.../repo/apps/web/src/foo.ts`)
+ *   because they're harvested from orchestration activity payloads with
+ *   absolute file paths. May also be Windows-style (`C:\repo\...`) or
+ *   workspace-relative depending on the provider.
+ * - `files[i].name` / `prevName`: unified-diff-header form like
+ *   `b/apps/web/src/foo.ts` (workspace-relative with `a/`/`b/` prefix).
+ *
+ * To match these robustly we normalize both sides through
+ * `normalizePathForDiffMatch` (separators, Windows drive canonicalization,
+ * workspace-root strip, `a/`/`b/` strip, leading-slash / `./` strip), then
+ * accept either exact equality OR a "/-aware suffix match" (one is a
+ * suffix of the other after a path separator). The suffix fallback covers
+ * the case where `workspaceRoot` is not known to the caller — we'd still
+ * match `apps/web/src/foo.ts` against `/Users/.../repo/apps/web/src/foo.ts`.
  */
 export function filterParsedFilesByPaths(
   files: ReadonlyArray<FileDiffMetadata>,
   paths: ReadonlyArray<string> | undefined,
+  workspaceRoot?: string,
 ): FileDiffMetadata[] {
   if (!paths || paths.length === 0) return [];
-  const wanted = new Set(paths.map(stripGitPathPrefix));
+  const wanted = paths
+    .map((p) => normalizePathForDiffMatch(p, workspaceRoot))
+    .filter((p) => p.length > 0);
+  if (wanted.length === 0) return [];
+  const wantedSet = new Set(wanted);
   return files.filter((file) => {
-    const candidates = [
-      file.name ? stripGitPathPrefix(file.name) : null,
-      file.prevName ? stripGitPathPrefix(file.prevName) : null,
-    ];
-    return candidates.some((candidate) => (candidate ? wanted.has(candidate) : false));
+    const candidates: string[] = [];
+    if (file.name) candidates.push(normalizePathForDiffMatch(file.name, workspaceRoot));
+    if (file.prevName) candidates.push(normalizePathForDiffMatch(file.prevName, workspaceRoot));
+    for (const candidate of candidates) {
+      if (candidate.length === 0) continue;
+      if (wantedSet.has(candidate)) return true;
+      for (const w of wanted) {
+        if (candidate.endsWith(`/${w}`)) return true;
+        if (w.endsWith(`/${candidate}`)) return true;
+      }
+    }
+    return false;
   });
+}
+
+/**
+ * Canonicalize a path for cross-source equality / suffix comparison.
+ * Idempotent. Lowercases the workspace prefix only for the strip check
+ * (preserves case in the returned path) so case-insensitive filesystems
+ * (macOS/Windows) don't drop true matches.
+ */
+function normalizePathForDiffMatch(path: string, workspaceRoot: string | undefined): string {
+  let result = path.replaceAll("\\", "/");
+  // Canonicalize Windows drive paths like `/C:/foo` → `C:/foo`
+  if (/^\/[A-Za-z]:\//.test(result)) result = result.slice(1);
+  // Strip git unified-diff `a/`/`b/` prefix
+  if (result.startsWith("a/") || result.startsWith("b/")) result = result.slice(2);
+  // Strip workspace root prefix when known
+  if (workspaceRoot) {
+    let ws = workspaceRoot.replaceAll("\\", "/").replace(/[/\\]+$/, "");
+    if (/^\/[A-Za-z]:\//.test(ws)) ws = ws.slice(1);
+    const wsLower = ws.toLowerCase();
+    const resultLower = result.toLowerCase();
+    if (resultLower === wsLower) {
+      result = "";
+    } else if (wsLower.length > 0 && resultLower.startsWith(`${wsLower}/`)) {
+      result = result.slice(ws.length + 1);
+    }
+  }
+  // Strip leading `./` and `/`
+  result = result.replace(/^\.\/+/, "").replace(/^\/+/, "");
+  return result;
 }
 
 function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {

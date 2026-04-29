@@ -1332,14 +1332,16 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
   // entry didn't touch files. Memo deps reference `workEntry.changedFiles`
   // directly (stable identity from the entry) rather than a defaulted
   // local — defaulting to `[]` would re-create the array each render and
-  // bust the memo.
+  // bust the memo. `workspaceRoot` is threaded through so absolute paths
+  // from the activity payload normalize to workspace-relative for matching
+  // against parsed-diff file names.
   const changedFilesForRender = workEntry.changedFiles;
   const inlineDiffFiles = useMemo(
     () =>
       parsedTurnDiffFiles
-        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender)
+        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender, workspaceRoot)
         : [],
-    [parsedTurnDiffFiles, changedFilesForRender],
+    [parsedTurnDiffFiles, changedFilesForRender, workspaceRoot],
   );
 
   return (
