@@ -978,7 +978,7 @@ describe("resolveSidebarThreadProviderBadge", () => {
       installed: true,
       version: null,
       status: "ready",
-      auth: { state: "authenticated" } as ServerProvider["auth"],
+      auth: { status: "authenticated" },
       checkedAt: "2026-04-29T00:00:00.000Z",
       models: [
         {

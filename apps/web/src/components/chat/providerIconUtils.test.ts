@@ -9,7 +9,7 @@ const providers: ReadonlyArray<ServerProvider> = [
     installed: true,
     version: null,
     status: "ready",
-    auth: { state: "authenticated" } as ServerProvider["auth"],
+    auth: { status: "authenticated" },
     checkedAt: "2026-04-29T00:00:00.000Z",
     models: [
       {
@@ -30,7 +30,9 @@ describe("getProviderModelTooltip", () => {
   });
 
   it("falls back to the slug when the model is missing from the provider list", () => {
-    expect(getProviderModelTooltip("codex", "unknown-slug", providers)).toBe("Codex · unknown-slug");
+    expect(getProviderModelTooltip("codex", "unknown-slug", providers)).toBe(
+      "Codex · unknown-slug",
+    );
   });
 
   it("uses the provider display name even with no providers", () => {
