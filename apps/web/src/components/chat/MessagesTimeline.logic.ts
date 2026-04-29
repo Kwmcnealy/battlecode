@@ -1,6 +1,6 @@
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
-import { type MessageId } from "@t3tools/contracts";
+import { type MessageId, type TurnId } from "@t3tools/contracts";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -18,17 +18,21 @@ export type MessagesTimelineRow =
       createdAt: string;
       groupedEntries: WorkLogEntry[];
       /**
-       * The diff summary of the assistant turn that this work group precedes,
-       * captured at row-construction time by looking ahead through the
-       * timeline entries. Verbose-mode rendering uses this to fetch and slice
-       * inline per-file diffs for individual file-edit work entries — so
-       * each "Edit src/foo.ts" row can show that file's diff right where the
-       * edit happened, sharing the same fetch/cache as the bottom panel.
+       * The turn id of the assistant message that follows this work group,
+       * captured at row-construction time via a look-ahead through the
+       * remaining timeline entries.
        *
-       * Undefined when the next assistant message has no checkpoint diff yet
-       * (turn still streaming) or when no assistant message follows.
+       * Verbose-mode rendering uses this id to look up the live
+       * `TurnDiffSummary` from the shared `turnDiffSummaryByTurnId` map at
+       * render time — NOT at row construction time. This avoids the race
+       * where a work row is built before the diff summary's
+       * `assistantMessageId` binding lands and the row gets cached with a
+       * stale `undefined` summary.
+       *
+       * `null` when no assistant message follows this group (e.g., the
+       * group is still the trailing entry of a turn that hasn't completed).
        */
-      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
+      turnId?: TurnId | null | undefined;
     }
   | {
       kind: "message";
@@ -148,22 +152,21 @@ export function deriveMessagesTimelineRows(input: {
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
-      // Look ahead for the next assistant message after this work group so
-      // we can attach its turn diff summary to the row. Verbose-mode
-      // per-entry inline diffs need this to fetch the right turn's
-      // checkpoint diff. Stop searching when we hit a user message — that
-      // means this work group spilled past a turn boundary and shouldn't
-      // borrow the next turn's diff.
-      let assistantTurnDiffSummary: TurnDiffSummary | undefined;
+      // Look ahead for the next assistant message after this work group and
+      // capture only its `turnId`. Verbose-mode rendering will resolve the
+      // live `TurnDiffSummary` (and the `inferredCheckpointTurnCount`) at
+      // render time, NOT here — that way the row never caches a stale
+      // `undefined` when the diff summary's binding to this assistant
+      // message lands later. Stop searching when we hit a user message:
+      // crossing a turn boundary means the next turn's diff isn't ours.
+      let turnId: TurnId | null = null;
       for (let lookahead = cursor; lookahead < input.timelineEntries.length; lookahead += 1) {
         const ahead = input.timelineEntries[lookahead];
         if (!ahead) break;
         if (ahead.kind !== "message") continue;
         if (ahead.message.role === "user") break;
         if (ahead.message.role === "assistant") {
-          assistantTurnDiffSummary = input.turnDiffSummaryByAssistantMessageId.get(
-            ahead.message.id,
-          );
+          turnId = ahead.message.turnId ?? null;
           break;
         }
       }
@@ -172,7 +175,7 @@ export function deriveMessagesTimelineRows(input: {
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         groupedEntries,
-        assistantTurnDiffSummary,
+        turnId,
       });
       index = cursor - 1;
       continue;
@@ -256,10 +259,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "work": {
       const bw = b as typeof a;
-      return (
-        a.groupedEntries === bw.groupedEntries &&
-        a.assistantTurnDiffSummary === bw.assistantTurnDiffSummary
-      );
+      return a.groupedEntries === bw.groupedEntries && a.turnId === bw.turnId;
     }
 
     case "message": {

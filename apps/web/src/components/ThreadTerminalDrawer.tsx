@@ -104,11 +104,11 @@ function normalizeComputedColor(value: string | null | undefined, fallback: stri
 
 function terminalThemeFromApp(mountElement?: HTMLElement | null): ITheme {
   const isDark = document.documentElement.classList.contains("dark");
-  const fallbackBackground = isDark ? "rgb(10, 10, 10)" : "rgb(10, 10, 10)";
-  const fallbackForeground = isDark ? "rgb(212, 212, 212)" : "rgb(212, 212, 212)";
+  const fallbackBackground = "rgb(10, 10, 10)";
+  const fallbackForeground = "rgb(212, 212, 212)";
   const drawerSurface =
-    mountElement?.closest(".thread-terminal-drawer") ??
-    document.querySelector(".thread-terminal-drawer") ??
+    mountElement?.closest(".thread-terminal-surface") ??
+    document.querySelector(".thread-terminal-surface") ??
     document.body;
   const drawerStyles = getComputedStyle(drawerSurface);
   const bodyStyles = getComputedStyle(document.body);
@@ -260,7 +260,7 @@ interface TerminalViewportProps {
   focusRequestId: number;
   autoFocus: boolean;
   resizeEpoch: number;
-  drawerHeight: number;
+  layoutRevision: number;
   keybindings: ResolvedKeybindingsConfig;
 }
 
@@ -277,7 +277,7 @@ export function TerminalViewport({
   focusRequestId,
   autoFocus,
   resizeEpoch,
-  drawerHeight,
+  layoutRevision,
   keybindings,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -789,7 +789,7 @@ export function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, environmentId, resizeEpoch, terminalId, threadId]);
+  }, [environmentId, layoutRevision, resizeEpoch, terminalId, threadId]);
   return (
     <div
       ref={containerRef}
@@ -799,6 +799,7 @@ export function TerminalViewport({
 }
 
 interface ThreadTerminalDrawerProps {
+  variant?: "drawer" | "main";
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
   cwd: string;
@@ -853,6 +854,7 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
 }
 
 export default function ThreadTerminalDrawer({
+  variant = "drawer",
   threadRef,
   threadId,
   cwd,
@@ -876,6 +878,7 @@ export default function ThreadTerminalDrawer({
   onAddTerminalContext,
   keybindings,
 }: ThreadTerminalDrawerProps) {
+  const isDrawerVariant = variant === "drawer";
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const [resizeEpoch, setResizeEpoch] = useState(0);
   const drawerHeightRef = useRef(drawerHeight);
@@ -1023,11 +1026,12 @@ export default function ThreadTerminalDrawer({
   }, []);
 
   useEffect(() => {
+    if (!isDrawerVariant) return;
     const clampedHeight = clampDrawerHeight(height);
     setDrawerHeight(clampedHeight);
     drawerHeightRef.current = clampedHeight;
     lastSyncedHeightRef.current = clampedHeight;
-  }, [height, threadId]);
+  }, [height, isDrawerVariant, threadId]);
 
   const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -1079,6 +1083,10 @@ export default function ThreadTerminalDrawer({
     }
 
     const onWindowResize = () => {
+      if (!isDrawerVariant) {
+        setResizeEpoch((value) => value + 1);
+        return;
+      }
       const clampedHeight = clampDrawerHeight(drawerHeightRef.current);
       const changed = clampedHeight !== drawerHeightRef.current;
       if (changed) {
@@ -1094,7 +1102,7 @@ export default function ThreadTerminalDrawer({
     return () => {
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [syncHeight, visible]);
+  }, [isDrawerVariant, syncHeight, visible]);
 
   useEffect(() => {
     if (!visible) {
@@ -1104,23 +1112,31 @@ export default function ThreadTerminalDrawer({
   }, [visible]);
 
   useEffect(() => {
+    if (!isDrawerVariant) return;
     return () => {
       syncHeight(drawerHeightRef.current);
     };
-  }, [syncHeight]);
+  }, [isDrawerVariant, syncHeight]);
+
+  const surfaceClassName = isDrawerVariant
+    ? "thread-terminal-surface thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-primary/35 bg-inset text-foreground shadow-[0_-12px_36px_color-mix(in_srgb,var(--theme-primary)_12%,transparent)]"
+    : "thread-terminal-surface relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border/50 bg-inset text-foreground";
+  const viewportLayoutRevision = isDrawerVariant ? drawerHeight : resizeEpoch;
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-primary/35 bg-inset text-foreground shadow-[0_-12px_36px_color-mix(in_srgb,var(--theme-primary)_12%,transparent)]"
-      style={{ height: `${drawerHeight}px` }}
+      className={surfaceClassName}
+      style={isDrawerVariant ? { height: `${drawerHeight}px` } : undefined}
     >
-      <div
-        className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
-      />
+      {isDrawerVariant && (
+        <div
+          className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+        />
+      )}
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
@@ -1192,7 +1208,7 @@ export default function ThreadTerminalDrawer({
                         focusRequestId={focusRequestId}
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
-                        drawerHeight={drawerHeight}
+                        layoutRevision={viewportLayoutRevision}
                         keybindings={keybindings}
                       />
                     </div>
@@ -1215,7 +1231,7 @@ export default function ThreadTerminalDrawer({
                   focusRequestId={focusRequestId}
                   autoFocus
                   resizeEpoch={resizeEpoch}
-                  drawerHeight={drawerHeight}
+                  layoutRevision={viewportLayoutRevision}
                   keybindings={keybindings}
                 />
               </div>

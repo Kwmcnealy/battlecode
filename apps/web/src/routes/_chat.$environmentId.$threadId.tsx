@@ -38,13 +38,14 @@ const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
   );
 };
 
+// `DiffWorkerPoolProvider` is mounted at the route root (around both ChatView
+// and the diff sidebar/sheet), so the side panel and the in-chat verbose
+// inline diffs share a single worker pool. Don't double-wrap here.
 const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
   return (
-    <DiffWorkerPoolProvider>
-      <Suspense fallback={<DiffLoadingFallback mode={props.mode} />}>
-        <DiffPanel mode={props.mode} />
-      </Suspense>
-    </DiffWorkerPoolProvider>
+    <Suspense fallback={<DiffLoadingFallback mode={props.mode} />}>
+      <DiffPanel mode={props.mode} />
+    </Suspense>
   );
 };
 
@@ -237,7 +238,7 @@ function ChatThreadRouteView() {
 
   if (!shouldUseDiffSheet) {
     return (
-      <>
+      <DiffWorkerPoolProvider>
         <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView
             environmentId={threadRef.environmentId}
@@ -253,12 +254,12 @@ function ChatThreadRouteView() {
           onOpenDiff={openDiff}
           renderDiffContent={shouldRenderDiffContent}
         />
-      </>
+      </DiffWorkerPoolProvider>
     );
   }
 
   return (
-    <>
+    <DiffWorkerPoolProvider>
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
         <ChatView
           environmentId={threadRef.environmentId}
@@ -270,7 +271,7 @@ function ChatThreadRouteView() {
       <RightPanelSheet open={diffOpen} onClose={closeDiff}>
         {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
       </RightPanelSheet>
-    </>
+    </DiffWorkerPoolProvider>
   );
 }
 

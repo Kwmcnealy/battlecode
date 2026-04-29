@@ -9,7 +9,10 @@ import {
   type PersistedUiState,
   persistState,
   reorderProjects,
+  sanitizePersistedThreadActiveViewByKey,
+  selectThreadActiveView,
   setProjectExpanded,
+  setThreadActiveView,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
@@ -22,6 +25,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    threadActiveViewByKey: {},
     ...overrides,
   };
 }
@@ -315,6 +319,10 @@ describe("uiStateStore pure functions", () => {
           "turn-2": false,
         },
       },
+      threadActiveViewByKey: {
+        [thread1]: "terminal",
+        [thread2]: "terminal",
+      },
     });
 
     const next = syncThreads(initialState, [{ key: thread1 }]);
@@ -326,6 +334,9 @@ describe("uiStateStore pure functions", () => {
       [thread1]: {
         "turn-1": false,
       },
+    });
+    expect(next.threadActiveViewByKey).toEqual({
+      [thread1]: "terminal",
     });
   });
 
@@ -371,12 +382,45 @@ describe("uiStateStore pure functions", () => {
           "turn-1": false,
         },
       },
+      threadActiveViewByKey: {
+        [thread1]: "terminal",
+      },
     });
 
     const next = clearThreadUi(initialState, thread1);
 
     expect(next.threadLastVisitedAtById).toEqual({});
     expect(next.threadChangedFilesExpandedById).toEqual({});
+    expect(next.threadActiveViewByKey).toEqual({});
+  });
+
+  it("defaults thread active view to chat", () => {
+    expect(selectThreadActiveView(makeUiState(), ThreadId.make("thread-1"))).toBe("chat");
+    expect(selectThreadActiveView(makeUiState(), null)).toBe("chat");
+  });
+
+  it("stores terminal as a per-thread active view override", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = makeUiState();
+
+    const next = setThreadActiveView(initialState, thread1, "terminal");
+
+    expect(selectThreadActiveView(next, thread1)).toBe("terminal");
+    expect(next.threadActiveViewByKey).toEqual({ [thread1]: "terminal" });
+  });
+
+  it("removes the per-thread active view override when switching back to chat", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = makeUiState({
+      threadActiveViewByKey: {
+        [thread1]: "terminal",
+      },
+    });
+
+    const next = setThreadActiveView(initialState, thread1, "chat");
+
+    expect(selectThreadActiveView(next, thread1)).toBe("chat");
+    expect(next.threadActiveViewByKey).toEqual({});
   });
 
   it("setThreadChangedFilesExpanded stores collapsed turns per thread", () => {
@@ -558,5 +602,38 @@ describe("uiStateStore persistence round-trip", () => {
     ]);
 
     expect(rehydrated.projectExpandedById[nextLogicalKey]).toBe(false);
+  });
+
+  it("persists only non-default thread active view state across restart", () => {
+    const thread1 = ThreadId.make("thread-view-1");
+    const thread2 = ThreadId.make("thread-view-2");
+    const state = makeUiState({
+      threadActiveViewByKey: {
+        [thread1]: "terminal",
+        [thread2]: "chat",
+      },
+    });
+
+    persistState(state);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted.threadActiveViewByKey).toEqual({
+      [thread1]: "terminal",
+    });
+  });
+
+  it("drops invalid and default persisted thread active view values", () => {
+    expect(
+      sanitizePersistedThreadActiveViewByKey({
+        "thread-good": "terminal",
+        "thread-chat": "chat",
+        "thread-bad": "files" as never,
+        "": "terminal",
+      }),
+    ).toEqual({
+      "thread-good": "terminal",
+    });
   });
 });

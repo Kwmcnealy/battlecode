@@ -72,6 +72,8 @@ function buildProps() {
     verboseChatMode: false,
     diffWordWrap: false,
     activeThreadId: null,
+    turnDiffSummaryByTurnId: new Map(),
+    inferredCheckpointTurnCountByTurnId: {},
     onIsAtEndChange: vi.fn(),
   };
 }
