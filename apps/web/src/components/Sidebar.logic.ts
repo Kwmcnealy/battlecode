@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -9,6 +10,7 @@ import {
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
+import { getProviderModelTooltip } from "./chat/providerIconUtils";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -538,4 +540,20 @@ export function sortProjectsForSidebar<
     if (byTimestamp !== 0) return byTimestamp;
     return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
   });
+}
+
+export interface SidebarThreadProviderBadge {
+  provider: ProviderKind;
+  tooltip: string;
+}
+
+export function resolveSidebarThreadProviderBadge(
+  summary: Pick<SidebarThreadSummary, "modelSelection">,
+  providers: ReadonlyArray<ServerProvider>,
+): SidebarThreadProviderBadge {
+  const { provider, model } = summary.modelSelection;
+  return {
+    provider,
+    tooltip: getProviderModelTooltip(provider, model, providers),
+  };
 }

@@ -14,13 +14,20 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarThreadProviderBadge,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./Sidebar.logic";
-import { EnvironmentId, OrchestrationLatestTurn, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  OrchestrationLatestTurn,
+  ProjectId,
+  type ServerProvider,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -960,5 +967,49 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));
+  });
+});
+
+describe("resolveSidebarThreadProviderBadge", () => {
+  const providers: ReadonlyArray<ServerProvider> = [
+    {
+      provider: "claudeAgent",
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { state: "authenticated" } as ServerProvider["auth"],
+      checkedAt: "2026-04-29T00:00:00.000Z",
+      models: [
+        {
+          slug: "claude-sonnet-4-6",
+          name: "Claude Sonnet 4.6",
+          isCustom: false,
+          capabilities: null,
+        },
+      ],
+      slashCommands: [],
+      skills: [],
+    },
+  ];
+
+  it("returns the thread's modelSelection provider plus a polished tooltip", () => {
+    const badge = resolveSidebarThreadProviderBadge(
+      {
+        modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+      },
+      providers,
+    );
+    expect(badge.provider).toBe("claudeAgent");
+    expect(badge.tooltip).toBe("Claude · Claude Sonnet 4.6");
+  });
+
+  it("falls back to the slug when the providers array is empty", () => {
+    const badge = resolveSidebarThreadProviderBadge(
+      { modelSelection: { provider: "codex", model: "gpt-5.4" } },
+      [],
+    );
+    expect(badge.provider).toBe("codex");
+    expect(badge.tooltip).toBe("Codex · gpt-5.4");
   });
 });
