@@ -16,6 +16,8 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
+import type { ThreadTerminalSurface } from "../terminalStateStore";
+import type { ThreadContentView } from "../uiStateStore";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
@@ -100,6 +102,38 @@ export function reconcileMountedTerminalThreadIds(input: {
   }
 
   return nextThreadIds;
+}
+
+export function resolveThreadContentView(input: {
+  requestedView: ThreadContentView;
+  hasActiveProject: boolean;
+}): ThreadContentView {
+  return input.requestedView === "terminal" && input.hasActiveProject ? "terminal" : "chat";
+}
+
+export function shouldMountThreadTerminalMainSurface(input: {
+  hasActiveProject: boolean;
+  terminalSurface: ThreadTerminalSurface;
+}): boolean {
+  return input.hasActiveProject && input.terminalSurface === "main";
+}
+
+export function shouldShowThreadTerminalMainSurface(input: {
+  mounted: boolean;
+  resolvedView: ThreadContentView;
+}): boolean {
+  return input.mounted && input.resolvedView === "terminal";
+}
+
+export function shouldRenderThreadTerminalDrawer(input: {
+  mountedThreadKey: string;
+  activeThreadKey: string | null;
+  activeThreadTerminalSurface: ThreadTerminalSurface;
+}): boolean {
+  return (
+    input.mountedThreadKey !== input.activeThreadKey ||
+    input.activeThreadTerminalSurface === "drawer"
+  );
 }
 
 export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {

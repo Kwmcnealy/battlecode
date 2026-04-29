@@ -9,13 +9,18 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
+import { ToggleGroup, Toggle as ToggleGroupItem } from "../ui/toggle-group";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import type { ThreadContentView } from "~/uiStateStore";
+
+const TERMINAL_UNAVAILABLE_MESSAGE =
+  "Terminal is unavailable until this thread has an active project.";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -30,6 +35,7 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
+  activeContentView: ThreadContentView;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
@@ -39,6 +45,7 @@ interface ChatHeaderProps {
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onContentViewChange: (view: ThreadContentView) => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
@@ -56,6 +63,7 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   terminalAvailable,
+  activeContentView,
   terminalOpen,
   terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
@@ -65,6 +73,7 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onContentViewChange,
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
@@ -72,6 +81,40 @@ export const ChatHeader = memo(function ChatHeader({
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+        <ToggleGroup
+          className="shrink-0 [-webkit-app-region:no-drag]"
+          variant="outline"
+          size="xs"
+          value={[activeContentView]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "chat" || next === "terminal") {
+              onContentViewChange(next);
+            }
+          }}
+        >
+          <ToggleGroupItem aria-label="Show chat view" value="chat">
+            <MessageSquareIcon className="size-3" />
+            <span className="hidden text-[11px] sm:inline">Chat</span>
+          </ToggleGroupItem>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ToggleGroupItem
+                  aria-label="Show terminal view"
+                  value="terminal"
+                  disabled={!terminalAvailable}
+                >
+                  <TerminalSquareIcon className="size-3" />
+                  <span className="hidden text-[11px] sm:inline">Terminal</span>
+                </ToggleGroupItem>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {terminalAvailable ? "Show terminal view" : TERMINAL_UNAVAILABLE_MESSAGE}
+            </TooltipPopup>
+          </Tooltip>
+        </ToggleGroup>
         <h2
           className="min-w-0 shrink truncate text-sm font-medium text-foreground"
           title={activeThreadTitle}
@@ -133,7 +176,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="bottom">
             {!terminalAvailable
-              ? "Terminal is unavailable until this thread has an active project."
+              ? TERMINAL_UNAVAILABLE_MESSAGE
               : terminalToggleShortcutLabel
                 ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
                 : "Toggle terminal drawer"}
