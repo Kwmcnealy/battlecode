@@ -13,6 +13,7 @@ import {
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
+import { VerboseModeToggle } from "./chat/VerboseModeToggle";
 import { Separator } from "./ui/separator";
 
 interface BranchToolbarProps {
@@ -93,6 +94,8 @@ export const BranchToolbar = memo(function BranchToolbar({
             <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
           </>
         )}
+        <VerboseModeToggle />
+        <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
         <BranchToolbarEnvModeSelector
           envLocked={envModeLocked}
           effectiveEnvMode={effectiveEnvMode}

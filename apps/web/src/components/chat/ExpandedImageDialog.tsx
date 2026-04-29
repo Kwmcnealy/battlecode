@@ -95,7 +95,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
         <img
           src={item.src}
           alt={item.name}
-          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border/70 bg-background object-contain shadow-2xl"
+          className="max-h-[86vh] max-w-[92vw] select-none border border-border/70 bg-background object-contain shadow-[var(--glow-panel)]"
           draggable={false}
         />
         <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground/80">

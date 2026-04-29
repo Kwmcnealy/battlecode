@@ -104,8 +104,8 @@ function normalizeComputedColor(value: string | null | undefined, fallback: stri
 
 function terminalThemeFromApp(mountElement?: HTMLElement | null): ITheme {
   const isDark = document.documentElement.classList.contains("dark");
-  const fallbackBackground = isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)";
-  const fallbackForeground = isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)";
+  const fallbackBackground = isDark ? "rgb(10, 10, 10)" : "rgb(10, 10, 10)";
+  const fallbackForeground = isDark ? "rgb(212, 212, 212)" : "rgb(212, 212, 212)";
   const drawerSurface =
     mountElement?.closest(".thread-terminal-drawer") ??
     document.querySelector(".thread-terminal-drawer") ??
@@ -125,54 +125,54 @@ function terminalThemeFromApp(mountElement?: HTMLElement | null): ITheme {
     return {
       background,
       foreground,
-      cursor: "rgb(180, 203, 255)",
-      selectionBackground: "rgba(180, 203, 255, 0.25)",
-      scrollbarSliderBackground: "rgba(255, 255, 255, 0.1)",
-      scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
-      scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.22)",
-      black: "rgb(24, 30, 38)",
-      red: "rgb(255, 122, 142)",
-      green: "rgb(134, 231, 149)",
-      yellow: "rgb(244, 205, 114)",
-      blue: "rgb(137, 190, 255)",
-      magenta: "rgb(208, 176, 255)",
-      cyan: "rgb(124, 232, 237)",
-      white: "rgb(210, 218, 230)",
-      brightBlack: "rgb(110, 120, 136)",
-      brightRed: "rgb(255, 168, 180)",
-      brightGreen: "rgb(176, 245, 186)",
-      brightYellow: "rgb(255, 224, 149)",
-      brightBlue: "rgb(174, 210, 255)",
-      brightMagenta: "rgb(229, 203, 255)",
-      brightCyan: "rgb(167, 244, 247)",
-      brightWhite: "rgb(244, 247, 252)",
+      cursor: "rgb(239, 68, 68)",
+      selectionBackground: "rgba(59, 130, 246, 0.24)",
+      scrollbarSliderBackground: "rgba(220, 38, 38, 0.2)",
+      scrollbarSliderHoverBackground: "rgba(220, 38, 38, 0.32)",
+      scrollbarSliderActiveBackground: "rgba(59, 130, 246, 0.34)",
+      black: "rgb(13, 13, 13)",
+      red: "rgb(248, 113, 113)",
+      green: "rgb(74, 222, 128)",
+      yellow: "rgb(250, 204, 21)",
+      blue: "rgb(96, 165, 250)",
+      magenta: "rgb(216, 180, 254)",
+      cyan: "rgb(34, 211, 238)",
+      white: "rgb(212, 212, 212)",
+      brightBlack: "rgb(115, 115, 115)",
+      brightRed: "rgb(252, 165, 165)",
+      brightGreen: "rgb(134, 239, 172)",
+      brightYellow: "rgb(253, 224, 71)",
+      brightBlue: "rgb(147, 197, 253)",
+      brightMagenta: "rgb(233, 213, 255)",
+      brightCyan: "rgb(103, 232, 249)",
+      brightWhite: "rgb(245, 245, 245)",
     };
   }
 
   return {
     background,
     foreground,
-    cursor: "rgb(38, 56, 78)",
-    selectionBackground: "rgba(37, 63, 99, 0.2)",
-    scrollbarSliderBackground: "rgba(0, 0, 0, 0.15)",
-    scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.25)",
-    scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.3)",
-    black: "rgb(44, 53, 66)",
-    red: "rgb(191, 70, 87)",
-    green: "rgb(60, 126, 86)",
-    yellow: "rgb(146, 112, 35)",
-    blue: "rgb(72, 102, 163)",
-    magenta: "rgb(132, 86, 149)",
-    cyan: "rgb(53, 127, 141)",
-    white: "rgb(210, 215, 223)",
-    brightBlack: "rgb(112, 123, 140)",
-    brightRed: "rgb(212, 95, 112)",
-    brightGreen: "rgb(85, 148, 111)",
-    brightYellow: "rgb(173, 133, 45)",
-    brightBlue: "rgb(91, 124, 194)",
-    brightMagenta: "rgb(153, 107, 172)",
-    brightCyan: "rgb(70, 149, 164)",
-    brightWhite: "rgb(236, 240, 246)",
+    cursor: "rgb(239, 68, 68)",
+    selectionBackground: "rgba(59, 130, 246, 0.24)",
+    scrollbarSliderBackground: "rgba(220, 38, 38, 0.2)",
+    scrollbarSliderHoverBackground: "rgba(220, 38, 38, 0.32)",
+    scrollbarSliderActiveBackground: "rgba(59, 130, 246, 0.34)",
+    black: "rgb(13, 13, 13)",
+    red: "rgb(248, 113, 113)",
+    green: "rgb(74, 222, 128)",
+    yellow: "rgb(250, 204, 21)",
+    blue: "rgb(96, 165, 250)",
+    magenta: "rgb(216, 180, 254)",
+    cyan: "rgb(34, 211, 238)",
+    white: "rgb(212, 212, 212)",
+    brightBlack: "rgb(115, 115, 115)",
+    brightRed: "rgb(252, 165, 165)",
+    brightGreen: "rgb(134, 239, 172)",
+    brightYellow: "rgb(253, 224, 71)",
+    brightBlue: "rgb(147, 197, 253)",
+    brightMagenta: "rgb(233, 213, 255)",
+    brightCyan: "rgb(103, 232, 249)",
+    brightWhite: "rgb(245, 245, 245)",
   };
 }
 
@@ -793,7 +793,7 @@ export function TerminalViewport({
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden rounded-[4px] bg-background"
+      className="relative h-full w-full overflow-hidden border border-border/40 bg-inset"
     />
   );
 }
@@ -1111,7 +1111,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-primary/35 bg-inset text-foreground shadow-[0_-12px_36px_color-mix(in_srgb,var(--theme-primary)_12%,transparent)]"
       style={{ height: `${drawerHeight}px` }}
     >
       <div
@@ -1124,7 +1124,7 @@ export default function ThreadTerminalDrawer({
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background/70">
+          <div className="pointer-events-auto inline-flex items-center overflow-hidden border border-border/80 bg-background/80 shadow-[var(--glow-panel)]">
             <TerminalActionButton
               className={`p-1 text-foreground/90 transition-colors ${
                 hasReachedSplitLimit
@@ -1223,7 +1223,7 @@ export default function ThreadTerminalDrawer({
           </div>
 
           {hasTerminalSidebar && (
-            <aside className="flex w-36 min-w-36 flex-col border border-border/70 bg-muted/10">
+            <aside className="flex w-36 min-w-36 flex-col border border-border/70 bg-card/70">
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">
                   <TerminalActionButton
@@ -1267,9 +1267,9 @@ export default function ThreadTerminalDrawer({
                       {showGroupHeaders && (
                         <button
                           type="button"
-                          className={`flex w-full items-center rounded px-1 py-0.5 text-[10px] uppercase tracking-[0.08em] ${
+                          className={`flex w-full items-center px-1 py-0.5 text-[10px] uppercase tracking-[0.08em] ${
                             isGroupActive
-                              ? "bg-accent/70 text-foreground"
+                              ? "bg-primary/16 text-foreground"
                               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                           }`}
                           onClick={() => onActiveTerminalChange(groupActiveTerminalId)}
@@ -1291,10 +1291,10 @@ export default function ThreadTerminalDrawer({
                           return (
                             <div
                               key={terminalId}
-                              className={`group flex items-center gap-1 rounded px-1 py-0.5 text-[11px] ${
+                              className={`group flex items-center gap-1 border-l px-1 py-0.5 text-[11px] ${
                                 isActive
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                  ? "border-primary bg-primary/16 text-foreground"
+                                  : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                               }`}
                             >
                               {showGroupHeaders && (
@@ -1317,7 +1317,7 @@ export default function ThreadTerminalDrawer({
                                     render={
                                       <button
                                         type="button"
-                                        className="inline-flex size-3.5 items-center justify-center rounded text-xs font-medium leading-none text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                                        className="inline-flex size-3.5 items-center justify-center text-xs font-medium leading-none text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
                                         onClick={() => onCloseTerminal(terminalId)}
                                         aria-label={closeTerminalLabel}
                                       />

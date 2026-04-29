@@ -391,7 +391,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     <TooltipProvider delay={0}>
       <div
         className={cn(
-          "relative flex h-screen max-h-96 w-screen max-w-100 overflow-hidden rounded-lg border bg-popover not-dark:bg-clip-padding text-popover-foreground shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+          "relative flex h-screen max-h-96 w-screen max-w-100 overflow-hidden border border-border/80 bg-popover text-popover-foreground shadow-[var(--glow-featured)] before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:bg-primary/80",
           isLocked ? "flex-col" : "flex-row",
         )}
       >
@@ -444,7 +444,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             <div className="border-b px-3 py-2">
               <ComboboxInput
                 ref={searchInputRef}
-                className="[&_input]:font-sans rounded-md"
+                className="[&_input]:font-sans"
                 inputClassName="border-0 shadow-none ring-0 focus-visible:ring-0"
                 placeholder="Search models..."
                 showTrigger={false}
