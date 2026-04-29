@@ -1,4 +1,8 @@
-import { type ProviderKind, PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import {
+  type ProviderKind,
+  PROVIDER_DISPLAY_NAMES,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { ClaudeAI, CursorIcon, Icon, OpenAI, OpenCodeIcon } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
@@ -49,4 +53,16 @@ export function getTriggerDisplayModelName(model: ModelEsque): string {
 export function getTriggerDisplayModelLabel(model: ModelEsque): string {
   const title = getTriggerDisplayModelName(model);
   return model.subProvider ? `${model.subProvider} · ${title}` : title;
+}
+
+export function getProviderModelTooltip(
+  provider: ProviderKind,
+  modelSlug: string,
+  providers: ReadonlyArray<ServerProvider>,
+): string {
+  const providerLabel = PROVIDER_DISPLAY_NAMES[provider];
+  const liveProvider = providers.find((candidate) => candidate.provider === provider);
+  const model = liveProvider?.models.find((candidate) => candidate.slug === modelSlug);
+  const modelLabel = model?.name ?? modelSlug;
+  return `${providerLabel} · ${modelLabel}`;
 }
