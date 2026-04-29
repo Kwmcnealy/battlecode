@@ -5,7 +5,11 @@ import type { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { memo, useMemo } from "react";
 import { Button } from "../ui/button";
 import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
-import { buildPatchCacheKey, resolveDiffThemeName } from "~/lib/diffRendering";
+import {
+  buildPatchCacheKey,
+  DIFF_PANEL_UNSAFE_CSS,
+  resolveDiffThemeName,
+} from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 
 /**
@@ -142,6 +146,7 @@ export const InlineFileDiffsList = memo(function InlineFileDiffsList(props: {
                 overflow: diffWordWrap ? "wrap" : "scroll",
                 theme: resolveDiffThemeName(resolvedTheme),
                 themeType: resolvedTheme,
+                unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
               }}
             />
           </div>
