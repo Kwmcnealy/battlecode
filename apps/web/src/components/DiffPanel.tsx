@@ -33,6 +33,7 @@ import {
   resolveDiffThemeName,
 } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
+import { deriveInlineDiffPatchByTurnId } from "../session-logic";
 import { selectProjectByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
@@ -160,6 +161,17 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     }
     return byTurnId;
   }, [activeThread?.activities]);
+  const inlineDiffPatchByTurnId = useMemo(
+    () => deriveInlineDiffPatchByTurnId(activeThread?.activities ?? []),
+    [activeThread?.activities],
+  );
+  const livePatchByTurnId = useMemo(() => {
+    const byTurnId = new Map(inlineDiffPatchByTurnId);
+    for (const [turnId, unifiedDiff] of liveUnifiedDiffByTurnId) {
+      byTurnId.set(turnId, unifiedDiff);
+    }
+    return byTurnId;
+  }, [inlineDiffPatchByTurnId, liveUnifiedDiffByTurnId]);
   const orderedTurnDiffSummaries = useMemo(
     () =>
       [...turnDiffSummaries].toSorted((left, right) => {
@@ -178,7 +190,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const selectedTurnId = diffSearch.diffTurnId ?? null;
   const selectedFilePath = selectedTurnId !== null ? (diffSearch.diffFilePath ?? null) : null;
   const selectedLivePatch =
-    selectedTurnId !== null ? liveUnifiedDiffByTurnId.get(selectedTurnId) : undefined;
+    selectedTurnId !== null ? livePatchByTurnId.get(selectedTurnId) : undefined;
   const selectedTurn =
     selectedTurnId === null
       ? undefined
@@ -247,6 +259,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const conversationCheckpointDiff = selectedTurn
     ? undefined
     : activeCheckpointDiffQuery.data?.diff;
+  const conversationLivePatch = useMemo(() => {
+    if (selectedTurnId !== null || livePatchByTurnId.size === 0) {
+      return undefined;
+    }
+    const patches = [...livePatchByTurnId.values()].filter((patch) => patch.trim().length > 0);
+    return patches.length > 0 ? patches.join("\n") : undefined;
+  }, [livePatchByTurnId, selectedTurnId]);
   const isLoadingCheckpointDiff = activeCheckpointDiffQuery.isLoading;
   const checkpointDiffError =
     activeCheckpointDiffQuery.error instanceof Error
@@ -258,7 +277,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const selectedPatch =
     selectedTurnId !== null
       ? (selectedTurnCheckpointDiff ?? selectedLivePatch)
-      : conversationCheckpointDiff;
+      : (conversationCheckpointDiff ?? conversationLivePatch);
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
@@ -395,6 +414,15 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     selectedChip?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
   }, [selectedTurn?.turnId, selectedTurnId]);
 
+  const liveOnlyTurnIds = useMemo(() => {
+    if (livePatchByTurnId.size === 0) {
+      return [];
+    }
+    const summarizedTurnIds = new Set(orderedTurnDiffSummaries.map((summary) => summary.turnId));
+    return [...livePatchByTurnId].flatMap(([turnId, patch]) =>
+      !summarizedTurnIds.has(turnId) && patch.trim().length > 0 ? [turnId] : [],
+    );
+  }, [livePatchByTurnId, orderedTurnDiffSummaries]);
   const headerRow = (
     <>
       <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
@@ -486,6 +514,30 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               </div>
             </button>
           ))}
+          {liveOnlyTurnIds.map((turnId) => (
+            <button
+              key={turnId}
+              type="button"
+              className="shrink-0 rounded-md"
+              onClick={() => selectTurn(turnId)}
+              title={turnId}
+              data-turn-chip-selected={turnId === selectedTurnId}
+            >
+              <div
+                className={cn(
+                  "rounded-md border px-2 py-1 text-left transition-colors",
+                  turnId === selectedTurnId
+                    ? "border-border bg-accent text-accent-foreground"
+                    : "border-border/70 bg-background/70 text-muted-foreground/80 hover:border-border hover:text-foreground/80",
+                )}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] leading-tight font-medium">Live turn</span>
+                  <span className="text-[9px] leading-tight opacity-70">streaming</span>
+                </div>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
@@ -534,7 +586,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
-      ) : orderedTurnDiffSummaries.length === 0 && !selectedLivePatch ? (
+      ) : orderedTurnDiffSummaries.length === 0 && !selectedPatch ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           No completed turns yet.
         </div>

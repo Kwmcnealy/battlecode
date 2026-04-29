@@ -13,6 +13,7 @@ import {
   deriveActivePlanState,
   derivePendingApprovals,
   derivePendingUserInputs,
+  deriveInlineDiffPatchByTurnId,
   deriveTimelineEntries,
   deriveWorkLogEntries,
   findLatestProposedPlan,
@@ -1002,6 +1003,59 @@ describe("deriveWorkLogEntries", () => {
     expect(entries[0]?.inlineDiffPatch).toContain("src/first.ts");
     expect(entries[0]?.inlineDiffPatch).toContain("src/second.ts");
     expect(entries[0]?.itemType).toBe("file_change");
+  });
+
+  it("builds turn-level inline diff patches from file-change rows", () => {
+    const turnId = TurnId.make("turn-live");
+    const otherTurnId = TurnId.make("turn-other");
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-update",
+        turnId,
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            toolCallId: "tool-file-1",
+            changes: [{ path: "src/first.ts", diff: "@@ -1,1 +1,2 @@\n old\n+first" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-complete",
+        turnId,
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            toolCallId: "tool-file-2",
+            changes: [{ path: "src/second.ts", diff: "@@ -1,1 +1,2 @@\n old\n+second" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "other-turn",
+        turnId: otherTurnId,
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            changes: [{ path: "src/other.ts", diff: "@@ -1,1 +1,2 @@\n old\n+other" }],
+          },
+        },
+      }),
+    ];
+
+    const patchByTurnId = deriveInlineDiffPatchByTurnId(activities);
+    expect(patchByTurnId.get(turnId)).toContain("src/first.ts");
+    expect(patchByTurnId.get(turnId)).toContain("src/second.ts");
+    expect(patchByTurnId.get(otherTurnId)).toContain("src/other.ts");
   });
 
   it("drops duplicated tool detail when it only repeats the title", () => {

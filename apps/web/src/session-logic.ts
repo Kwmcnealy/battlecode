@@ -478,15 +478,54 @@ export function deriveWorkLogEntries(
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter((activity) => activity.kind !== "tool.started")
-    .filter((activity) => activity.kind !== "task.started")
-    .filter((activity) => activity.kind !== "context-window.updated")
-    .filter((activity) => activity.kind !== "turn.diff.updated")
-    .filter((activity) => activity.summary !== "Checkpoint captured")
-    .filter((activity) => !isPlanBoundaryToolActivity(activity))
+    .filter(isWorkLogActivity)
     .map(toDerivedWorkLogEntry);
   return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
+  );
+}
+
+export function deriveInlineDiffPatchByTurnId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyMap<TurnId, string> {
+  const entriesByTurnId = new Map<TurnId, DerivedWorkLogEntry[]>();
+  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+
+  for (const activity of ordered) {
+    if (!activity.turnId || !isWorkLogActivity(activity)) {
+      continue;
+    }
+    const entry = toDerivedWorkLogEntry(activity);
+    if (!entry.inlineDiffPatch) {
+      continue;
+    }
+    const entries = entriesByTurnId.get(activity.turnId) ?? [];
+    entries.push(entry);
+    entriesByTurnId.set(activity.turnId, entries);
+  }
+
+  const patchByTurnId = new Map<TurnId, string>();
+  for (const [turnId, entries] of entriesByTurnId) {
+    const patch = collapseDerivedWorkLogEntries(entries).reduce<string | undefined>(
+      (mergedPatch, entry) => mergeInlineDiffPatches(mergedPatch, entry.inlineDiffPatch),
+      undefined,
+    );
+    if (patch) {
+      patchByTurnId.set(turnId, patch);
+    }
+  }
+
+  return patchByTurnId;
+}
+
+function isWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  return (
+    activity.kind !== "tool.started" &&
+    activity.kind !== "task.started" &&
+    activity.kind !== "context-window.updated" &&
+    activity.kind !== "turn.diff.updated" &&
+    activity.summary !== "Checkpoint captured" &&
+    !isPlanBoundaryToolActivity(activity)
   );
 }
 
