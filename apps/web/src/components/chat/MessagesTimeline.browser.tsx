@@ -69,6 +69,9 @@ function buildProps() {
     resolvedTheme: "dark" as const,
     timestampFormat: "24-hour" as const,
     workspaceRoot: undefined,
+    verboseChatMode: false,
+    diffWordWrap: false,
+    activeThreadId: null,
     onIsAtEndChange: vi.fn(),
   };
 }

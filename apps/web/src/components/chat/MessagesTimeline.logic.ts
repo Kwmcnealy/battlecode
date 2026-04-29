@@ -17,6 +17,18 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       groupedEntries: WorkLogEntry[];
+      /**
+       * The diff summary of the assistant turn that this work group precedes,
+       * captured at row-construction time by looking ahead through the
+       * timeline entries. Verbose-mode rendering uses this to fetch and slice
+       * inline per-file diffs for individual file-edit work entries — so
+       * each "Edit src/foo.ts" row can show that file's diff right where the
+       * edit happened, sharing the same fetch/cache as the bottom panel.
+       *
+       * Undefined when the next assistant message has no checkpoint diff yet
+       * (turn still streaming) or when no assistant message follows.
+       */
+      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
     }
   | {
       kind: "message";
@@ -136,11 +148,31 @@ export function deriveMessagesTimelineRows(input: {
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
+      // Look ahead for the next assistant message after this work group so
+      // we can attach its turn diff summary to the row. Verbose-mode
+      // per-entry inline diffs need this to fetch the right turn's
+      // checkpoint diff. Stop searching when we hit a user message — that
+      // means this work group spilled past a turn boundary and shouldn't
+      // borrow the next turn's diff.
+      let assistantTurnDiffSummary: TurnDiffSummary | undefined;
+      for (let lookahead = cursor; lookahead < input.timelineEntries.length; lookahead += 1) {
+        const ahead = input.timelineEntries[lookahead];
+        if (!ahead) break;
+        if (ahead.kind !== "message") continue;
+        if (ahead.message.role === "user") break;
+        if (ahead.message.role === "assistant") {
+          assistantTurnDiffSummary = input.turnDiffSummaryByAssistantMessageId.get(
+            ahead.message.id,
+          );
+          break;
+        }
+      }
       nextRows.push({
         kind: "work",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         groupedEntries,
+        assistantTurnDiffSummary,
       });
       index = cursor - 1;
       continue;
@@ -222,8 +254,13 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
-    case "work":
-      return a.groupedEntries === (b as typeof a).groupedEntries;
+    case "work": {
+      const bw = b as typeof a;
+      return (
+        a.groupedEntries === bw.groupedEntries &&
+        a.assistantTurnDiffSummary === bw.assistantTurnDiffSummary
+      );
+    }
 
     case "message": {
       const bm = b as typeof a;

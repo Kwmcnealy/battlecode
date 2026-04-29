@@ -617,6 +617,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const autoOpenPlanSidebar = settings.autoOpenPlanSidebar;
+  const verboseChatMode = settings.verboseChatMode;
+  const diffWordWrap = settings.diffWordWrap;
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
@@ -3311,6 +3313,9 @@ export default function ChatView(props: ChatViewProps) {
               resolvedTheme={resolvedTheme}
               timestampFormat={timestampFormat}
               workspaceRoot={activeWorkspaceRoot}
+              verboseChatMode={verboseChatMode}
+              diffWordWrap={diffWordWrap}
+              activeThreadId={activeThread.id}
               onIsAtEndChange={onIsAtEndChange}
             />
 

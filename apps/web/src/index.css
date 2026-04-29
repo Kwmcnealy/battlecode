@@ -1004,3 +1004,49 @@ label:has(> select#reasoning-effort) select {
     backdrop-filter: blur(2px);
   }
 }
+
+/*
+ * Verbose chat mode — animations for the expanded bash/file-edit cards and
+ * the talkative working indicator. All gated on (prefers-reduced-motion:
+ * no-preference) so reduced-motion users see static rendering.
+ */
+@keyframes verbose-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes verbose-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .verbose-card-enter {
+    animation: verbose-card-enter 160ms ease-out both;
+  }
+  .verbose-dot {
+    animation: verbose-pulse 1100ms ease-in-out infinite;
+  }
+  .verbose-dot.verbose-dot-1 {
+    animation-delay: 0ms;
+  }
+  .verbose-dot.verbose-dot-2 {
+    animation-delay: 180ms;
+  }
+  .verbose-dot.verbose-dot-3 {
+    animation-delay: 360ms;
+  }
+}

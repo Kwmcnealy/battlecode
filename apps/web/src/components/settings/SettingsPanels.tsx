@@ -491,6 +491,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
+      ...(settings.verboseChatMode !== DEFAULT_UNIFIED_SETTINGS.verboseChatMode
+        ? ["Verbose chat mode"]
+        : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
@@ -505,6 +508,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
       settings.timestampFormat,
+      settings.verboseChatMode,
       theme,
     ],
   );
@@ -919,6 +923,30 @@ export function GeneralSettingsPanel() {
               checked={settings.diffWordWrap}
               onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
               aria-label="Wrap diff lines by default"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Verbose chat mode"
+          description="Expand bash commands, show all changed files inline, and liven the working indicator. Same toggle as the sparkles button in the composer toolbar."
+          resetAction={
+            settings.verboseChatMode !== DEFAULT_UNIFIED_SETTINGS.verboseChatMode ? (
+              <SettingResetButton
+                label="verbose chat mode"
+                onClick={() =>
+                  updateSettings({
+                    verboseChatMode: DEFAULT_UNIFIED_SETTINGS.verboseChatMode,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.verboseChatMode}
+              onCheckedChange={(checked) => updateSettings({ verboseChatMode: Boolean(checked) })}
+              aria-label="Verbose chat mode"
             />
           }
         />

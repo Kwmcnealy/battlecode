@@ -1,4 +1,4 @@
-import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
+import { type EnvironmentId, type MessageId, type ThreadId, type TurnId } from "@t3tools/contracts";
 import {
   createContext,
   memo,
@@ -45,6 +45,12 @@ import {
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import {
+  filterParsedFilesByPaths,
+  InlineFileDiffsList,
+  useParsedTurnDiff,
+} from "./VerboseInlineFileDiffs";
+import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
@@ -81,6 +87,27 @@ interface TimelineRowSharedState {
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
+  /**
+   * Active thread id for the timeline. Used by verbose-mode inline diff
+   * rendering to fetch checkpoint diffs via `checkpointDiffQueryOptions`.
+   * `null` while the route is resolving or in draft mode (no inline diffs
+   * are fetched in that case).
+   */
+  activeThreadId: ThreadId | null;
+  /**
+   * When true, work entries render as expanded cards (full command, all
+   * changed files, tone-coloured borders), the work-log overflow cap is
+   * removed, and the changed-files section renders real inline diff hunks
+   * (via `@pierre/diffs`) instead of just a file tree. Driven by
+   * ClientSettings.verboseChatMode.
+   */
+  verboseChatMode: boolean;
+  /**
+   * Mirror of ClientSettings.diffWordWrap. Threaded into the inline diff
+   * renderer so it matches the user's preferred wrap behaviour from the
+   * full diff panel.
+   */
+  diffWordWrap: boolean;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -113,6 +140,9 @@ interface MessagesTimelineProps {
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  verboseChatMode: boolean;
+  diffWordWrap: boolean;
+  activeThreadId: ThreadId | null;
   onIsAtEndChange: (isAtEnd: boolean) => void;
 }
 
@@ -141,6 +171,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  verboseChatMode,
+  diffWordWrap,
+  activeThreadId,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
   const rawRows = useMemo(
@@ -204,6 +237,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
+      activeThreadId,
+      verboseChatMode,
+      diffWordWrap,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -220,6 +256,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       resolvedTheme,
       workspaceRoot,
       activeThreadEnvironmentId,
+      activeThreadId,
+      verboseChatMode,
+      diffWordWrap,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -295,7 +334,12 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
-      {row.kind === "work" && <WorkGroupSection groupedEntries={row.groupedEntries} />}
+      {row.kind === "work" && (
+        <WorkGroupSection
+          groupedEntries={row.groupedEntries}
+          assistantTurnDiffSummary={row.assistantTurnDiffSummary}
+        />
+      )}
 
       {row.kind === "message" &&
         row.message.role === "user" &&
@@ -460,16 +504,34 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
 
       {row.kind === "working" && (
         <div className="py-0.5 pl-1.5">
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70">
+          <div
+            className={cn(
+              "flex items-center gap-2 pt-1",
+              ctx.verboseChatMode
+                ? "text-xs font-medium text-info/85"
+                : "text-[11px] text-muted-foreground/70",
+            )}
+          >
             <span className="inline-flex items-center gap-[3px]">
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
+              {ctx.verboseChatMode ? (
+                <>
+                  <span className="verbose-dot verbose-dot-1 h-1.5 w-1.5 rounded-full bg-info/70" />
+                  <span className="verbose-dot verbose-dot-2 h-1.5 w-1.5 rounded-full bg-info/70" />
+                  <span className="verbose-dot verbose-dot-3 h-1.5 w-1.5 rounded-full bg-info/70" />
+                </>
+              ) : (
+                <>
+                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
+                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
+                  <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
+                </>
+              )}
             </span>
             <span>
               {row.createdAt ? (
                 <>
                   Working for <WorkingTimer createdAt={row.createdAt} />
+                  {ctx.verboseChatMode ? <span className="ml-1 opacity-80">· live</span> : null}
                 </>
               ) : (
                 "Working..."
@@ -525,22 +587,33 @@ function LiveMessageMeta({
 // ---------------------------------------------------------------------------
 
 /** Owns its own expand/collapse state so toggling re-renders only this row.
- *  State resets on unmount which is fine — work groups start collapsed. */
+ *  State resets on unmount which is fine — work groups start collapsed.
+ *
+ *  In verbose mode, the work-log overflow cap is lifted (every entry is
+ *  visible without a "Show N more" button) and each row renders as the
+ *  expanded VerboseWorkEntryRow card. The verbose render path is split
+ *  into a child component (`VerboseWorkEntryList`) so the per-turn diff
+ *  fetch only runs when verbose is on — keeping `useQuery` out of the
+ *  non-verbose path means tests + non-verbose usage need no
+ *  QueryClientProvider for the work-log subtree. */
 const WorkGroupSection = memo(function WorkGroupSection({
   groupedEntries,
+  assistantTurnDiffSummary,
 }: {
   groupedEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
+  assistantTurnDiffSummary: TurnDiffSummary | undefined;
 }) {
-  const { workspaceRoot } = use(TimelineRowCtx);
+  const { workspaceRoot, verboseChatMode } = use(TimelineRowCtx);
   const [isExpanded, setIsExpanded] = useState(false);
-  const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+  const overflowGated = !verboseChatMode;
+  const hasOverflow = overflowGated && groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
   const visibleEntries =
     hasOverflow && !isExpanded
       ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
       : groupedEntries;
   const hiddenCount = groupedEntries.length - visibleEntries.length;
   const onlyToolEntries = groupedEntries.every((entry) => entry.tone === "tool");
-  const showHeader = hasOverflow || !onlyToolEntries;
+  const showHeader = hasOverflow || !onlyToolEntries || verboseChatMode;
   const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
 
   return (
@@ -561,21 +634,97 @@ const WorkGroupSection = memo(function WorkGroupSection({
           )}
         </div>
       )}
-      <div className="space-y-0.5">
-        {visibleEntries.map((workEntry) => (
-          <SimpleWorkEntryRow
-            key={`work-row:${workEntry.id}`}
-            workEntry={workEntry}
-            workspaceRoot={workspaceRoot}
+      <div className={verboseChatMode ? "space-y-1.5" : "space-y-0.5"}>
+        {verboseChatMode ? (
+          <VerboseWorkEntryList
+            visibleEntries={visibleEntries}
+            assistantTurnDiffSummary={assistantTurnDiffSummary}
           />
-        ))}
+        ) : (
+          visibleEntries.map((workEntry) => (
+            <SimpleWorkEntryRow
+              key={`work-row:${workEntry.id}`}
+              workEntry={workEntry}
+              workspaceRoot={workspaceRoot}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 });
 
+/**
+ * Verbose-only render path for the visible work entries. Only mounts in
+ * verbose mode, so the per-turn `useParsedTurnDiff` hook (and therefore
+ * `useQuery`) only ever runs when verbose is on — non-verbose renders
+ * (including most of the test suite) don't need a QueryClientProvider in
+ * the work-log subtree.
+ *
+ * Single fetch per turn here, fanned out via prop to each
+ * VerboseWorkEntryRow which slices the parsed files by its own
+ * `changedFiles` to render inline diffs in place.
+ */
+const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
+  visibleEntries,
+  assistantTurnDiffSummary,
+}: {
+  visibleEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
+  assistantTurnDiffSummary: TurnDiffSummary | undefined;
+}) {
+  const {
+    workspaceRoot,
+    diffWordWrap,
+    resolvedTheme,
+    activeThreadEnvironmentId,
+    activeThreadId,
+    onOpenTurnDiff,
+  } = use(TimelineRowCtx);
+
+  const groupHasFileEdits = useMemo(
+    () => visibleEntries.some((entry) => (entry.changedFiles?.length ?? 0) > 0),
+    [visibleEntries],
+  );
+  const shouldFetchTurnDiff =
+    groupHasFileEdits && activeThreadId !== null && assistantTurnDiffSummary !== undefined;
+
+  const parsedTurnDiff = useParsedTurnDiff({
+    environmentId: shouldFetchTurnDiff ? activeThreadEnvironmentId : null,
+    threadId: shouldFetchTurnDiff ? activeThreadId : null,
+    turnId: shouldFetchTurnDiff ? (assistantTurnDiffSummary?.turnId ?? null) : null,
+    checkpointTurnCount: shouldFetchTurnDiff
+      ? assistantTurnDiffSummary?.checkpointTurnCount
+      : undefined,
+  });
+  const parsedTurnDiffFiles = shouldFetchTurnDiff ? parsedTurnDiff.files : null;
+  const turnIdForDiff = assistantTurnDiffSummary?.turnId ?? null;
+
+  return (
+    <>
+      {visibleEntries.map((workEntry) => (
+        <VerboseWorkEntryRow
+          key={`work-row:${workEntry.id}`}
+          workEntry={workEntry}
+          workspaceRoot={workspaceRoot}
+          parsedTurnDiffFiles={parsedTurnDiffFiles}
+          turnIdForDiff={turnIdForDiff}
+          resolvedTheme={resolvedTheme}
+          diffWordWrap={diffWordWrap}
+          onOpenTurnDiff={onOpenTurnDiff}
+        />
+      ))}
+    </>
+  );
+});
+
 /** Subscribes directly to the UI state store for expand/collapse state,
- *  so toggling re-renders only this component — not the entire list. */
+ *  so toggling re-renders only this component — not the entire list.
+ *
+ *  In verbose chat mode, the actual inline diff hunks are rendered per
+ *  work entry (in VerboseWorkEntryRow) right where each edit happened.
+ *  This summary section keeps the file tree as a turn-level overview /
+ *  navigation aid — clicking a file routes to the side DiffPanel for the
+ *  full virtualized view. */
 const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection({
   turnSummary,
   routeThreadKey,
@@ -1049,6 +1198,178 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+    </div>
+  );
+});
+
+/**
+ * Tone-coloured left border used by VerboseWorkEntryRow. Discriminates by
+ * requestKind / itemType so bash, file edits, file reads, and errors each
+ * get a distinct accent without introducing new theme tokens.
+ */
+function workEntryAccentBorderClass(workEntry: TimelineWorkEntry): string {
+  if (workEntry.tone === "error") return "border-l-rose-400/60";
+  if (
+    workEntry.requestKind === "command" ||
+    workEntry.itemType === "command_execution" ||
+    workEntry.command
+  ) {
+    return "border-l-emerald-400/55";
+  }
+  if (
+    workEntry.requestKind === "file-change" ||
+    workEntry.itemType === "file_change" ||
+    (workEntry.changedFiles?.length ?? 0) > 0
+  ) {
+    return "border-l-amber-400/55";
+  }
+  if (workEntry.requestKind === "file-read" || workEntry.itemType === "image_view") {
+    return "border-l-sky-400/55";
+  }
+  if (workEntry.tone === "thinking") return "border-l-violet-400/55";
+  return "border-l-muted-foreground/40";
+}
+
+/**
+ * Verbose-mode counterpart to SimpleWorkEntryRow.
+ *
+ * Renders each work entry as an expanded card: tone-coloured left border
+ * (terminal-green for bash, amber for file edits, sky-blue for file reads,
+ * violet for reasoning, rose for errors), heading + tool-name pill, full
+ * monospace command text without truncation, the complete list of
+ * changed-file chips, AND — for entries that touch files — the actual
+ * inline diff hunks for those files using the same `<FileDiff>` component
+ * that the side DiffPanel uses. The parsed turn diff is fetched once by
+ * `WorkGroupSection` and threaded in as `parsedTurnDiffFiles`; this row
+ * just slices it to its own changedFiles via `filterParsedFilesByPaths`.
+ *
+ * Active when ClientSettings.verboseChatMode is true. Animated entry on
+ * mount via the verbose-card-enter keyframe (gated on prefers-reduced-motion).
+ */
+const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  workspaceRoot: string | undefined;
+  /**
+   * Parsed FileDiffMetadata array for the entry's containing turn, fetched
+   * once at the WorkGroupSection level. `null` when verbose mode is off,
+   * when the work group has no file-edit entries, or when the turn diff
+   * is not (yet) available. The row filters this array down to its own
+   * `changedFiles` to render inline diffs in place.
+   */
+  parsedTurnDiffFiles: ReadonlyArray<FileDiffMetadata> | null;
+  turnIdForDiff: TurnId | null;
+  resolvedTheme: "light" | "dark";
+  diffWordWrap: boolean;
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+}) {
+  const {
+    workEntry,
+    workspaceRoot,
+    parsedTurnDiffFiles,
+    turnIdForDiff,
+    resolvedTheme,
+    diffWordWrap,
+    onOpenTurnDiff,
+  } = props;
+  const iconConfig = workToneIcon(workEntry.tone);
+  const EntryIcon = workEntryIcon(workEntry);
+  const heading = toolWorkEntryHeading(workEntry);
+  const rawPreview = workEntryPreview(workEntry, workspaceRoot);
+  const preview =
+    rawPreview &&
+    normalizeCompactToolLabel(rawPreview).toLowerCase() ===
+      normalizeCompactToolLabel(heading).toLowerCase()
+      ? null
+      : rawPreview;
+  const rawCommand = workEntryRawCommand(workEntry) ?? workEntry.command ?? null;
+  const detail = workEntry.detail ?? null;
+  const accentBorder = workEntryAccentBorderClass(workEntry);
+
+  // Slice the per-turn parsed diff down to just the files this entry
+  // touched. For a work entry that says "Edit src/foo.ts" we'll match a
+  // single file; for a multi-file edit we'll match all of them. Empty when
+  // the turn's diff isn't loaded yet (e.g. during streaming) or when the
+  // entry didn't touch files. Memo deps reference `workEntry.changedFiles`
+  // directly (stable identity from the entry) rather than a defaulted
+  // local — defaulting to `[]` would re-create the array each render and
+  // bust the memo.
+  const changedFilesForRender = workEntry.changedFiles;
+  const inlineDiffFiles = useMemo(
+    () =>
+      parsedTurnDiffFiles
+        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender)
+        : [],
+    [parsedTurnDiffFiles, changedFilesForRender],
+  );
+
+  return (
+    <div
+      className={cn("verbose-card-enter border-l-2 bg-background/60 px-2.5 py-1.5", accentBorder)}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
+        >
+          <EntryIcon className="size-3.5" />
+        </span>
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs leading-5 text-foreground/90",
+            workToneClass(workEntry.tone),
+          )}
+        >
+          <span className="font-medium text-foreground/95">{heading}</span>
+          {preview && !rawCommand ? (
+            <span className="text-muted-foreground/65"> — {preview}</span>
+          ) : null}
+        </p>
+      </div>
+
+      {rawCommand ? (
+        <pre
+          className={cn(
+            "mt-1.5 ml-7 max-h-48 overflow-x-auto overflow-y-auto rounded-none border border-border/40 bg-[var(--cg-inset)] px-2 py-1.5",
+            "whitespace-pre-wrap break-all font-mono text-[11px] leading-[1.45] text-foreground/85",
+          )}
+        >
+          {rawCommand}
+        </pre>
+      ) : null}
+
+      {detail && detail !== rawCommand ? (
+        <p className="mt-1 ml-7 whitespace-pre-wrap break-words text-[11px] leading-[1.45] text-muted-foreground/75">
+          {detail}
+        </p>
+      ) : null}
+
+      {changedFilesForRender && changedFilesForRender.length > 0 ? (
+        <div className="mt-1.5 ml-7 flex flex-wrap gap-1">
+          {changedFilesForRender.map((filePath) => {
+            const displayPath = formatWorkspaceRelativePath(filePath, workspaceRoot);
+            return (
+              <span
+                key={`${workEntry.id}:${filePath}`}
+                className="border border-border/60 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-foreground/80"
+                title={displayPath}
+              >
+                {displayPath}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {inlineDiffFiles.length > 0 && turnIdForDiff !== null ? (
+        <div className="ml-7">
+          <InlineFileDiffsList
+            files={inlineDiffFiles}
+            resolvedTheme={resolvedTheme}
+            diffWordWrap={diffWordWrap}
+            turnId={turnIdForDiff}
+            onOpenTurnDiff={onOpenTurnDiff}
+          />
+        </div>
+      ) : null}
     </div>
   );
 });
