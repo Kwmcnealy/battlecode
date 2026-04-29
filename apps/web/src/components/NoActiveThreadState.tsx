@@ -29,7 +29,7 @@ export function NoActiveThreadState() {
           )}
         </header>
 
-        <Empty className="flex-1">
+        <Empty className="crimson-conversation-canvas flex-1">
           <div className="relative w-full max-w-lg border border-border bg-card/80 px-8 py-12 shadow-[var(--glow-standard)]">
             <span className="pointer-events-none absolute -left-px -top-px size-3 border-l-2 border-t-2 border-primary" />
             <span className="pointer-events-none absolute -bottom-px -right-px size-3 border-b-2 border-r-2 border-info" />

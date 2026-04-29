@@ -382,6 +382,27 @@ body::after {
     40px 70px;
 }
 
+.crimson-conversation-canvas {
+  position: relative;
+  isolation: isolate;
+}
+
+.crimson-conversation-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.42;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 11px,
+    color-mix(in srgb, var(--foreground) 4%, transparent) 11px 12px,
+    transparent 12px 24px
+  );
+  mask-image: linear-gradient(180deg, transparent 0%, black 8%, black 88%, transparent 100%);
+}
+
 pre,
 code {
   font-family: var(--font-mono);
