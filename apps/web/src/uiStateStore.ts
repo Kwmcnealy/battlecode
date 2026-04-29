@@ -20,6 +20,7 @@ export interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  threadActiveViewByKey?: Record<string, ThreadContentView>;
 }
 
 export interface UiProjectState {
@@ -30,9 +31,12 @@ export interface UiProjectState {
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  threadActiveViewByKey: Record<string, ThreadContentView>;
 }
 
 export interface UiState extends UiProjectState, UiThreadState {}
+
+export type ThreadContentView = "chat" | "terminal";
 
 export interface SyncProjectInput {
   /** Physical project key (env + cwd). Used for manual sort order. */
@@ -52,6 +56,7 @@ const initialState: UiState = {
   projectOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  threadActiveViewByKey: {},
 };
 
 const persistedCollapsedProjectCwds = new Set<string>();
@@ -91,6 +96,7 @@ function readPersistedState(): UiState {
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
+      threadActiveViewByKey: sanitizePersistedThreadActiveViewByKey(parsed.threadActiveViewByKey),
     };
   } catch {
     return initialState;
@@ -122,6 +128,25 @@ function sanitizePersistedThreadChangedFilesExpanded(
     }
   }
 
+  return nextState;
+}
+
+export function sanitizePersistedThreadActiveViewByKey(
+  value: PersistedUiState["threadActiveViewByKey"],
+): Record<string, ThreadContentView> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const nextState: Record<string, ThreadContentView> = {};
+  for (const [threadId, view] of Object.entries(value)) {
+    if (!threadId) {
+      continue;
+    }
+    if (view === "terminal") {
+      nextState[threadId] = view;
+    }
+  }
   return nextState;
 }
 
@@ -173,6 +198,9 @@ export function persistState(state: UiState): void {
         return Object.keys(nextTurns).length > 0 ? [[threadId, nextTurns]] : [];
       }),
     );
+    const threadActiveViewByKey = Object.fromEntries(
+      Object.entries(state.threadActiveViewByKey).filter(([, view]) => view === "terminal"),
+    );
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
@@ -180,6 +208,7 @@ export function persistState(state: UiState): void {
         expandedProjectCwds,
         projectOrderCwds,
         threadChangedFilesExpandedById,
+        threadActiveViewByKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -404,12 +433,18 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       retainedThreadIds.has(threadId),
     ),
   );
+  const nextThreadActiveViewByKey = Object.fromEntries(
+    Object.entries(state.threadActiveViewByKey).filter(([threadId]) =>
+      retainedThreadIds.has(threadId),
+    ),
+  );
   if (
     recordsEqual(state.threadLastVisitedAtById, nextThreadLastVisitedAtById) &&
     nestedBooleanRecordsEqual(
       state.threadChangedFilesExpandedById,
       nextThreadChangedFilesExpandedById,
-    )
+    ) &&
+    recordsEqual(state.threadActiveViewByKey, nextThreadActiveViewByKey)
   ) {
     return state;
   }
@@ -417,6 +452,7 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
+    threadActiveViewByKey: nextThreadActiveViewByKey,
   };
 }
 
@@ -469,17 +505,65 @@ export function markThreadUnread(
 export function clearThreadUi(state: UiState, threadId: string): UiState {
   const hasVisitedState = threadId in state.threadLastVisitedAtById;
   const hasChangedFilesState = threadId in state.threadChangedFilesExpandedById;
-  if (!hasVisitedState && !hasChangedFilesState) {
+  const hasActiveViewState = threadId in state.threadActiveViewByKey;
+  if (!hasVisitedState && !hasChangedFilesState && !hasActiveViewState) {
     return state;
   }
   const nextThreadLastVisitedAtById = { ...state.threadLastVisitedAtById };
   const nextThreadChangedFilesExpandedById = { ...state.threadChangedFilesExpandedById };
+  const nextThreadActiveViewByKey = { ...state.threadActiveViewByKey };
   delete nextThreadLastVisitedAtById[threadId];
   delete nextThreadChangedFilesExpandedById[threadId];
+  delete nextThreadActiveViewByKey[threadId];
   return {
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     threadChangedFilesExpandedById: nextThreadChangedFilesExpandedById,
+    threadActiveViewByKey: nextThreadActiveViewByKey,
+  };
+}
+
+export function selectThreadActiveView(
+  state: Pick<UiState, "threadActiveViewByKey">,
+  threadId: string | null | undefined,
+): ThreadContentView {
+  if (!threadId) {
+    return "chat";
+  }
+  return state.threadActiveViewByKey[threadId] ?? "chat";
+}
+
+export function setThreadActiveView(
+  state: UiState,
+  threadId: string,
+  view: ThreadContentView,
+): UiState {
+  if (!threadId) {
+    return state;
+  }
+  if (view === "chat") {
+    if (!(threadId in state.threadActiveViewByKey)) {
+      return state;
+    }
+    const nextThreadActiveViewByKey = { ...state.threadActiveViewByKey };
+    delete nextThreadActiveViewByKey[threadId];
+    return {
+      ...state,
+      threadActiveViewByKey: nextThreadActiveViewByKey,
+    };
+  }
+
+  const current = selectThreadActiveView(state, threadId);
+  if (current === view) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threadActiveViewByKey: {
+      ...state.threadActiveViewByKey,
+      [threadId]: view,
+    },
   };
 }
 
@@ -605,6 +689,7 @@ interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt?: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   clearThreadUi: (threadId: string) => void;
+  setThreadActiveView: (threadId: string, view: ThreadContentView) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
@@ -623,6 +708,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   clearThreadUi: (threadId) => set((state) => clearThreadUi(state, threadId)),
+  setThreadActiveView: (threadId, view) =>
+    set((state) => setThreadActiveView(state, threadId, view)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),

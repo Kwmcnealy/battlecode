@@ -95,6 +95,22 @@ interface TimelineRowSharedState {
    */
   activeThreadId: ThreadId | null;
   /**
+   * Live lookup of TurnDiffSummary by `turnId`. Verbose-mode rendering
+   * resolves the summary AT RENDER TIME from this map (keyed on the work
+   * row's `turnId` field) instead of caching it on the row itself. This
+   * avoids the timing race where a row's cached summary stays `undefined`
+   * after the summary's `assistantMessageId` binding eventually lands.
+   */
+  turnDiffSummaryByTurnId: ReadonlyMap<TurnId, TurnDiffSummary>;
+  /**
+   * Fallback for turns whose `TurnDiffSummary.checkpointTurnCount` is
+   * undefined (server hasn't echoed it yet). Built from the same
+   * `turnDiffSummaries` array via `inferCheckpointTurnCountByTurnId`. This
+   * is what `DiffPanel` and `ChatView` already use; verbose mode now uses
+   * the same fallback so its query enables as soon as a summary exists.
+   */
+  inferredCheckpointTurnCountByTurnId: Readonly<Record<TurnId, number>>;
+  /**
    * When true, work entries render as expanded cards (full command, all
    * changed files, tone-coloured borders), the work-log overflow cap is
    * removed, and the changed-files section renders real inline diff hunks
@@ -143,6 +159,8 @@ interface MessagesTimelineProps {
   verboseChatMode: boolean;
   diffWordWrap: boolean;
   activeThreadId: ThreadId | null;
+  turnDiffSummaryByTurnId: ReadonlyMap<TurnId, TurnDiffSummary>;
+  inferredCheckpointTurnCountByTurnId: Readonly<Record<TurnId, number>>;
   onIsAtEndChange: (isAtEnd: boolean) => void;
 }
 
@@ -174,6 +192,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   verboseChatMode,
   diffWordWrap,
   activeThreadId,
+  turnDiffSummaryByTurnId,
+  inferredCheckpointTurnCountByTurnId,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
   const rawRows = useMemo(
@@ -238,6 +258,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       activeThreadId,
+      turnDiffSummaryByTurnId,
+      inferredCheckpointTurnCountByTurnId,
       verboseChatMode,
       diffWordWrap,
       onRevertUserMessage,
@@ -257,6 +279,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       activeThreadId,
+      turnDiffSummaryByTurnId,
+      inferredCheckpointTurnCountByTurnId,
       verboseChatMode,
       diffWordWrap,
       onRevertUserMessage,
@@ -335,10 +359,7 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
       {row.kind === "work" && (
-        <WorkGroupSection
-          groupedEntries={row.groupedEntries}
-          assistantTurnDiffSummary={row.assistantTurnDiffSummary}
-        />
+        <WorkGroupSection groupedEntries={row.groupedEntries} turnId={row.turnId ?? null} />
       )}
 
       {row.kind === "message" &&
@@ -598,10 +619,10 @@ function LiveMessageMeta({
  *  QueryClientProvider for the work-log subtree. */
 const WorkGroupSection = memo(function WorkGroupSection({
   groupedEntries,
-  assistantTurnDiffSummary,
+  turnId,
 }: {
   groupedEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
-  assistantTurnDiffSummary: TurnDiffSummary | undefined;
+  turnId: TurnId | null;
 }) {
   const { workspaceRoot, verboseChatMode } = use(TimelineRowCtx);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -636,10 +657,7 @@ const WorkGroupSection = memo(function WorkGroupSection({
       )}
       <div className={verboseChatMode ? "space-y-1.5" : "space-y-0.5"}>
         {verboseChatMode ? (
-          <VerboseWorkEntryList
-            visibleEntries={visibleEntries}
-            assistantTurnDiffSummary={assistantTurnDiffSummary}
-          />
+          <VerboseWorkEntryList visibleEntries={visibleEntries} turnId={turnId} />
         ) : (
           visibleEntries.map((workEntry) => (
             <SimpleWorkEntryRow
@@ -661,16 +679,22 @@ const WorkGroupSection = memo(function WorkGroupSection({
  * (including most of the test suite) don't need a QueryClientProvider in
  * the work-log subtree.
  *
+ * Resolves the live `TurnDiffSummary` and `checkpointTurnCount` AT RENDER
+ * TIME from `turnDiffSummaryByTurnId` / `inferredCheckpointTurnCountByTurnId`
+ * (both passed via context). This keeps the inline diff fetch in sync with
+ * the live summary state — when the summary's `assistantMessageId`
+ * binding lands later, the lookup picks it up on the next render.
+ *
  * Single fetch per turn here, fanned out via prop to each
  * VerboseWorkEntryRow which slices the parsed files by its own
  * `changedFiles` to render inline diffs in place.
  */
 const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
   visibleEntries,
-  assistantTurnDiffSummary,
+  turnId,
 }: {
   visibleEntries: Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"];
-  assistantTurnDiffSummary: TurnDiffSummary | undefined;
+  turnId: TurnId | null;
 }) {
   const {
     workspaceRoot,
@@ -678,26 +702,42 @@ const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
     resolvedTheme,
     activeThreadEnvironmentId,
     activeThreadId,
+    turnDiffSummaryByTurnId,
+    inferredCheckpointTurnCountByTurnId,
     onOpenTurnDiff,
   } = use(TimelineRowCtx);
+
+  // Resolve the live summary by turnId — re-runs whenever the map changes
+  // (e.g. when a streaming turn's TurnDiffSummary first lands or its
+  // checkpointTurnCount is updated server-side). The work row never caches
+  // the summary itself, only the turnId, so there's no stale-row problem.
+  const resolvedSummary = turnId !== null ? turnDiffSummaryByTurnId.get(turnId) : undefined;
+  // Match the fallback pattern used by ChatView and DiffPanel: prefer the
+  // server-stamped checkpointTurnCount, fall back to the inferred ordinal
+  // computed locally from `turnDiffSummaries`. Without this fallback,
+  // turns whose summary lacks `checkpointTurnCount` (a common case during
+  // and shortly after a turn) never enable the inline diff query.
+  const resolvedCheckpointTurnCount =
+    resolvedSummary?.checkpointTurnCount ??
+    (turnId !== null ? inferredCheckpointTurnCountByTurnId[turnId] : undefined);
 
   const groupHasFileEdits = useMemo(
     () => visibleEntries.some((entry) => (entry.changedFiles?.length ?? 0) > 0),
     [visibleEntries],
   );
   const shouldFetchTurnDiff =
-    groupHasFileEdits && activeThreadId !== null && assistantTurnDiffSummary !== undefined;
+    groupHasFileEdits &&
+    activeThreadId !== null &&
+    turnId !== null &&
+    typeof resolvedCheckpointTurnCount === "number";
 
   const parsedTurnDiff = useParsedTurnDiff({
     environmentId: shouldFetchTurnDiff ? activeThreadEnvironmentId : null,
     threadId: shouldFetchTurnDiff ? activeThreadId : null,
-    turnId: shouldFetchTurnDiff ? (assistantTurnDiffSummary?.turnId ?? null) : null,
-    checkpointTurnCount: shouldFetchTurnDiff
-      ? assistantTurnDiffSummary?.checkpointTurnCount
-      : undefined,
+    turnId: shouldFetchTurnDiff ? turnId : null,
+    checkpointTurnCount: shouldFetchTurnDiff ? resolvedCheckpointTurnCount : undefined,
   });
   const parsedTurnDiffFiles = shouldFetchTurnDiff ? parsedTurnDiff.files : null;
-  const turnIdForDiff = assistantTurnDiffSummary?.turnId ?? null;
 
   return (
     <>
@@ -707,7 +747,7 @@ const VerboseWorkEntryList = memo(function VerboseWorkEntryList({
           workEntry={workEntry}
           workspaceRoot={workspaceRoot}
           parsedTurnDiffFiles={parsedTurnDiffFiles}
-          turnIdForDiff={turnIdForDiff}
+          turnIdForDiff={turnId}
           resolvedTheme={resolvedTheme}
           diffWordWrap={diffWordWrap}
           onOpenTurnDiff={onOpenTurnDiff}
@@ -1292,14 +1332,16 @@ const VerboseWorkEntryRow = memo(function VerboseWorkEntryRow(props: {
   // entry didn't touch files. Memo deps reference `workEntry.changedFiles`
   // directly (stable identity from the entry) rather than a defaulted
   // local — defaulting to `[]` would re-create the array each render and
-  // bust the memo.
+  // bust the memo. `workspaceRoot` is threaded through so absolute paths
+  // from the activity payload normalize to workspace-relative for matching
+  // against parsed-diff file names.
   const changedFilesForRender = workEntry.changedFiles;
   const inlineDiffFiles = useMemo(
     () =>
       parsedTurnDiffFiles
-        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender)
+        ? filterParsedFilesByPaths(parsedTurnDiffFiles, changedFilesForRender, workspaceRoot)
         : [],
-    [parsedTurnDiffFiles, changedFilesForRender],
+    [parsedTurnDiffFiles, changedFilesForRender, workspaceRoot],
   );
 
   return (

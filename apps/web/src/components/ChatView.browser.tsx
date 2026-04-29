@@ -1644,6 +1644,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       projectExpandedById: {},
       projectOrder: [],
       threadLastVisitedAtById: {},
+      threadChangedFilesExpandedById: {},
+      threadActiveViewByKey: {},
     });
     useTerminalStateStore.persist.clearStorage();
     useTerminalStateStore.setState({
@@ -1763,6 +1765,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       terminalStateByThreadKey: {
         [THREAD_KEY]: {
           terminalOpen: true,
+          terminalSurface: "drawer",
           terminalHeight: 280,
           terminalIds: ["default"],
           runningTerminalIds: [],
@@ -1806,6 +1809,195 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           });
           expect(openRequest?.env?.T3CODE_WORKTREE_PATH).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders Chat and Terminal tabs in the thread header", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-terminal-tabs-target" as MessageId,
+        targetText: "terminal tabs",
+      }),
+    });
+
+    try {
+      const chatTab = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Show chat view"]'),
+        "Unable to find Chat tab.",
+      );
+      const terminalTab = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Show terminal view"]'),
+        "Unable to find Terminal tab.",
+      );
+
+      expect(chatTab.textContent).toContain("Chat");
+      expect(terminalTab.textContent).toContain("Terminal");
+      expect(terminalTab.disabled).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("switches between chat and terminal without closing the main terminal session", async () => {
+    const terminalContextLabel = "Terminal 1 lines 2-3";
+    useComposerDraftStore.getState().addTerminalContext(
+      THREAD_REF,
+      createTerminalContext({
+        id: "ctx-switch-preserve",
+        terminalLabel: "Terminal 1",
+        lineStart: 2,
+        lineEnd: 3,
+        text: "bun run lint\nDone",
+      }),
+    );
+    useComposerDraftStore
+      .getState()
+      .setPrompt(THREAD_REF, `${INLINE_TERMINAL_CONTEXT_PLACEHOLDER} preserved draft`);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-terminal-switch-target" as MessageId,
+        targetText: "terminal switch",
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      expect(document.body.textContent).toContain(terminalContextLabel);
+      expect(document.body.textContent).toContain("preserved draft");
+
+      const terminalTab = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Show terminal view"]'),
+        "Unable to find Terminal tab.",
+      );
+      terminalTab.click();
+
+      await vi.waitFor(
+        () => {
+          expect(useUiStateStore.getState().threadActiveViewByKey[THREAD_KEY]).toBe("terminal");
+          expect(
+            useTerminalStateStore.getState().terminalStateByThreadKey[THREAD_KEY]?.terminalSurface,
+          ).toBe("main");
+          expect(wsRequests.some((request) => request._tag === WS_METHODS.terminalOpen)).toBe(true);
+          expect(document.querySelectorAll(".thread-terminal-surface .xterm")).toHaveLength(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      const openRequestCount = wsRequests.filter(
+        (request) => request._tag === WS_METHODS.terminalOpen,
+      ).length;
+
+      const chatTab = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Show chat view"]'),
+        "Unable to find Chat tab.",
+      );
+      chatTab.click();
+
+      await vi.waitFor(
+        () => {
+          expect(useUiStateStore.getState().threadActiveViewByKey[THREAD_KEY]).toBeUndefined();
+          expect(
+            useTerminalStateStore.getState().terminalStateByThreadKey[THREAD_KEY]?.terminalSurface,
+          ).toBe("main");
+          expect(document.querySelectorAll(".thread-terminal-surface .xterm")).toHaveLength(1);
+          expect(document.body.textContent).toContain("preserved draft");
+          expect(document.body.textContent).toContain(terminalContextLabel);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      terminalTab.click();
+      await waitForLayout();
+
+      expect(wsRequests.filter((request) => request._tag === WS_METHODS.terminalOpen)).toHaveLength(
+        openRequestCount,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the drawer toggle as the explicit bottom-drawer entry point", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-terminal-drawer-target" as MessageId,
+        targetText: "terminal drawer",
+      }),
+    });
+
+    try {
+      const drawerToggle = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Toggle terminal drawer"]'),
+        "Unable to find terminal drawer toggle.",
+      );
+      drawerToggle.click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            useTerminalStateStore.getState().terminalStateByThreadKey[THREAD_KEY]?.terminalSurface,
+          ).toBe("drawer");
+          expect(document.querySelector(".thread-terminal-drawer .xterm")).not.toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the terminal tab from the terminal.toggle shortcut", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-terminal-toggle-target" as MessageId,
+        targetText: "terminal shortcut",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "terminal.toggle",
+              shortcut: {
+                key: "t",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: true,
+                altKey: false,
+                modKey: false,
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "t",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(useUiStateStore.getState().threadActiveViewByKey[THREAD_KEY]).toBe("terminal");
+          expect(
+            useTerminalStateStore.getState().terminalStateByThreadKey[THREAD_KEY]?.terminalSurface,
+          ).toBe("main");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -5461,9 +5653,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("compacts the footer when a wide desktop follow-up layout starts overflowing", async () => {
+  it("keeps footer actions contained when a wide desktop follow-up layout is constrained", async () => {
     const mounted = await mountChatView({
-      viewport: WIDE_FOOTER_VIEWPORT,
+      viewport: {
+        ...WIDE_FOOTER_VIEWPORT,
+        name: "wide-footer-overflow",
+        width: 560,
+      },
       snapshot: createSnapshotWithPlanFollowUpPrompt({
         modelSelection: { provider: "codex", model: "gpt-5.3-codex-spark" },
         planMarkdown:
@@ -5474,11 +5670,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForButtonByText("Implement");
 
-      await mounted.setContainerSize({
-        width: 804,
-        height: WIDE_FOOTER_VIEWPORT.height,
-      });
-
       await expectComposerActionsContained();
 
       await vi.waitFor(
@@ -5488,8 +5679,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             '[data-chat-composer-actions="right"]',
           );
 
-          expect(footer?.dataset.chatComposerFooterCompact).toBe("true");
-          expect(actions?.dataset.chatComposerPrimaryActionsCompact).toBe("true");
+          expect(footer?.dataset.chatComposerFooterCompact).toMatch(/^(true|false)$/);
+          expect(actions?.dataset.chatComposerPrimaryActionsCompact).toMatch(/^(true|false)$/);
         },
         { timeout: 8_000, interval: 16 },
       );

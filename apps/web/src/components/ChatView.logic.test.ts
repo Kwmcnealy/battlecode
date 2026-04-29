@@ -11,7 +11,11 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  resolveThreadContentView,
   resolveSendEnvMode,
+  shouldMountThreadTerminalMainSurface,
+  shouldRenderThreadTerminalDrawer,
+  shouldShowThreadTerminalMainSurface,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -172,6 +176,56 @@ describe("reconcileMountedTerminalThreadIds", () => {
         activeThreadTerminalOpen: false,
       }),
     ).toEqual(currentThreadIds.slice(-MAX_HIDDEN_MOUNTED_TERMINAL_THREADS));
+  });
+});
+
+describe("thread terminal content view resolution", () => {
+  it("resolves terminal tab fallback when unavailable", () => {
+    expect(
+      resolveThreadContentView({
+        requestedView: "terminal",
+        hasActiveProject: false,
+      }),
+    ).toBe("chat");
+  });
+
+  it("keeps the main terminal mounted while the chat tab is active", () => {
+    const mounted = shouldMountThreadTerminalMainSurface({
+      hasActiveProject: true,
+      terminalSurface: "main",
+    });
+
+    expect(mounted).toBe(true);
+    expect(
+      shouldShowThreadTerminalMainSurface({
+        mounted,
+        resolvedView: "chat",
+      }),
+    ).toBe(false);
+  });
+
+  it("prevents active-thread drawer/main double mounting", () => {
+    expect(
+      shouldRenderThreadTerminalDrawer({
+        mountedThreadKey: "env:thread-active",
+        activeThreadKey: "env:thread-active",
+        activeThreadTerminalSurface: "main",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderThreadTerminalDrawer({
+        mountedThreadKey: "env:thread-hidden",
+        activeThreadKey: "env:thread-active",
+        activeThreadTerminalSurface: "main",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderThreadTerminalDrawer({
+        mountedThreadKey: "env:thread-active",
+        activeThreadKey: "env:thread-active",
+        activeThreadTerminalSurface: "drawer",
+      }),
+    ).toBe(true);
   });
 });
 

@@ -74,6 +74,7 @@ describe("terminalStateStore actions", () => {
     );
     expect(terminalState).toEqual({
       terminalOpen: false,
+      terminalSurface: "closed",
       terminalHeight: 280,
       terminalIds: ["default"],
       runningTerminalIds: [],
@@ -93,6 +94,7 @@ describe("terminalStateStore actions", () => {
       THREAD_REF,
     );
     expect(terminalState.terminalOpen).toBe(true);
+    expect(terminalState.terminalSurface).toBe("drawer");
     expect(terminalState.terminalIds).toEqual(["default", "terminal-2"]);
     expect(terminalState.activeTerminalId).toBe("terminal-2");
     expect(terminalState.terminalGroups).toEqual([
@@ -147,6 +149,7 @@ describe("terminalStateStore actions", () => {
       THREAD_REF,
     );
     expect(terminalState.terminalOpen).toBe(true);
+    expect(terminalState.terminalSurface).toBe("drawer");
     expect(terminalState.terminalIds).toEqual(["default", "setup-setup"]);
     expect(terminalState.activeTerminalId).toBe("setup-setup");
     expect(terminalState.terminalGroups).toEqual([
@@ -205,6 +208,7 @@ describe("terminalStateStore actions", () => {
       terminalStateByThreadKey: {
         [scopedThreadKey(THREAD_REF)]: {
           terminalOpen: true,
+          terminalSurface: "drawer",
           terminalHeight: 320,
           terminalIds: ["default"],
           runningTerminalIds: [],
@@ -214,6 +218,31 @@ describe("terminalStateStore actions", () => {
         },
       },
     });
+  });
+
+  it("tracks main terminal surface without losing compatibility terminalOpen", () => {
+    const store = useTerminalStateStore.getState();
+    store.setTerminalSurface(THREAD_REF, "main");
+
+    const terminalState = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalState.terminalOpen).toBe(true);
+    expect(terminalState.terminalSurface).toBe("main");
+  });
+
+  it("moves back to closed surface when terminal open compatibility is set false", () => {
+    const store = useTerminalStateStore.getState();
+    store.setTerminalSurface(THREAD_REF, "main");
+    store.setTerminalOpen(THREAD_REF, false);
+
+    const terminalState = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalState.terminalOpen).toBe(false);
+    expect(terminalState.terminalSurface).toBe("closed");
   });
 
   it("tracks and clears terminal subprocess activity", () => {
@@ -316,6 +345,7 @@ describe("terminalStateStore actions", () => {
     );
 
     expect(terminalState.terminalOpen).toBe(true);
+    expect(terminalState.terminalSurface).toBe("drawer");
     expect(terminalState.activeTerminalId).toBe("setup-bootstrap");
     expect(terminalState.terminalIds).toEqual(["default", "setup-bootstrap"]);
     expect(
@@ -328,6 +358,20 @@ describe("terminalStateStore actions", () => {
     });
     expect(entries).toHaveLength(1);
     expect(entries[0]?.event.type).toBe("started");
+  });
+
+  it("does not move a main terminal surface back to drawer on started events", () => {
+    const store = useTerminalStateStore.getState();
+    store.setTerminalSurface(THREAD_REF, "main");
+
+    store.applyTerminalEvent(THREAD_REF, makeTerminalEvent("started"));
+
+    const terminalState = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalState.terminalOpen).toBe(true);
+    expect(terminalState.terminalSurface).toBe("main");
   });
 
   it("applies activity and exited terminal events to subprocess state while buffering events", () => {
