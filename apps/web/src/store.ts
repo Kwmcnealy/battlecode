@@ -259,13 +259,14 @@ function mapThreadShell(
   turnState: ThreadTurnState;
   summary: SidebarThreadSummary;
 } {
+  const modelSelection = normalizeModelSelection(thread.modelSelection);
   const shell: ThreadShell = {
     id: thread.id,
     environmentId,
     codexThreadId: null,
     projectId: thread.projectId,
     title: thread.title,
-    modelSelection: normalizeModelSelection(thread.modelSelection),
+    modelSelection,
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
     error: sanitizeThreadErrorMessage(thread.session?.lastError),
@@ -286,6 +287,7 @@ function mapThreadShell(
     projectId: thread.projectId,
     title: thread.title,
     interactionMode: thread.interactionMode,
+    modelSelection,
     session,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
@@ -387,6 +389,9 @@ function sidebarThreadSummariesEqual(
     left.projectId === right.projectId &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
+    left.modelSelection.provider === right.modelSelection.provider &&
+    left.modelSelection.model === right.modelSelection.model &&
+    left.modelSelection.options === right.modelSelection.options &&
     threadSessionsEqual(left.session, right.session) &&
     left.createdAt === right.createdAt &&
     left.archivedAt === right.archivedAt &&
