@@ -207,6 +207,11 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
+const BATTLECODE_MARK_SRC = "/brand/battlecode/battlecode-mark.webp";
+const BATTLECODE_WORDMARK_PARTS = {
+  prefix: "Battle",
+  suffix: "Code",
+} as const;
 
 function formatProjectMemberActionLabel(
   member: SidebarProjectGroupMember,
@@ -2234,12 +2239,7 @@ function BattleCodeWordmark() {
     <span className="relative inline-flex size-7 shrink-0 items-center justify-center border border-primary/55 bg-background">
       <span className="pointer-events-none absolute -left-px -top-px size-2 border-l-2 border-t-2 border-primary" />
       <span className="pointer-events-none absolute -bottom-px -right-px size-2 border-b-2 border-r-2 border-info" />
-      <img
-        alt=""
-        className="h-5 w-5 object-contain"
-        draggable={false}
-        src="/brand/battletcg/battle-tcg-logo.webp"
-      />
+      <img alt="" className="h-5 w-5 object-contain" draggable={false} src={BATTLECODE_MARK_SRC} />
     </span>
   );
 }
@@ -2397,9 +2397,13 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
               className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
               to="/"
             >
-              <BattleCodeWordmark />
-              <span className="truncate text-[13px] font-bold tracking-[0.16em] text-foreground uppercase">
-                {APP_BASE_NAME}
+              <span
+                className="flex min-w-0 items-center gap-1.5 truncate text-[13px] font-bold tracking-[0.16em] text-foreground uppercase"
+                title={APP_BASE_NAME}
+              >
+                <span className="truncate">{BATTLECODE_WORDMARK_PARTS.prefix}</span>
+                <BattleCodeWordmark />
+                <span className="truncate">{BATTLECODE_WORDMARK_PARTS.suffix}</span>
               </span>
               <span className="border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-primary">
                 {APP_STAGE_LABEL}

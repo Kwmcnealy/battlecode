@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0a0a0a" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href="/brand/battlecode/battlecode-logo.webp" as="image" />
     <link
       rel="preload"
       href="/brand/battletcg/fonts/JetBrainsMono-Regular.ttf"
@@ -79,41 +80,14 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 96px;
-        height: 96px;
-        border: 1px solid rgba(220, 38, 38, 0.55);
-        box-shadow:
-          0 0 18px rgba(220, 38, 38, 0.28),
-          0 0 42px rgba(59, 130, 246, 0.08);
-      }
-
-      #boot-shell-card::before,
-      #boot-shell-card::after {
-        position: absolute;
-        width: 14px;
-        height: 14px;
-        content: "";
-        pointer-events: none;
-      }
-
-      #boot-shell-card::before {
-        top: -1px;
-        left: -1px;
-        border-top: 2px solid #dc2626;
-        border-left: 2px solid #dc2626;
-      }
-
-      #boot-shell-card::after {
-        right: -1px;
-        bottom: -1px;
-        border-right: 2px solid #3b82f6;
-        border-bottom: 2px solid #3b82f6;
+        width: min(78vw, 680px);
       }
 
       #boot-shell-logo {
-        width: 64px;
-        height: 64px;
+        width: 100%;
+        height: auto;
         object-fit: contain;
+        filter: drop-shadow(0 0 32px rgba(220, 38, 38, 0.24));
       }
     </style>
     <title>Battle.Code (Alpha)</title>
@@ -122,7 +96,11 @@
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="Battle.Code splash screen">
-          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="Battle.Code" />
+          <img
+            id="boot-shell-logo"
+            src="/brand/battlecode/battlecode-logo.webp"
+            alt="Battle.Code"
+          />
         </div>
       </div>
     </div>
