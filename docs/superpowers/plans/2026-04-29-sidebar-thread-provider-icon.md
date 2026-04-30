@@ -39,6 +39,7 @@ The repo guideline (AGENTS.md) requires `bun fmt`, `bun lint`, and `bun typechec
 ## Task 1: Extend `SidebarThreadSummary` with `modelSelection`
 
 **Files:**
+
 - Modify: `apps/web/src/types.ts:141-158`
 
 - [ ] **Step 1: Read the file**
@@ -50,7 +51,7 @@ Open `apps/web/src/types.ts`. Confirm the existing `SidebarThreadSummary` interf
 Edit the interface so that immediately below `interactionMode: ProviderInteractionMode;` (line 146) there is a new line:
 
 ```ts
-  modelSelection: ModelSelection;
+modelSelection: ModelSelection;
 ```
 
 `ModelSelection` is already imported at the top of the file (line 3). No new import needed.
@@ -73,6 +74,7 @@ git commit -m "feat(web): add modelSelection to SidebarThreadSummary"
 ## Task 2: Populate `modelSelection` in `mapThreadShell` summary and equality check
 
 **Files:**
+
 - Modify: `apps/web/src/store.ts:283-307` (the summary literal)
 - Modify: `apps/web/src/store.ts:380-402` (the `sidebarThreadSummariesEqual` function)
 
@@ -141,6 +143,7 @@ git commit -m "feat(web): plumb modelSelection through SidebarThreadSummary mapp
 ## Task 3: Update test fixture for `SidebarThreadSummary`
 
 **Files:**
+
 - Modify: `apps/web/src/environmentGrouping.test.ts:59-78`
 
 - [ ] **Step 1: Add a default `modelSelection` to `makeSidebarThreadSummary`**
@@ -177,6 +180,7 @@ git commit -m "test(web): default modelSelection in sidebar thread summary fixtu
 ## Task 4: Add `getProviderModelTooltip` helper
 
 **Files:**
+
 - Modify: `apps/web/src/components/chat/providerIconUtils.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -216,7 +220,9 @@ describe("getProviderModelTooltip", () => {
   });
 
   it("falls back to the slug when the model is missing from the provider list", () => {
-    expect(getProviderModelTooltip("codex", "unknown-slug", providers)).toBe("Codex · unknown-slug");
+    expect(getProviderModelTooltip("codex", "unknown-slug", providers)).toBe(
+      "Codex · unknown-slug",
+    );
   });
 
   it("uses the provider display name even with no providers", () => {
@@ -275,6 +281,7 @@ git commit -m "feat(web): add getProviderModelTooltip helper for sidebar provide
 ## Task 5: Add `resolveSidebarThreadProviderBadge` to Sidebar logic
 
 **Files:**
+
 - Modify: `apps/web/src/components/Sidebar.logic.ts`
 - Modify: `apps/web/src/components/Sidebar.logic.test.ts`
 
@@ -405,6 +412,7 @@ git commit -m "feat(web): add resolveSidebarThreadProviderBadge selector"
 ## Task 6: Render the provider icon in `SidebarThreadRow`
 
 **Files:**
+
 - Modify: `apps/web/src/components/Sidebar.tsx`
 
 - [ ] **Step 1: Subscribe to `useServerProviders` once at the list level**
@@ -422,13 +430,13 @@ import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 Inside `SidebarProjectThreadList`, after the destructure, add:
 
 ```ts
-  const providers = useServerProviders();
+const providers = useServerProviders();
 ```
 
 Then in the `<SidebarThreadRow ... />` JSX (around line 812), pass it through:
 
 ```tsx
-              providers={providers}
+providers = { providers };
 ```
 
 - [ ] **Step 2: Add the `providers` prop to `SidebarThreadRowProps`**
@@ -436,7 +444,7 @@ Then in the `<SidebarThreadRow ... />` JSX (around line 812), pass it through:
 In the `SidebarThreadRowProps` interface (line 260), add (near the other readonly inputs, after `appSettingsConfirmThreadArchive`):
 
 ```ts
-  providers: ReadonlyArray<ServerProvider>;
+providers: ReadonlyArray<ServerProvider>;
 ```
 
 Add to the existing contracts import at the top of the file (line 47):
@@ -505,11 +513,11 @@ import {
 Inside `SidebarThreadRow`, near the other derived values (right after `const threadStatus = resolveThreadStatusPill(...)`, around line 367), add:
 
 ```ts
-  const providerBadge = useMemo(
-    () => resolveSidebarThreadProviderBadge(thread, providers),
-    [thread, providers],
-  );
-  const ProviderBadgeIcon = PROVIDER_ICON_BY_PROVIDER[providerBadge.provider];
+const providerBadge = useMemo(
+  () => resolveSidebarThreadProviderBadge(thread, providers),
+  [thread, providers],
+);
+const ProviderBadgeIcon = PROVIDER_ICON_BY_PROVIDER[providerBadge.provider];
 ```
 
 - [ ] **Step 4: Insert the icon at the left of the row content**
@@ -535,19 +543,19 @@ The Base UI `<TooltipTrigger render={…} />` element is self-closing and the ic
 Insert this JSX immediately inside the `<div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">` opener (before the `{prStatus && (...)}` block):
 
 ```tsx
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  aria-label={providerBadge.tooltip}
-                  className="inline-flex shrink-0 items-center justify-center text-muted-foreground/70"
-                >
-                  <ProviderBadgeIcon className="size-3.5" aria-hidden="true" />
-                </span>
-              }
-            />
-            <TooltipPopup side="top">{providerBadge.tooltip}</TooltipPopup>
-          </Tooltip>
+<Tooltip>
+  <TooltipTrigger
+    render={
+      <span
+        aria-label={providerBadge.tooltip}
+        className="inline-flex shrink-0 items-center justify-center text-muted-foreground/70"
+      >
+        <ProviderBadgeIcon className="size-3.5" aria-hidden="true" />
+      </span>
+    }
+  />
+  <TooltipPopup side="top">{providerBadge.tooltip}</TooltipPopup>
+</Tooltip>
 ```
 
 - [ ] **Step 5: Add `providers` to `SidebarProjectThreadListProps`**
@@ -555,10 +563,10 @@ Insert this JSX immediately inside the `<div className="flex min-w-0 flex-1 item
 Search for `interface SidebarProjectThreadListProps` (line 705). Add to the interface (alongside the other readonly inputs):
 
 ```ts
-  providers: ReadonlyArray<ServerProvider>;
+providers: ReadonlyArray<ServerProvider>;
 ```
 
-Wait — Step 1 derived `providers` *inside* `SidebarProjectThreadList` via `useServerProviders()`. That avoids prop drilling. Keep it that way: do **not** add `providers` to `SidebarProjectThreadListProps`. The hook lives inside the list component; the row receives `providers` via the existing `<SidebarThreadRow providers={providers} ... />` prop only.
+Wait — Step 1 derived `providers` _inside_ `SidebarProjectThreadList` via `useServerProviders()`. That avoids prop drilling. Keep it that way: do **not** add `providers` to `SidebarProjectThreadListProps`. The hook lives inside the list component; the row receives `providers` via the existing `<SidebarThreadRow providers={providers} ... />` prop only.
 
 If you discover the list component is itself memo-ized and skipping rerenders when providers change, the right fix is to subscribe inside the row instead — but only do that if a real render bug appears, since per-row hooks in long lists are more expensive.
 
@@ -577,10 +585,11 @@ Expected: PASS. The render code is JSX-only with no logic-only tests; the unit-t
 - [ ] **Step 8: Manual smoke test**
 
 Start the dev server (`bun dev` or your usual flow) and verify visually:
+
 - Each chat row shows a provider icon at the far left.
 - Codex threads show the OpenAI icon; Claude threads show the Claude icon; Cursor and OpenCode show their icons.
 - Hovering the icon shows a tooltip in the format `Codex · GPT-5.4` (provider · model display name).
-- Tooltip text reflects the *current* `modelSelection` for the thread (verify by switching a thread's model in the composer, then re-hovering — wait until the next thread shell sync).
+- Tooltip text reflects the _current_ `modelSelection` for the thread (verify by switching a thread's model in the composer, then re-hovering — wait until the next thread shell sync).
 - Clicking the icon area still selects/opens the thread (no swallowed click).
 - Active row, selected row, and the existing trailing badges (PR, terminal, archive button on hover) still render correctly with no layout shift.
 
@@ -598,6 +607,7 @@ git commit -m "feat(web): show provider icon on sidebar chat rows"
 - [ ] **Step 1: Run the canonical project gates**
 
 Run, in order:
+
 1. `bun fmt`
 2. `bun lint`
 3. `bun typecheck`
