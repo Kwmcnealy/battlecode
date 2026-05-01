@@ -116,6 +116,9 @@ function createTransport(...args: ConstructorParameters<typeof WsTransport>): Ws
 
 beforeEach(() => {
   vi.useRealTimers();
+  vi.stubEnv("VITE_DEV_SERVER_URL", "");
+  vi.stubEnv("VITE_HTTP_URL", "");
+  vi.stubEnv("VITE_WS_URL", "");
   sockets.length = 0;
   transports.length = 0;
   resetRequestLatencyStateForTests();
@@ -149,6 +152,7 @@ afterEach(async () => {
   resetRequestLatencyStateForTests();
   resetWsConnectionStateForTests();
   await __resetClientTracingForTests();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 

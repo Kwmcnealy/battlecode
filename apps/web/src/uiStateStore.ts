@@ -36,7 +36,7 @@ export interface UiThreadState {
 
 export interface UiState extends UiProjectState, UiThreadState {}
 
-export type ThreadContentView = "chat" | "terminal";
+export type ThreadContentView = "chat" | "terminal" | "symphony";
 
 export interface SyncProjectInput {
   /** Physical project key (env + cwd). Used for manual sort order. */
@@ -143,7 +143,7 @@ export function sanitizePersistedThreadActiveViewByKey(
     if (!threadId) {
       continue;
     }
-    if (view === "terminal") {
+    if (view === "terminal" || view === "symphony") {
       nextState[threadId] = view;
     }
   }
@@ -199,7 +199,9 @@ export function persistState(state: UiState): void {
       }),
     );
     const threadActiveViewByKey = Object.fromEntries(
-      Object.entries(state.threadActiveViewByKey).filter(([, view]) => view === "terminal"),
+      Object.entries(state.threadActiveViewByKey).filter(
+        ([, view]) => view === "terminal" || view === "symphony",
+      ),
     );
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,

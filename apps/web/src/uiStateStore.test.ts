@@ -399,14 +399,23 @@ describe("uiStateStore pure functions", () => {
     expect(selectThreadActiveView(makeUiState(), null)).toBe("chat");
   });
 
-  it("stores terminal as a per-thread active view override", () => {
+  it("stores terminal and symphony as per-thread active view overrides", () => {
     const thread1 = ThreadId.make("thread-1");
+    const thread2 = ThreadId.make("thread-2");
     const initialState = makeUiState();
 
-    const next = setThreadActiveView(initialState, thread1, "terminal");
+    const next = setThreadActiveView(
+      setThreadActiveView(initialState, thread1, "terminal"),
+      thread2,
+      "symphony",
+    );
 
     expect(selectThreadActiveView(next, thread1)).toBe("terminal");
-    expect(next.threadActiveViewByKey).toEqual({ [thread1]: "terminal" });
+    expect(selectThreadActiveView(next, thread2)).toBe("symphony");
+    expect(next.threadActiveViewByKey).toEqual({
+      [thread1]: "terminal",
+      [thread2]: "symphony",
+    });
   });
 
   it("removes the per-thread active view override when switching back to chat", () => {
@@ -607,10 +616,12 @@ describe("uiStateStore persistence round-trip", () => {
   it("persists only non-default thread active view state across restart", () => {
     const thread1 = ThreadId.make("thread-view-1");
     const thread2 = ThreadId.make("thread-view-2");
+    const thread3 = ThreadId.make("thread-view-3");
     const state = makeUiState({
       threadActiveViewByKey: {
         [thread1]: "terminal",
         [thread2]: "chat",
+        [thread3]: "symphony",
       },
     });
 
@@ -621,6 +632,7 @@ describe("uiStateStore persistence round-trip", () => {
     ) as PersistedUiState;
     expect(persisted.threadActiveViewByKey).toEqual({
       [thread1]: "terminal",
+      [thread3]: "symphony",
     });
   });
 
@@ -628,12 +640,14 @@ describe("uiStateStore persistence round-trip", () => {
     expect(
       sanitizePersistedThreadActiveViewByKey({
         "thread-good": "terminal",
+        "thread-symphony": "symphony",
         "thread-chat": "chat",
         "thread-bad": "files" as never,
         "": "terminal",
       }),
     ).toEqual({
       "thread-good": "terminal",
+      "thread-symphony": "symphony",
     });
   });
 });

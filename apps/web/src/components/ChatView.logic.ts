@@ -108,7 +108,12 @@ export function resolveThreadContentView(input: {
   requestedView: ThreadContentView;
   hasActiveProject: boolean;
 }): ThreadContentView {
-  return input.requestedView === "terminal" && input.hasActiveProject ? "terminal" : "chat";
+  if (!input.hasActiveProject) {
+    return "chat";
+  }
+  return input.requestedView === "terminal" || input.requestedView === "symphony"
+    ? input.requestedView
+    : "chat";
 }
 
 export function shouldMountThreadTerminalMainSurface(input: {

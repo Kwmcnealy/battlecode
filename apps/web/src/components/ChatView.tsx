@@ -99,6 +99,7 @@ import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { BranchToolbar } from "./BranchToolbar";
+import { SymphonyPanel } from "./symphony/SymphonyPanel";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -1686,6 +1687,10 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       if (!activeProject) return;
+      if (view === "symphony") {
+        setActiveContentView(routeThreadKey, "symphony");
+        return;
+      }
       setActiveContentView(routeThreadKey, "terminal");
       openMainTerminalSurface();
     },
@@ -3612,6 +3617,24 @@ export default function ChatView(props: ChatViewProps) {
                 />
               ) : null}
             </>
+          ) : null}
+
+          {resolvedActiveContentView === "symphony" && activeProject ? (
+            <SymphonyPanel
+              environmentId={activeThread.environmentId}
+              projectId={activeProject.id}
+              projectName={activeProject.name}
+              projectCwd={activeProject.cwd}
+              onOpenThread={(linkedThreadId) => {
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: {
+                    environmentId: activeThread.environmentId,
+                    threadId: linkedThreadId,
+                  },
+                });
+              }}
+            />
           ) : null}
 
           {terminalMainSurfaceMounted && activeThreadRef ? (

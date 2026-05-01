@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { ThreadId } from "./baseSchemas.ts";
 import { OpenError, OpenInEditorInput } from "./editor.ts";
 import { AuthAccessStreamEvent } from "./auth.ts";
 import {
@@ -76,6 +77,19 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  SYMPHONY_WS_METHODS,
+  SymphonyApplyLinearMutationInput,
+  SymphonyError,
+  SymphonyIssueActionInput,
+  SymphonyProjectInput,
+  SymphonySecretStatus,
+  SymphonySetLinearApiKeyInput,
+  SymphonySettings,
+  SymphonySnapshot,
+  SymphonySubscribeEvent,
+  SymphonyUpdateWorkflowPathInput,
+} from "./symphony.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -355,6 +369,115 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
   stream: true,
 });
 
+export const WsSymphonyGetSettingsRpc = Rpc.make(SYMPHONY_WS_METHODS.getSettings, {
+  payload: SymphonyProjectInput,
+  success: SymphonySettings,
+  error: SymphonyError,
+});
+
+export const WsSymphonyUpdateWorkflowPathRpc = Rpc.make(SYMPHONY_WS_METHODS.updateWorkflowPath, {
+  payload: SymphonyUpdateWorkflowPathInput,
+  success: SymphonySettings,
+  error: SymphonyError,
+});
+
+export const WsSymphonyCreateStarterWorkflowRpc = Rpc.make(
+  SYMPHONY_WS_METHODS.createStarterWorkflow,
+  {
+    payload: SymphonyProjectInput,
+    success: SymphonySettings,
+    error: SymphonyError,
+  },
+);
+
+export const WsSymphonyValidateWorkflowRpc = Rpc.make(SYMPHONY_WS_METHODS.validateWorkflow, {
+  payload: SymphonyProjectInput,
+  success: SymphonySettings,
+  error: SymphonyError,
+});
+
+export const WsSymphonySetLinearApiKeyRpc = Rpc.make(SYMPHONY_WS_METHODS.setLinearApiKey, {
+  payload: SymphonySetLinearApiKeyInput,
+  success: SymphonySecretStatus,
+  error: SymphonyError,
+});
+
+export const WsSymphonyTestLinearConnectionRpc = Rpc.make(
+  SYMPHONY_WS_METHODS.testLinearConnection,
+  {
+    payload: SymphonyProjectInput,
+    success: SymphonySecretStatus,
+    error: SymphonyError,
+  },
+);
+
+export const WsSymphonyDeleteLinearApiKeyRpc = Rpc.make(SYMPHONY_WS_METHODS.deleteLinearApiKey, {
+  payload: SymphonyProjectInput,
+  success: SymphonySecretStatus,
+  error: SymphonyError,
+});
+
+export const WsSymphonyGetSnapshotRpc = Rpc.make(SYMPHONY_WS_METHODS.getSnapshot, {
+  payload: SymphonyProjectInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonySubscribeRpc = Rpc.make(SYMPHONY_WS_METHODS.subscribe, {
+  payload: SymphonyProjectInput,
+  success: SymphonySubscribeEvent,
+  error: SymphonyError,
+  stream: true,
+});
+
+export const WsSymphonyStartRpc = Rpc.make(SYMPHONY_WS_METHODS.start, {
+  payload: SymphonyProjectInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyPauseRpc = Rpc.make(SYMPHONY_WS_METHODS.pause, {
+  payload: SymphonyProjectInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyResumeRpc = Rpc.make(SYMPHONY_WS_METHODS.resume, {
+  payload: SymphonyProjectInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyRefreshRpc = Rpc.make(SYMPHONY_WS_METHODS.refresh, {
+  payload: SymphonyProjectInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyStopIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.stopIssue, {
+  payload: SymphonyIssueActionInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyRetryIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.retryIssue, {
+  payload: SymphonyIssueActionInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyApplyLinearMutationRpc = Rpc.make(SYMPHONY_WS_METHODS.applyLinearMutation, {
+  payload: SymphonyApplyLinearMutationInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyOpenLinkedThreadRpc = Rpc.make(SYMPHONY_WS_METHODS.openLinkedThread, {
+  payload: SymphonyIssueActionInput,
+  success: Schema.Struct({ threadId: Schema.NullOr(ThreadId) }),
+  error: SymphonyError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -393,4 +516,21 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  WsSymphonyGetSettingsRpc,
+  WsSymphonyUpdateWorkflowPathRpc,
+  WsSymphonyCreateStarterWorkflowRpc,
+  WsSymphonyValidateWorkflowRpc,
+  WsSymphonySetLinearApiKeyRpc,
+  WsSymphonyTestLinearConnectionRpc,
+  WsSymphonyDeleteLinearApiKeyRpc,
+  WsSymphonyGetSnapshotRpc,
+  WsSymphonySubscribeRpc,
+  WsSymphonyStartRpc,
+  WsSymphonyPauseRpc,
+  WsSymphonyResumeRpc,
+  WsSymphonyRefreshRpc,
+  WsSymphonyStopIssueRpc,
+  WsSymphonyRetryIssueRpc,
+  WsSymphonyApplyLinearMutationRpc,
+  WsSymphonyOpenLinkedThreadRpc,
 );
