@@ -1,6 +1,5 @@
 import type {
   SymphonyError,
-  SymphonyApplyLinearMutationInput,
   SymphonyIssueActionInput,
   SymphonyProjectInput,
   SymphonySecretStatus,
@@ -51,9 +50,6 @@ export interface SymphonyServiceShape {
   ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
   readonly retryIssue: (
     input: SymphonyIssueActionInput,
-  ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
-  readonly applyLinearMutation: (
-    input: SymphonyApplyLinearMutationInput,
   ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
   readonly openLinkedThread: (
     input: SymphonyIssueActionInput,

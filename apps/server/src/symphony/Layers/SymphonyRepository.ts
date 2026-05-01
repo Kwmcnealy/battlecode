@@ -415,19 +415,6 @@ const makeRepository = Effect.gen(function* () {
         updated_at = excluded.updated_at
     `.pipe(Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRun")), Effect.as(run));
 
-  const updateRunStatus: SymphonyRepositoryShape["updateRunStatus"] = (input) =>
-    sql`
-      UPDATE symphony_runs
-      SET
-        status = ${input.status},
-        last_error = ${input.lastError ?? null},
-        updated_at = ${input.updatedAt}
-      WHERE project_id = ${input.projectId} AND issue_id = ${input.issueId}
-    `.pipe(
-      Effect.mapError(toPersistenceSqlError("SymphonyRepository.updateRunStatus")),
-      Effect.asVoid,
-    );
-
   const appendEvent: SymphonyRepositoryShape["appendEvent"] = (event) =>
     sql`
       INSERT INTO symphony_events (
@@ -539,33 +526,6 @@ const makeRepository = Effect.gen(function* () {
       Effect.as(state),
     );
 
-  const recordLinearMutation: SymphonyRepositoryShape["recordLinearMutation"] = (input) =>
-    sql`
-      INSERT INTO symphony_linear_mutations (
-        project_id,
-        run_id,
-        issue_id,
-        mutation_type,
-        payload_summary_json,
-        result_json,
-        actor,
-        created_at
-      )
-      VALUES (
-        ${input.projectId},
-        ${input.runId},
-        ${input.issueId},
-        ${input.mutation.type},
-        ${JSON.stringify(input.mutation.payload)},
-        ${JSON.stringify(input.result)},
-        ${input.actor},
-        ${input.createdAt}
-      )
-    `.pipe(
-      Effect.mapError(toPersistenceSqlError("SymphonyRepository.recordLinearMutation")),
-      Effect.asVoid,
-    );
-
   return {
     getProjectWorkspaceRoot,
     getSettings,
@@ -574,13 +534,11 @@ const makeRepository = Effect.gen(function* () {
     getRunByIssue,
     getRunByThreadId,
     upsertRun,
-    updateRunStatus,
     appendEvent,
     listEvents,
     getRuntimeState,
     listRuntimeStates,
     setRuntimeState,
-    recordLinearMutation,
   } satisfies SymphonyRepositoryShape;
 });
 

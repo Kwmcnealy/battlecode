@@ -14,14 +14,21 @@ export function SymphonyToolbar({
   busyAction: SymphonyAction | null;
   onAction: (action: SymphonyAction) => void;
 }) {
-  const disabled = busyAction !== null;
+  const busy = busyAction !== null;
+  const isRunning = snapshot.status === "running";
+  const isPaused = snapshot.status === "paused";
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border/70 bg-background/75 px-4 py-3">
-      <Button size="xs" disabled={disabled} onClick={() => onAction("start")}>
+      <Button size="xs" disabled={busy || isRunning} onClick={() => onAction("start")}>
         {busyAction === "start" ? <Spinner className="size-3" /> : <PlayIcon className="size-3" />}
         Start
       </Button>
-      <Button size="xs" variant="outline" disabled={disabled} onClick={() => onAction("pause")}>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={busy || !isRunning}
+        onClick={() => onAction("pause")}
+      >
         {busyAction === "pause" ? (
           <Spinner className="size-3" />
         ) : (
@@ -29,7 +36,12 @@ export function SymphonyToolbar({
         )}
         Pause
       </Button>
-      <Button size="xs" variant="outline" disabled={disabled} onClick={() => onAction("resume")}>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={busy || !isPaused}
+        onClick={() => onAction("resume")}
+      >
         {busyAction === "resume" ? (
           <Spinner className="size-3" />
         ) : (
@@ -37,7 +49,7 @@ export function SymphonyToolbar({
         )}
         Resume
       </Button>
-      <Button size="xs" variant="outline" disabled={disabled} onClick={() => onAction("refresh")}>
+      <Button size="xs" variant="outline" disabled={busy} onClick={() => onAction("refresh")}>
         {busyAction === "refresh" ? (
           <Spinner className="size-3" />
         ) : (

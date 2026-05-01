@@ -6,8 +6,8 @@ import { ensureEnvironmentApi } from "../../environmentApi";
 import { Badge } from "../ui/badge";
 import { Spinner } from "../ui/spinner";
 import { IssueQueueTable } from "./IssueQueueTable";
-import { LinearMutationAudit } from "./LinearMutationAudit";
 import { RunDetailsDrawer } from "./RunDetailsDrawer";
+import { SymphonyEventTimeline } from "./SymphonyEventTimeline";
 import type { SymphonyAction } from "./symphonyDisplay";
 import { SymphonyToolbar } from "./SymphonyToolbar";
 import { WorkflowStatus } from "./WorkflowStatus";
@@ -172,7 +172,7 @@ export function SymphonyPanel({
             onSelectRun={(run) => setSelectedRunId(run.runId)}
             onIssueAction={runIssueAction}
           />
-          <LinearMutationAudit snapshot={snapshot} />
+          <SymphonyEventTimeline snapshot={snapshot} />
           <RunDetailsDrawer
             run={selectedRun}
             events={snapshot.events}

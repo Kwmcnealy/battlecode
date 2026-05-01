@@ -79,7 +79,6 @@ import {
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
   SYMPHONY_WS_METHODS,
-  SymphonyApplyLinearMutationInput,
   SymphonyError,
   SymphonyIssueActionInput,
   SymphonyProjectInput,
@@ -466,12 +465,6 @@ export const WsSymphonyRetryIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.retryIssue, 
   error: SymphonyError,
 });
 
-export const WsSymphonyApplyLinearMutationRpc = Rpc.make(SYMPHONY_WS_METHODS.applyLinearMutation, {
-  payload: SymphonyApplyLinearMutationInput,
-  success: SymphonySnapshot,
-  error: SymphonyError,
-});
-
 export const WsSymphonyOpenLinkedThreadRpc = Rpc.make(SYMPHONY_WS_METHODS.openLinkedThread, {
   payload: SymphonyIssueActionInput,
   success: Schema.Struct({ threadId: Schema.NullOr(ThreadId) }),
@@ -531,6 +524,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsSymphonyRefreshRpc,
   WsSymphonyStopIssueRpc,
   WsSymphonyRetryIssueRpc,
-  WsSymphonyApplyLinearMutationRpc,
   WsSymphonyOpenLinkedThreadRpc,
 );

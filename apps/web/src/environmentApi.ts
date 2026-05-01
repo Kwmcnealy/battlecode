@@ -60,7 +60,6 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       refresh: rpcClient.symphony.refresh,
       stopIssue: rpcClient.symphony.stopIssue,
       retryIssue: rpcClient.symphony.retryIssue,
-      applyLinearMutation: rpcClient.symphony.applyLinearMutation,
       openLinkedThread: rpcClient.symphony.openLinkedThread,
       subscribe: (input, callback, options) =>
         rpcClient.symphony.subscribe(input, callback, options),

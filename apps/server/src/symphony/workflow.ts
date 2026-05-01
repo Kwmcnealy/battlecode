@@ -110,8 +110,6 @@ polling:
 agent:
   max_concurrent_agents: 3
   max_turns: 20
-codex:
-  thread_sandbox: workspace-write
 ---
 
 You are working on Linear ticket {{ issue.identifier }}.

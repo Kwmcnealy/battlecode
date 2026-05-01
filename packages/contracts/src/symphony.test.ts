@@ -29,7 +29,9 @@ describe("Symphony contracts", () => {
     ]);
     expect(config.polling.intervalMs).toBe(30_000);
     expect(config.agent.maxConcurrentAgents).toBe(10);
-    expect(config.codex.threadSandbox).toBe("workspace-write");
+    expect("codex" in config).toBe(false);
+    expect("apiKeyRef" in config.tracker).toBe(false);
+    expect("assignee" in config.tracker).toBe(false);
   });
 
   it("creates project-scoped settings without exposing secret material", () => {
@@ -106,5 +108,6 @@ describe("Symphony contracts", () => {
     expect(SYMPHONY_WS_METHODS.getSettings).toBe("symphony.getSettings");
     expect(SYMPHONY_WS_METHODS.setLinearApiKey).toBe("symphony.setLinearApiKey");
     expect(SYMPHONY_WS_METHODS.subscribe).toBe("symphony.subscribe");
+    expect("applyLinearMutation" in SYMPHONY_WS_METHODS).toBe(false);
   });
 });

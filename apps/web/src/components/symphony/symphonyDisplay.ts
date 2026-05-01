@@ -4,7 +4,6 @@ export type SymphonyAction = "start" | "pause" | "resume" | "refresh" | "stop" |
 
 export const STATUS_BADGE_CLASSNAME: Record<SymphonyRunStatus, string> = {
   eligible: "border-info/50 bg-info/10 text-info",
-  claimed: "border-info/50 bg-info/10 text-info",
   running: "border-success/50 bg-success/10 text-success",
   "retry-queued": "border-warning/50 bg-warning/10 text-warning",
   completed: "border-success/50 bg-success/10 text-success",
@@ -18,4 +17,8 @@ export function formatStatus(value: string): string {
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+export function formatDateTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "-";
 }

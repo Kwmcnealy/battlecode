@@ -1,21 +1,11 @@
-import * as Crypto from "node:crypto";
-
 import {
-  CommandId,
-  DEFAULT_MODEL_BY_PROVIDER,
-  MessageId,
   OrchestrationEvent,
   ProjectId,
   SymphonyError,
   SymphonyEvent,
-  SymphonyIssue,
   SymphonyIssueId,
   SymphonyRun,
-  SymphonyRunId,
   ThreadId,
-  type ModelSelection,
-  type SymphonyLinearMutation,
-  type SymphonyRuntimeStatus,
   type SymphonySecretStatus,
   type SymphonySettings,
   type SymphonySnapshot,
@@ -34,6 +24,40 @@ import { runProcess } from "../../processRunner.ts";
 import { SymphonyRepository } from "../Services/SymphonyRepository.ts";
 import { SymphonyService, type SymphonyServiceShape } from "../Services/SymphonyService.ts";
 import {
+  branchNameForIssue,
+  commandId,
+  eventId,
+  isSymphonyThreadId,
+  messageId,
+  projectSecretName,
+  sanitizeIssueIdentifier,
+  threadId,
+} from "../identity.ts";
+import {
+  DEFAULT_LINEAR_ENDPOINT,
+  fetchLinearCandidates,
+  testLinearConnection as testLinearApiKey,
+} from "../linear.ts";
+import {
+  blockerIsTerminal,
+  buildHookEnv,
+  buildIssuePrompt,
+  buildTotals,
+  defaultCodexModelSelection,
+  makeRun,
+  queueRuns,
+  replaceLatestAttempt,
+  retryAfterIso,
+  retryIsReady,
+  shouldPoll,
+} from "../runModel.ts";
+import {
+  defaultSecretStatus,
+  hashWorkflow,
+  makeDefaultSettings,
+  mapRuntimeStatus,
+} from "../settingsModel.ts";
+import {
   STARTER_WORKFLOW_TEMPLATE,
   defaultWorkflowPath,
   parseWorkflowMarkdown,
@@ -42,7 +66,6 @@ import {
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
-const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 const DASHBOARD_EVENT_LIMIT = 80;
 
 function nowIso(): string {
@@ -52,579 +75,6 @@ function nowIso(): string {
 function toSymphonyError(message: string) {
   return (cause: unknown): SymphonyError =>
     Schema.is(SymphonyError)(cause) ? cause : new SymphonyError({ message, cause });
-}
-
-function projectSecretName(projectId: ProjectId): string {
-  const digest = Crypto.createHash("sha256").update(projectId).digest("hex");
-  return `symphony-linear-${digest}`;
-}
-
-function eventId(): string {
-  return `symphony-event-${Crypto.randomUUID()}`;
-}
-
-function commandId(tag: string): CommandId {
-  return CommandId.make(`symphony:${tag}:${Crypto.randomUUID()}`);
-}
-
-function messageId(): MessageId {
-  return MessageId.make(`symphony-message-${Crypto.randomUUID()}`);
-}
-
-function runId(projectId: ProjectId, issueId: SymphonyIssueId): SymphonyRunId {
-  const digest = Crypto.createHash("sha256").update(`${projectId}:${issueId}`).digest("hex");
-  return SymphonyRunId.make(`symphony-run-${digest}`);
-}
-
-function threadId(projectId: ProjectId, issueId: SymphonyIssueId): ThreadId {
-  const digest = Crypto.createHash("sha256").update(`${projectId}:${issueId}`).digest("hex");
-  return ThreadId.make(`symphony-thread-${digest}`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null;
-}
-
-function readArray(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function readStringList(value: unknown): readonly string[] {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? [trimmed] : [];
-  }
-  return readArray(value).flatMap((entry) => {
-    if (typeof entry !== "string") {
-      return [];
-    }
-    const trimmed = entry.trim();
-    return trimmed.length > 0 ? [trimmed] : [];
-  });
-}
-
-function readNestedRecord(
-  value: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | null {
-  return readRecord(value[key]);
-}
-
-function sanitizeIssueIdentifier(identifier: string): string {
-  return identifier.replace(/[^A-Za-z0-9._-]/g, "_");
-}
-
-function branchNameForIssue(identifier: string): string {
-  return `symphony/${sanitizeIssueIdentifier(identifier).toLowerCase()}`;
-}
-
-function defaultCodexModelSelection(): ModelSelection {
-  return {
-    provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
-  };
-}
-
-function dateMs(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function shouldPoll(lastPollAt: string | null, intervalMs: number, now = Date.now()): boolean {
-  const lastPollMs = dateMs(lastPollAt);
-  return lastPollMs === null || now - lastPollMs >= intervalMs;
-}
-
-function retryBackoffMs(attempt: number, maxRetryBackoffMs: number): number {
-  return Math.min(10_000 * 2 ** Math.max(0, attempt - 1), maxRetryBackoffMs);
-}
-
-function retryAfterIso(attempt: number, maxRetryBackoffMs: number): string {
-  return new Date(Date.now() + retryBackoffMs(attempt, maxRetryBackoffMs)).toISOString();
-}
-
-function retryIsReady(nextRetryAt: string | null, now = Date.now()): boolean {
-  const nextRetryMs = dateMs(nextRetryAt);
-  return nextRetryMs === null || nextRetryMs <= now;
-}
-
-function replaceAll(input: string, token: string, value: string): string {
-  return input.split(token).join(value);
-}
-
-function buildIssuePrompt(input: {
-  readonly issue: SymphonyIssue;
-  readonly workflowPrompt: string;
-  readonly workflowPath: string;
-  readonly workspacePath: string;
-  readonly branchName: string;
-}): string {
-  const basePrompt =
-    input.workflowPrompt.trim().length > 0
-      ? input.workflowPrompt.trim()
-      : "Resolve the Linear issue using the repository workflow.";
-  const issueDescription = input.issue.description?.trim() || "(no Linear description)";
-  const replacements: ReadonlyArray<readonly [string, string]> = [
-    ["{{issue.id}}", input.issue.id],
-    ["{{issue.identifier}}", input.issue.identifier],
-    ["{{issue.title}}", input.issue.title],
-    ["{{issue.description}}", issueDescription],
-    ["{{issue.state}}", input.issue.state],
-    ["{{issue.url}}", input.issue.url ?? ""],
-    ["{{workspace.path}}", input.workspacePath],
-    ["{{git.branch}}", input.branchName],
-    ["{{workflow.path}}", input.workflowPath],
-  ];
-  const rendered = replacements.reduce(
-    (next, [token, value]) => replaceAll(next, token, value),
-    basePrompt,
-  );
-
-  return [
-    rendered,
-    "",
-    "Symphony run context:",
-    `- Linear issue: ${input.issue.identifier} - ${input.issue.title}`,
-    `- Branch: ${input.branchName}`,
-    `- Workspace: ${input.workspacePath}`,
-    `- Workflow: ${input.workflowPath}`,
-    "",
-    "Work in this workspace. Commit, push, and open a PR according to WORKFLOW.md.",
-  ].join("\n");
-}
-
-function buildHookEnv(input: {
-  readonly projectRoot: string;
-  readonly workflowPath: string;
-  readonly workspacePath: string;
-  readonly branchName: string;
-  readonly run: SymphonyRun;
-}): NodeJS.ProcessEnv {
-  const { LINEAR_API_KEY: _linearApiKey, ...safeProcessEnv } = process.env;
-  return {
-    ...safeProcessEnv,
-    SYMPHONY_PROJECT_ROOT: input.projectRoot,
-    SYMPHONY_WORKFLOW_PATH: input.workflowPath,
-    SYMPHONY_WORKSPACE_PATH: input.workspacePath,
-    SYMPHONY_BRANCH_NAME: input.branchName,
-    SYMPHONY_RUN_ID: input.run.runId,
-    SYMPHONY_ISSUE_ID: input.run.issue.id,
-    SYMPHONY_ISSUE_IDENTIFIER: input.run.issue.identifier,
-    SYMPHONY_ISSUE_TITLE: input.run.issue.title,
-  };
-}
-
-function blockerIsTerminal(
-  blockerState: string | null,
-  terminalStates: readonly string[],
-): boolean {
-  if (!blockerState) return false;
-  return terminalStates.some(
-    (state) => state.toLocaleLowerCase() === blockerState.toLocaleLowerCase(),
-  );
-}
-
-function defaultSecretStatus(): SymphonySecretStatus {
-  const envToken = process.env.LINEAR_API_KEY?.trim();
-  return envToken
-    ? {
-        source: "env",
-        configured: true,
-        lastTestedAt: null,
-        lastError: null,
-      }
-    : {
-        source: "missing",
-        configured: false,
-        lastTestedAt: null,
-        lastError: null,
-      };
-}
-
-function workflowMissingStatus(
-  message = "No workflow has been validated yet.",
-): SymphonySettings["workflowStatus"] {
-  return {
-    status: "missing",
-    message,
-    validatedAt: null,
-    configHash: null,
-  };
-}
-
-function hashWorkflow(markdown: string): string {
-  return Crypto.createHash("sha256").update(markdown).digest("hex");
-}
-
-function makeDefaultSettings(input: {
-  readonly projectId: ProjectId;
-  readonly projectRoot: string;
-  readonly linearSecret: SymphonySecretStatus;
-  readonly now: string;
-}): SymphonySettings {
-  return {
-    projectId: input.projectId,
-    workflowPath: defaultWorkflowPath(input.projectRoot),
-    workflowStatus: workflowMissingStatus(),
-    linearSecret: input.linearSecret,
-    updatedAt: input.now,
-  };
-}
-
-function mapRuntimeStatus(input: {
-  readonly runtimeStatus: "idle" | "running" | "paused" | "error";
-  readonly settings: SymphonySettings;
-}): SymphonyRuntimeStatus {
-  if (input.settings.workflowStatus.status !== "valid" || !input.settings.linearSecret.configured) {
-    return "setup-blocked";
-  }
-  return input.runtimeStatus;
-}
-
-function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queues"] {
-  return {
-    eligible: runs.filter((run) => run.status === "eligible" || run.status === "claimed"),
-    running: runs.filter((run) => run.status === "running"),
-    retrying: runs.filter((run) => run.status === "retry-queued"),
-    completed: runs.filter((run) => run.status === "completed" || run.status === "released"),
-    failed: runs.filter((run) => run.status === "failed"),
-    canceled: runs.filter((run) => run.status === "canceled"),
-  };
-}
-
-function buildTotals(queues: SymphonySnapshot["queues"]): SymphonySnapshot["totals"] {
-  return {
-    eligible: queues.eligible.length,
-    running: queues.running.length,
-    retrying: queues.retrying.length,
-    completed: queues.completed.length,
-    failed: queues.failed.length,
-    canceled: queues.canceled.length,
-  };
-}
-
-function replaceLatestAttempt(
-  run: SymphonyRun,
-  update: Partial<SymphonyRun["attempts"][number]>,
-): SymphonyRun["attempts"] {
-  const latestIndex = run.attempts.length - 1;
-  if (latestIndex < 0) {
-    return run.attempts;
-  }
-  return run.attempts.map((attempt, index) =>
-    index === latestIndex ? { ...attempt, ...update } : attempt,
-  );
-}
-
-function labelsFromNode(node: Record<string, unknown>): string[] {
-  const labels = readNestedRecord(node, "labels");
-  const nodes = labels ? readArray(labels.nodes) : [];
-  return nodes
-    .map((entry) => readString(readRecord(entry)?.name))
-    .filter((label): label is string => label !== null)
-    .map((label) => label.toLowerCase());
-}
-
-function blockersFromNode(node: Record<string, unknown>): SymphonyIssue["blockedBy"] {
-  const relations = readNestedRecord(node, "relations");
-  const nodes = relations ? readArray(relations.nodes) : [];
-  return nodes.flatMap((entry) => {
-    const relation = readRecord(entry);
-    if (!relation || relation.type !== "blocks") {
-      return [];
-    }
-    const relatedIssue = readNestedRecord(relation, "relatedIssue");
-    if (!relatedIssue) {
-      return [];
-    }
-    const state = readNestedRecord(relatedIssue, "state");
-    return [
-      {
-        id: readString(relatedIssue.id),
-        identifier: readString(relatedIssue.identifier),
-        state: state ? readString(state.name) : null,
-      },
-    ];
-  });
-}
-
-function normalizeLinearIssue(node: Record<string, unknown>): SymphonyIssue | null {
-  const id = readString(node.id);
-  const identifier = readString(node.identifier);
-  const title = readString(node.title);
-  const state = readNestedRecord(node, "state");
-  const stateName = state ? readString(state.name) : null;
-  if (!id || !identifier || !title || !stateName) {
-    return null;
-  }
-
-  return {
-    id: SymphonyIssueId.make(id),
-    identifier,
-    title,
-    description: readString(node.description),
-    priority: readNumber(node.priority),
-    state: stateName,
-    branchName: readString(node.branchName),
-    url: readString(node.url),
-    labels: labelsFromNode(node),
-    blockedBy: blockersFromNode(node),
-    createdAt: readString(node.createdAt),
-    updatedAt: readString(node.updatedAt),
-  };
-}
-
-function makeRun(projectId: ProjectId, issue: SymphonyIssue, createdAt: string): SymphonyRun {
-  return {
-    runId: runId(projectId, issue.id),
-    projectId,
-    issue,
-    status: "eligible",
-    workspacePath: null,
-    branchName: branchNameForIssue(issue.identifier),
-    threadId: null,
-    prUrl: null,
-    attempts: [],
-    nextRetryAt: null,
-    lastError: null,
-    createdAt,
-    updatedAt: createdAt,
-  };
-}
-
-const LINEAR_CANDIDATES_QUERY = `
-query SymphonyCandidateIssues($projectSlug: String!, $states: [String!], $after: String) {
-  issues(
-    first: 50
-    after: $after
-    filter: {
-      project: { slug: { eq: $projectSlug } }
-      state: { name: { in: $states } }
-    }
-  ) {
-    nodes {
-      id
-      identifier
-      title
-      description
-      priority
-      url
-      branchName
-      createdAt
-      updatedAt
-      state { name }
-      labels { nodes { name } }
-      relations { nodes { type relatedIssue { id identifier state { name } } } }
-    }
-    pageInfo { hasNextPage endCursor }
-  }
-}
-`;
-
-const LINEAR_TEST_QUERY = `query SymphonyViewer { viewer { id name } }`;
-
-function linearGraphql(input: {
-  readonly endpoint: string;
-  readonly apiKey: string;
-  readonly query: string;
-  readonly variables?: Record<string, unknown>;
-}): Effect.Effect<Record<string, unknown>, SymphonyError> {
-  return Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(input.endpoint, {
-        method: "POST",
-        headers: {
-          authorization: input.apiKey,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          query: input.query,
-          variables: input.variables ?? {},
-        }),
-      });
-      const body = (await response.json()) as unknown;
-      if (!response.ok) {
-        throw new Error(`Linear request failed with HTTP ${response.status}.`);
-      }
-      if (!isRecord(body)) {
-        throw new Error("Linear returned a non-object GraphQL response.");
-      }
-      if (Array.isArray(body.errors) && body.errors.length > 0) {
-        throw new Error(JSON.stringify(body.errors));
-      }
-      return body;
-    },
-    catch: (cause) =>
-      new SymphonyError({
-        message: cause instanceof Error ? cause.message : "Linear request failed.",
-        cause,
-      }),
-  });
-}
-
-function fetchLinearCandidates(input: {
-  readonly endpoint: string;
-  readonly apiKey: string;
-  readonly config: SymphonyWorkflowConfig;
-}): Effect.Effect<readonly SymphonyIssue[], SymphonyError> {
-  const fetchPage = (
-    after: string | null,
-    accumulated: readonly SymphonyIssue[],
-  ): Effect.Effect<readonly SymphonyIssue[], SymphonyError> =>
-    linearGraphql({
-      endpoint: input.endpoint,
-      apiKey: input.apiKey,
-      query: LINEAR_CANDIDATES_QUERY,
-      variables: {
-        projectSlug: input.config.tracker.projectSlug,
-        states: input.config.tracker.activeStates,
-        after,
-      },
-    }).pipe(
-      Effect.flatMap((body) => {
-        const data = readNestedRecord(body, "data");
-        const issues = data ? readNestedRecord(data, "issues") : null;
-        const nodes = issues ? readArray(issues.nodes) : [];
-        const pageInfo = issues ? readNestedRecord(issues, "pageInfo") : null;
-        const nextIssues = [
-          ...accumulated,
-          ...nodes.flatMap((node) => {
-            const record = readRecord(node);
-            const normalized = record ? normalizeLinearIssue(record) : null;
-            return normalized ? [normalized] : [];
-          }),
-        ];
-        const hasNextPage = pageInfo?.hasNextPage === true;
-        const endCursor = pageInfo ? readString(pageInfo.endCursor) : null;
-        return hasNextPage && endCursor
-          ? fetchPage(endCursor, nextIssues)
-          : Effect.succeed(nextIssues);
-      }),
-    );
-
-  return fetchPage(null, []);
-}
-
-function mutationBody(mutation: SymphonyLinearMutation): string {
-  const body = readString(mutation.payload.body);
-  if (body) {
-    return body;
-  }
-  const url = readString(mutation.payload.url);
-  if (mutation.type === "pr-link-comment" && url) {
-    return `Pull request ready for review: ${url}`;
-  }
-  if (mutation.type === "blocked-status") {
-    const reason = readString(mutation.payload.reason) ?? "Symphony run is blocked.";
-    return reason;
-  }
-  return "";
-}
-
-function applyLinearMutation(input: {
-  readonly endpoint: string;
-  readonly apiKey: string;
-  readonly issueId: SymphonyIssueId;
-  readonly mutation: SymphonyLinearMutation;
-}): Effect.Effect<unknown, SymphonyError> {
-  if (
-    input.mutation.type === "comment" ||
-    input.mutation.type === "pr-link-comment" ||
-    input.mutation.type === "blocked-status"
-  ) {
-    const body = mutationBody(input.mutation);
-    if (!body) {
-      return Effect.fail(
-        new SymphonyError({ message: "Linear comment mutation requires a body." }),
-      );
-    }
-    return linearGraphql({
-      endpoint: input.endpoint,
-      apiKey: input.apiKey,
-      query: `
-mutation SymphonyComment($issueId: String!, $body: String!) {
-  commentCreate(input: { issueId: $issueId, body: $body }) {
-    success
-    comment { id url }
-  }
-}
-`,
-      variables: { issueId: input.issueId, body },
-    });
-  }
-
-  if (input.mutation.type === "state-transition") {
-    const stateId = readString(input.mutation.payload.stateId);
-    if (!stateId) {
-      return Effect.fail(
-        new SymphonyError({ message: "Linear state transition requires payload.stateId." }),
-      );
-    }
-    return linearGraphql({
-      endpoint: input.endpoint,
-      apiKey: input.apiKey,
-      query: `
-mutation SymphonyStateTransition($issueId: String!, $stateId: String!) {
-  issueUpdate(id: $issueId, input: { stateId: $stateId }) {
-    success
-    issue { id state { id name } }
-  }
-}
-`,
-      variables: { issueId: input.issueId, stateId },
-    });
-  }
-
-  if (input.mutation.type === "add-labels" || input.mutation.type === "remove-labels") {
-    const labelIds = [
-      ...readStringList(input.mutation.payload.labelIds),
-      ...readStringList(input.mutation.payload.labelId),
-    ];
-    if (labelIds.length === 0) {
-      return Effect.fail(
-        new SymphonyError({
-          message: `${input.mutation.type} requires payload.labelIds or payload.labelId.`,
-        }),
-      );
-    }
-    const mutationName =
-      input.mutation.type === "add-labels" ? "issueAddLabel" : "issueRemoveLabel";
-    const operationName =
-      input.mutation.type === "add-labels" ? "SymphonyIssueAddLabel" : "SymphonyIssueRemoveLabel";
-    return Effect.all(
-      labelIds.map((labelId) =>
-        linearGraphql({
-          endpoint: input.endpoint,
-          apiKey: input.apiKey,
-          query: `
-mutation ${operationName}($issueId: String!, $labelId: String!) {
-  ${mutationName}(id: $issueId, labelId: $labelId) {
-    success
-    issue { id labels { nodes { id name } } }
-  }
-}
-`,
-          variables: { issueId: input.issueId, labelId },
-        }),
-      ),
-      { concurrency: 2 },
-    );
-  }
-
-  return Effect.fail(new SymphonyError({ message: `Unsupported Linear mutation type.` }));
 }
 
 const makeSymphonyService = Effect.gen(function* () {
@@ -739,13 +189,13 @@ const makeSymphonyService = Effect.gen(function* () {
     readonly type: string;
     readonly message: string;
     readonly payload?: Record<string, unknown>;
-    readonly runId?: string | null;
+    readonly runId?: SymphonyRun["runId"] | null;
     readonly issueId?: SymphonyIssueId | null;
   }) =>
     appendEvent({
       eventId: eventId(),
       projectId: input.projectId,
-      runId: input.runId ? SymphonyRunId.make(input.runId) : null,
+      runId: input.runId ?? null,
       issueId: input.issueId ?? null,
       type: input.type,
       message: input.message,
@@ -762,7 +212,7 @@ const makeSymphonyService = Effect.gen(function* () {
       readonly promptTemplate: string;
     };
     readonly run: SymphonyRun;
-    readonly hookName: "afterCreate" | "beforeRun" | "afterRun" | "beforeRemove";
+    readonly hookName: "afterCreate" | "beforeRun" | "afterRun";
     readonly command: string | null | undefined;
     readonly workspacePath: string;
     readonly branchName: string;
@@ -1085,7 +535,6 @@ const makeSymphonyService = Effect.gen(function* () {
           (run) =>
             !fetchedIssueIds.has(run.issue.id) &&
             (run.status === "eligible" ||
-              run.status === "claimed" ||
               run.status === "retry-queued" ||
               run.status === "running"),
         ),
@@ -1607,7 +1056,9 @@ const makeSymphonyService = Effect.gen(function* () {
     );
 
   const handleOrchestrationEvent = (event: OrchestrationEvent): Effect.Effect<void, never> => {
-    if (event.aggregateKind !== "thread") return Effect.void;
+    if (event.aggregateKind !== "thread" || !isSymphonyThreadId(event.aggregateId)) {
+      return Effect.void;
+    }
     const threadId = ThreadId.make(event.aggregateId);
     return repository.getRunByThreadId(threadId).pipe(
       Effect.mapError(toSymphonyError("Failed to find Symphony run for thread event.")),
@@ -1716,13 +1167,7 @@ const makeSymphonyService = Effect.gen(function* () {
       );
 
       const testedAt = nowIso();
-      const result = yield* Effect.exit(
-        linearGraphql({
-          endpoint,
-          apiKey,
-          query: LINEAR_TEST_QUERY,
-        }),
-      );
+      const result = yield* Effect.exit(testLinearApiKey({ endpoint, apiKey }));
       const linearSecret: SymphonySecretStatus =
         result._tag === "Success"
           ? {
@@ -1914,48 +1359,6 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.flatMap(() => buildSnapshot(projectId)),
     );
 
-  const applyLinearMutationRpc: SymphonyServiceShape["applyLinearMutation"] = ({
-    projectId,
-    issueId,
-    mutation,
-  }) =>
-    Effect.gen(function* () {
-      const apiKey = yield* readLinearApiKey(projectId);
-      if (!apiKey) {
-        return yield* new SymphonyError({ message: "Linear API key is missing." });
-      }
-      const workflow = yield* loadValidatedWorkflow(projectId);
-      const result = yield* applyLinearMutation({
-        endpoint: workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT,
-        apiKey,
-        issueId,
-        mutation,
-      });
-      const run = yield* repository
-        .getRunByIssue({ projectId, issueId })
-        .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run.")));
-      yield* repository
-        .recordLinearMutation({
-          projectId,
-          runId: run?.runId ?? null,
-          issueId,
-          mutation,
-          result,
-          actor: "user",
-          createdAt: nowIso(),
-        })
-        .pipe(Effect.mapError(toSymphonyError("Failed to record Linear mutation.")));
-      yield* emitProjectEvent({
-        projectId,
-        issueId,
-        runId: run?.runId ?? null,
-        type: "linear.mutated",
-        message: `Linear mutation applied: ${mutation.type}`,
-        payload: { mutationType: mutation.type },
-      });
-      return yield* buildSnapshot(projectId);
-    });
-
   const openLinkedThread: SymphonyServiceShape["openLinkedThread"] = ({ projectId, issueId }) =>
     repository.getRunByIssue({ projectId, issueId }).pipe(
       Effect.mapError(toSymphonyError("Failed to read linked Symphony thread.")),
@@ -2002,7 +1405,6 @@ const makeSymphonyService = Effect.gen(function* () {
     refresh,
     stopIssue,
     retryIssue,
-    applyLinearMutation: applyLinearMutationRpc,
     openLinkedThread,
   } satisfies SymphonyServiceShape;
 });

@@ -107,7 +107,6 @@ const rpcClientMock = {
     refresh: vi.fn(),
     stopIssue: vi.fn(),
     retryIssue: vi.fn(),
-    applyLinearMutation: vi.fn(),
     openLinkedThread: vi.fn(),
     subscribe: vi.fn(() => () => undefined),
   },

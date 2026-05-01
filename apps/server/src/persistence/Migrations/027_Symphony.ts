@@ -50,20 +50,6 @@ export default Effect.gen(function* () {
   `;
 
   yield* sql`
-    CREATE TABLE IF NOT EXISTS symphony_linear_mutations (
-      row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      project_id TEXT NOT NULL,
-      run_id TEXT,
-      issue_id TEXT NOT NULL,
-      mutation_type TEXT NOT NULL,
-      payload_summary_json TEXT NOT NULL,
-      result_json TEXT NOT NULL,
-      actor TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    )
-  `;
-
-  yield* sql`
     CREATE TABLE IF NOT EXISTS symphony_runtime_state (
       project_id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
@@ -81,10 +67,5 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE INDEX IF NOT EXISTS idx_symphony_events_project_created
     ON symphony_events(project_id, created_at)
-  `;
-
-  yield* sql`
-    CREATE INDEX IF NOT EXISTS idx_symphony_mutations_project_issue
-    ON symphony_linear_mutations(project_id, issue_id, created_at)
   `;
 });

@@ -18,11 +18,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "../ui/sheet";
-import { STATUS_BADGE_CLASSNAME, formatStatus } from "./symphonyDisplay";
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "-";
-}
+import { STATUS_BADGE_CLASSNAME, formatDateTime, formatStatus } from "./symphonyDisplay";
 
 function DetailRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -158,9 +154,9 @@ export function RunDetailsDrawer({
                           {attempt.status}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {formatDate(attempt.startedAt)}
+                          {formatDateTime(attempt.startedAt)}
                           {" -> "}
-                          {formatDate(attempt.completedAt)}
+                          {formatDateTime(attempt.completedAt)}
                         </div>
                         {attempt.error ? (
                           <div className="mt-2 rounded-md border border-destructive/35 bg-destructive/10 px-2 py-1 text-xs text-destructive">
@@ -187,7 +183,7 @@ export function RunDetailsDrawer({
                   runEvents.map((event) => (
                     <div key={event.eventId} className="grid gap-2 py-3 sm:grid-cols-[9rem_1fr]">
                       <div className="font-mono text-[11px] text-muted-foreground">
-                        {formatDate(event.createdAt)}
+                        {formatDateTime(event.createdAt)}
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-foreground">{event.message}</div>

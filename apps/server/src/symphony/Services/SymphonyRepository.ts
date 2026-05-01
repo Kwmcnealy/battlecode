@@ -2,9 +2,7 @@ import type {
   ProjectId,
   SymphonyEvent,
   SymphonyIssueId,
-  SymphonyLinearMutation,
   SymphonyRun,
-  SymphonyRunStatus,
   SymphonySettings,
   ThreadId,
 } from "@t3tools/contracts";
@@ -44,13 +42,6 @@ export interface SymphonyRepositoryShape {
     threadId: ThreadId,
   ) => Effect.Effect<SymphonyRun | null, SymphonyRepositoryError>;
   readonly upsertRun: (run: SymphonyRun) => Effect.Effect<SymphonyRun, SymphonyRepositoryError>;
-  readonly updateRunStatus: (input: {
-    readonly projectId: ProjectId;
-    readonly issueId: SymphonyIssueId;
-    readonly status: SymphonyRunStatus;
-    readonly lastError?: string | null;
-    readonly updatedAt: string;
-  }) => Effect.Effect<void, SymphonyRepositoryError>;
   readonly appendEvent: (
     event: SymphonyEvent,
   ) => Effect.Effect<SymphonyEvent, SymphonyRepositoryError>;
@@ -68,15 +59,6 @@ export interface SymphonyRepositoryShape {
   readonly setRuntimeState: (
     state: SymphonyRuntimeStateRow,
   ) => Effect.Effect<SymphonyRuntimeStateRow, SymphonyRepositoryError>;
-  readonly recordLinearMutation: (input: {
-    readonly projectId: ProjectId;
-    readonly runId: string | null;
-    readonly issueId: SymphonyIssueId;
-    readonly mutation: SymphonyLinearMutation;
-    readonly result: unknown;
-    readonly actor: "user" | "symphony" | "agent";
-    readonly createdAt: string;
-  }) => Effect.Effect<void, SymphonyRepositoryError>;
 }
 
 export class SymphonyRepository extends Context.Service<

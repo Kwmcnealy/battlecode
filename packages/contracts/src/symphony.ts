@@ -26,7 +26,6 @@ export const SYMPHONY_WS_METHODS = {
   refresh: "symphony.refresh",
   stopIssue: "symphony.stopIssue",
   retryIssue: "symphony.retryIssue",
-  applyLinearMutation: "symphony.applyLinearMutation",
   openLinkedThread: "symphony.openLinkedThread",
 } as const;
 
@@ -52,7 +51,6 @@ export type SymphonySecretSource = typeof SymphonySecretSource.Type;
 
 export const SymphonyRunStatus = Schema.Literals([
   "eligible",
-  "claimed",
   "running",
   "retry-queued",
   "completed",
@@ -63,16 +61,10 @@ export const SymphonyRunStatus = Schema.Literals([
 export type SymphonyRunStatus = typeof SymphonyRunStatus.Type;
 
 export const SymphonyAttemptStatus = Schema.Literals([
-  "preparing-workspace",
-  "building-prompt",
   "launching-agent-process",
-  "initializing-session",
   "streaming-turn",
-  "finishing",
   "succeeded",
   "failed",
-  "timed-out",
-  "stalled",
   "canceled-by-reconciliation",
 ]);
 export type SymphonyAttemptStatus = typeof SymphonyAttemptStatus.Type;
@@ -86,24 +78,12 @@ export const SymphonyRuntimeStatus = Schema.Literals([
 ]);
 export type SymphonyRuntimeStatus = typeof SymphonyRuntimeStatus.Type;
 
-export const SymphonyLinearMutationType = Schema.Literals([
-  "comment",
-  "pr-link-comment",
-  "state-transition",
-  "add-labels",
-  "remove-labels",
-  "blocked-status",
-]);
-export type SymphonyLinearMutationType = typeof SymphonyLinearMutationType.Type;
-
 export const SymphonyTrackerConfig = Schema.Struct({
   kind: SymphonyTrackerKind.pipe(Schema.withDecodingDefault(Effect.succeed("linear" as const))),
   endpoint: TrimmedString.pipe(
     Schema.withDecodingDefault(Effect.succeed("https://api.linear.app/graphql")),
   ),
-  apiKeyRef: Schema.optional(Schema.NullOr(TrimmedString)),
   projectSlug: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
-  assignee: Schema.optional(Schema.NullOr(TrimmedString)),
   activeStates: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(["Todo", "In Progress"])),
   ),
@@ -129,7 +109,6 @@ export const SymphonyHooksConfig = Schema.Struct({
   afterCreate: Schema.optional(Schema.NullOr(Schema.String)),
   beforeRun: Schema.optional(Schema.NullOr(Schema.String)),
   afterRun: Schema.optional(Schema.NullOr(Schema.String)),
-  beforeRemove: Schema.optional(Schema.NullOr(Schema.String)),
   timeoutMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(60_000))),
 });
 export type SymphonyHooksConfig = typeof SymphonyHooksConfig.Type;
@@ -138,22 +117,8 @@ export const SymphonyAgentConfig = Schema.Struct({
   maxConcurrentAgents: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(10))),
   maxTurns: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(20))),
   maxRetryBackoffMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(300_000))),
-  maxConcurrentAgentsByState: Schema.Record(TrimmedNonEmptyString, PositiveInt).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
 });
 export type SymphonyAgentConfig = typeof SymphonyAgentConfig.Type;
-
-export const SymphonyCodexConfig = Schema.Struct({
-  command: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("codex app-server"))),
-  approvalPolicy: Schema.Unknown.pipe(Schema.withDecodingDefault(Effect.succeed("on-request"))),
-  threadSandbox: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("workspace-write"))),
-  turnSandboxPolicy: Schema.optional(Schema.NullOr(Schema.Unknown)),
-  turnTimeoutMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(3_600_000))),
-  readTimeoutMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(5_000))),
-  stallTimeoutMs: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(300_000))),
-});
-export type SymphonyCodexConfig = typeof SymphonyCodexConfig.Type;
 
 export const SymphonyWorkflowConfig = Schema.Struct({
   tracker: SymphonyTrackerConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -161,7 +126,6 @@ export const SymphonyWorkflowConfig = Schema.Struct({
   workspace: SymphonyWorkspaceConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   hooks: SymphonyHooksConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agent: SymphonyAgentConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  codex: SymphonyCodexConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SymphonyWorkflowConfig = typeof SymphonyWorkflowConfig.Type;
 
@@ -238,12 +202,6 @@ export const SymphonyRun = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type SymphonyRun = typeof SymphonyRun.Type;
-
-export const SymphonyLinearMutation = Schema.Struct({
-  type: SymphonyLinearMutationType,
-  payload: Schema.Record(Schema.String, Schema.Unknown),
-});
-export type SymphonyLinearMutation = typeof SymphonyLinearMutation.Type;
 
 export const SymphonyEvent = Schema.Struct({
   eventId: TrimmedNonEmptyString,
@@ -328,10 +286,3 @@ export const SymphonyIssueActionInput = Schema.Struct({
   issueId: SymphonyIssueId,
 });
 export type SymphonyIssueActionInput = typeof SymphonyIssueActionInput.Type;
-
-export const SymphonyApplyLinearMutationInput = Schema.Struct({
-  projectId: ProjectId,
-  issueId: SymphonyIssueId,
-  mutation: SymphonyLinearMutation,
-});
-export type SymphonyApplyLinearMutationInput = typeof SymphonyApplyLinearMutationInput.Type;

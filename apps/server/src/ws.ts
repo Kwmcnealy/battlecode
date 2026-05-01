@@ -923,18 +923,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             { "rpc.aggregate": "symphony" },
           ),
-        [SYMPHONY_WS_METHODS.applyLinearMutation]: (input) =>
-          observeRpcEffect(
-            SYMPHONY_WS_METHODS.applyLinearMutation,
-            symphony
-              .applyLinearMutation(input)
-              .pipe(
-                Effect.mapError((cause) =>
-                  toSymphonyError(cause, "Failed to apply Symphony Linear mutation"),
-                ),
-              ),
-            { "rpc.aggregate": "symphony" },
-          ),
         [SYMPHONY_WS_METHODS.openLinkedThread]: (input) =>
           observeRpcEffect(
             SYMPHONY_WS_METHODS.openLinkedThread,

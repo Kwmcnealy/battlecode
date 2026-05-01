@@ -55,7 +55,6 @@ import type { EnvironmentId, ThreadId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 import type {
-  SymphonyApplyLinearMutationInput,
   SymphonyIssueActionInput,
   SymphonyProjectInput,
   SymphonySecretStatus,
@@ -315,7 +314,6 @@ export interface EnvironmentApi {
     refresh: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
     stopIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     retryIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
-    applyLinearMutation: (input: SymphonyApplyLinearMutationInput) => Promise<SymphonySnapshot>;
     openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
     subscribe: (
       input: SymphonyProjectInput,

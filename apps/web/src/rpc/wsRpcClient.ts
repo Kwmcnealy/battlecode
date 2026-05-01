@@ -138,7 +138,6 @@ export interface WsRpcClient {
     readonly refresh: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.refresh>;
     readonly stopIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.stopIssue>;
     readonly retryIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.retryIssue>;
-    readonly applyLinearMutation: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.applyLinearMutation>;
     readonly openLinkedThread: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.openLinkedThread>;
   };
 }
@@ -305,8 +304,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[SYMPHONY_WS_METHODS.stopIssue](input)),
       retryIssue: (input) =>
         transport.request((client) => client[SYMPHONY_WS_METHODS.retryIssue](input)),
-      applyLinearMutation: (input) =>
-        transport.request((client) => client[SYMPHONY_WS_METHODS.applyLinearMutation](input)),
       openLinkedThread: (input) =>
         transport.request((client) => client[SYMPHONY_WS_METHODS.openLinkedThread](input)),
     },
