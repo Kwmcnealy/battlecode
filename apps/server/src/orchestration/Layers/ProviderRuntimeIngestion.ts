@@ -162,6 +162,16 @@ function orchestrationSessionStatusFromRuntimeState(
   }
 }
 
+function resolveSessionStateChangedStatus(input: {
+  readonly status: ReturnType<typeof orchestrationSessionStatusFromRuntimeState>;
+  readonly activeTurnId: TurnId | null;
+}): ReturnType<typeof orchestrationSessionStatusFromRuntimeState> {
+  if (input.activeTurnId !== null && (input.status === "ready" || input.status === "starting")) {
+    return "running";
+  }
+  return input.status;
+}
+
 function requestKindFromCanonicalRequestType(
   requestType: string | undefined,
 ): "command" | "file-read" | "file-change" | undefined {
@@ -1218,7 +1228,10 @@ const make = Effect.gen(function* () {
         const status = (() => {
           switch (event.type) {
             case "session.state.changed":
-              return orchestrationSessionStatusFromRuntimeState(event.payload.state);
+              return resolveSessionStateChangedStatus({
+                status: orchestrationSessionStatusFromRuntimeState(event.payload.state),
+                activeTurnId,
+              });
             case "turn.started":
               return "running";
             case "session.exited":
