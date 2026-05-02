@@ -85,8 +85,12 @@ export function IssueQueueTable({
               run.executionTarget === "codex-cloud"
                 ? (run.cloudTask?.taskUrl ?? run.issue.url)
                 : null;
+            const canRefreshCloudStatus =
+              run.executionTarget === "codex-cloud" && run.status === "cloud-submitted";
             const cloudMessage =
-              run.executionTarget === "codex-cloud" ? run.cloudTask?.lastMessage : null;
+              run.executionTarget === "codex-cloud"
+                ? (run.cloudTask?.lastMessage ?? run.lastError)
+                : null;
             return (
               <tr
                 key={run.runId}
@@ -116,7 +120,7 @@ export function IssueQueueTable({
                       title={cloudMessage}
                       className={cn(
                         "mt-1 line-clamp-2 max-w-[14rem] break-words text-[11px] leading-snug",
-                        run.cloudTask?.status === "failed"
+                        run.cloudTask?.status === "failed" || run.status === "failed"
                           ? "text-destructive"
                           : "text-muted-foreground",
                       )}
@@ -167,15 +171,17 @@ export function IssueQueueTable({
                             {run.cloudTask?.taskUrl ? "Open Codex Task" : "Open Linear Issue"}
                           </Button>
                         ) : null}
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={busyAction !== null}
-                          onClick={() => onIssueAction("refresh-cloud", run)}
-                        >
-                          <RefreshCwIcon className="size-3" />
-                          Refresh Cloud Status
-                        </Button>
+                        {canRefreshCloudStatus ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            disabled={busyAction !== null}
+                            onClick={() => onIssueAction("refresh-cloud", run)}
+                          >
+                            <RefreshCwIcon className="size-3" />
+                            Refresh Cloud Status
+                          </Button>
+                        ) : null}
                       </>
                     ) : null}
                     {canLaunch ? (

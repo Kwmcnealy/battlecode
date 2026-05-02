@@ -978,7 +978,7 @@ const makeSymphonyService = Effect.gen(function* () {
                 repositoryContext?.nameWithOwner ?? input.run.cloudTask?.repository ?? null,
               repositoryUrl:
                 repositoryContext?.httpsUrl ?? input.run.cloudTask?.repositoryUrl ?? null,
-              lastMessage: input.run.cloudTask?.lastMessage ?? null,
+              lastMessage: error.message,
               delegatedAt: delegatedAt ?? input.run.cloudTask?.delegatedAt ?? null,
               lastCheckedAt: failedAt,
             },

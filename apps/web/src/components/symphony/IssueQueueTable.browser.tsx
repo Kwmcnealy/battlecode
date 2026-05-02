@@ -181,4 +181,63 @@ describe("IssueQueueTable", () => {
       await screen.unmount();
     }
   });
+
+  it("shows launch failure diagnostics without cloud refresh on terminal rows", async () => {
+    const screen = await render(
+      <IssueQueueTable
+        runs={[
+          makeRun({
+            status: "failed",
+            executionTarget: "codex-cloud",
+            issue: {
+              id: SymphonyIssueId.make("issue-app-2"),
+              identifier: "APP-2",
+              title: "Submit cloud run",
+              description: null,
+              priority: null,
+              state: "Todo",
+              branchName: null,
+              url: "https://linear.app/t3/issue/APP-2",
+              labels: [],
+              blockedBy: [],
+              createdAt: CREATED_AT,
+              updatedAt: CREATED_AT,
+            },
+            cloudTask: {
+              provider: "codex-cloud-linear",
+              status: "failed",
+              taskUrl: null,
+              linearCommentId: null,
+              linearCommentUrl: null,
+              repository: null,
+              repositoryUrl: null,
+              delegatedAt: null,
+              lastCheckedAt: CREATED_AT,
+              lastMessage: null,
+            },
+            lastError: "Codex Cloud requires a GitHub origin remote for this project.",
+          }),
+        ]}
+        busyAction={null}
+        selectedRunId={null}
+        onSelectRun={vi.fn()}
+        onIssueAction={vi.fn()}
+        onOpenLinkedThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await expect
+        .element(page.getByText("Codex Cloud requires a GitHub origin remote for this project."))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByRole("link", { name: /Open Linear Issue/i }))
+        .toHaveAttribute("href", "https://linear.app/t3/issue/APP-2");
+      await expect
+        .element(page.getByRole("button", { name: /Refresh Cloud Status/i }))
+        .not.toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+    }
+  });
 });
