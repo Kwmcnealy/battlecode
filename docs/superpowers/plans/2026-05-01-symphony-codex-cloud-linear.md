@@ -127,7 +127,10 @@ Implement `parseGitHubRepositoryFromRemoteUrl(remoteUrl: string): CodexCloudRepo
 
 ```ts
 const parsePath = (path: string): { owner: string; repo: string } | null => {
-  const parts = path.replace(/^\/+/, "").replace(/\.git$/i, "").split("/");
+  const parts = path
+    .replace(/^\/+/, "")
+    .replace(/\.git$/i, "")
+    .split("/");
   const [owner, repo] = parts;
   if (!owner || !repo || parts.length !== 2) return null;
   return { owner, repo };
@@ -216,23 +219,21 @@ Append:
 ```ts
 describe("classifyCodexCloudReply", () => {
   it("detects task links", () => {
-    expect(
-      classifyCodexCloudReply("Track it at https://codex.openai.com/tasks/task_123."),
-    ).toEqual({
-      status: "detected",
-      taskUrl: "https://codex.openai.com/tasks/task_123",
-      message: null,
-    });
+    expect(classifyCodexCloudReply("Track it at https://codex.openai.com/tasks/task_123.")).toEqual(
+      {
+        status: "detected",
+        taskUrl: "https://codex.openai.com/tasks/task_123",
+        message: null,
+      },
+    );
   });
 
   it("classifies setup failures", () => {
-    expect(classifyCodexCloudReply("No suitable environment or repository is available.")).toEqual(
-      {
-        status: "failed",
-        taskUrl: null,
-        message: "No suitable environment or repository is available.",
-      },
-    );
+    expect(classifyCodexCloudReply("No suitable environment or repository is available.")).toEqual({
+      status: "failed",
+      taskUrl: null,
+      message: "No suitable environment or repository is available.",
+    });
   });
 });
 ```
@@ -244,7 +245,7 @@ Add `classifyCodexCloudReply(text: string | null): CodexCloudReplyClassification
 Detect task URLs with:
 
 ```ts
-/https:\/\/codex\.openai\.com\/[^\s)]+/i
+/https:\/\/codex\.openai\.com\/[^\s)]+/i;
 ```
 
 Return `failed` when the lower-cased text contains any of:
@@ -499,7 +500,7 @@ Delete the existing `buildCloudDelegationComment` function from `SymphonyService
 
 In `launchCodexCloudRun`, before `createLinearComment`, compute:
 
-```ts
+```text
 const repositoryContext = yield* resolveCodexCloudRepository(input.projectRoot);
 const branchName = input.run.branchName ?? branchNameForIssue(input.run.issue.identifier);
 const body = buildCodexCloudDelegationComment({
@@ -666,13 +667,13 @@ Expected: FAIL because `toggleSymphonyExpanded` currently treats missing state a
 In `apps/web/src/uiStateStore.ts`, change:
 
 ```ts
-state.symphonyExpandedByProjectKey[projectKey] ?? true
+state.symphonyExpandedByProjectKey[projectKey] ?? true;
 ```
 
 to:
 
 ```ts
-state.symphonyExpandedByProjectKey[projectKey] ?? false
+state.symphonyExpandedByProjectKey[projectKey] ?? false;
 ```
 
 in both `setSymphonyExpanded` and `toggleSymphonyExpanded`.
@@ -680,7 +681,7 @@ in both `setSymphonyExpanded` and `toggleSymphonyExpanded`.
 In `apps/web/src/components/Sidebar.tsx`, change the selector fallback:
 
 ```ts
-state.symphonyExpandedByProjectKey[project.projectKey] ?? false
+state.symphonyExpandedByProjectKey[project.projectKey] ?? false;
 ```
 
 - [ ] **Step 4: Run store and sidebar logic tests**
@@ -712,20 +713,20 @@ git commit -m "fix(web): default Symphony sidebar groups collapsed"
 In `SidebarSymphonySection`, replace:
 
 ```tsx
-hasActiveSymphony ? "symphony-sidebar-active-text" : "text-primary"
+hasActiveSymphony ? "symphony-sidebar-active-text" : "text-primary";
 ```
 
 with:
 
 ```tsx
-hasActiveSymphony ? "text-destructive" : "text-primary"
+hasActiveSymphony ? "text-destructive" : "text-primary";
 ```
 
 - [ ] **Step 2: Add red dots next to the row count**
 
 Immediately before the count span, render:
 
-```tsx
+```text
 {hasActiveSymphony ? (
   <span
     className="inline-flex shrink-0 items-center gap-[3px]"
