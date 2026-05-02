@@ -12,7 +12,7 @@ const CREATED_AT = "2026-04-30T12:00:00.000Z";
 
 function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
   const issueId = SymphonyIssueId.make(`issue-${overrides.status ?? "pending"}`);
-  return {
+  const baseRun: SymphonyRun = {
     runId: SymphonyRunId.make(`run-${overrides.status ?? "pending"}`),
     projectId: PROJECT_ID,
     issue: {
@@ -41,7 +41,14 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
     lastError: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+  };
+  return {
+    ...baseRun,
     ...overrides,
+    issue: {
+      ...baseRun.issue,
+      ...overrides.issue,
+    },
   };
 }
 
@@ -89,6 +96,10 @@ describe("IssueQueueTable", () => {
               status: "detected",
               taskUrl: "https://codex.openai.com/tasks/task-123",
               linearCommentId: "comment-1",
+              linearCommentUrl: null,
+              repository: null,
+              repositoryUrl: null,
+              lastMessage: null,
               delegatedAt: CREATED_AT,
               lastCheckedAt: CREATED_AT,
             },
@@ -107,6 +118,65 @@ describe("IssueQueueTable", () => {
       await expect
         .element(page.getByRole("link", { name: /Open Codex Task/i }))
         .toHaveAttribute("href", "https://codex.openai.com/tasks/task-123");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("shows cloud setup diagnostics and Linear fallback actions for failed cloud replies", async () => {
+    const screen = await render(
+      <IssueQueueTable
+        runs={[
+          makeRun({
+            status: "cloud-submitted",
+            executionTarget: "codex-cloud",
+            issue: {
+              id: SymphonyIssueId.make("issue-app-1"),
+              identifier: "APP-1",
+              title: "Prepare cloud setup",
+              description: null,
+              priority: null,
+              state: "Todo",
+              branchName: null,
+              url: "https://linear.app/t3/issue/APP-1",
+              labels: [],
+              blockedBy: [],
+              createdAt: CREATED_AT,
+              updatedAt: CREATED_AT,
+            },
+            cloudTask: {
+              provider: "codex-cloud-linear",
+              status: "failed",
+              taskUrl: null,
+              linearCommentId: "comment-setup",
+              linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-setup",
+              repository: "openai/codex",
+              repositoryUrl: "https://github.com/openai/codex",
+              delegatedAt: "2026-05-01T10:00:00.000Z",
+              lastCheckedAt: "2026-05-01T10:01:00.000Z",
+              lastMessage: "No suitable environment or repository is available.",
+            },
+          }),
+        ]}
+        busyAction={null}
+        selectedRunId={null}
+        onSelectRun={vi.fn()}
+        onIssueAction={vi.fn()}
+        onOpenLinkedThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await expect.element(page.getByText("Codex Cloud")).toBeInTheDocument();
+      await expect
+        .element(page.getByText("No suitable environment or repository is available."))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByRole("link", { name: /Open Linear Issue/i }))
+        .toHaveAttribute("href", "https://linear.app/t3/issue/APP-1");
+      await expect
+        .element(page.getByRole("button", { name: /Refresh Cloud Status/i }))
+        .toBeInTheDocument();
     } finally {
       await screen.unmount();
     }
