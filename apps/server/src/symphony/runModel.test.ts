@@ -53,6 +53,8 @@ describe("Symphony run model", () => {
       makeRunWithStatus("running"),
       makeRunWithStatus("retry-queued"),
       makeRunWithStatus("cloud-submitted"),
+      makeRunWithStatus("cloud-running"),
+      makeRunWithStatus("review-ready"),
       makeRunWithStatus("completed"),
       makeRunWithStatus("released"),
       makeRunWithStatus("failed"),
@@ -61,9 +63,17 @@ describe("Symphony run model", () => {
 
     expect(queues.pendingTarget).toHaveLength(1);
     expect(queues.eligible).toHaveLength(1);
-    expect(queues.running.map((run) => run.status)).toEqual(["running", "cloud-submitted"]);
+    expect(queues.running.map((run) => run.status)).toEqual([
+      "running",
+      "cloud-submitted",
+      "cloud-running",
+    ]);
     expect(queues.retrying).toHaveLength(1);
-    expect(queues.completed.map((run) => run.status)).toEqual(["completed", "released"]);
+    expect(queues.completed.map((run) => run.status)).toEqual([
+      "review-ready",
+      "completed",
+      "released",
+    ]);
     expect(queues.failed).toHaveLength(1);
     expect(queues.canceled).toHaveLength(1);
   });

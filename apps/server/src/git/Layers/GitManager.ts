@@ -264,7 +264,7 @@ function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
-    updatedAt: null,
+    updatedAt: summary.updatedAt ?? null,
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),

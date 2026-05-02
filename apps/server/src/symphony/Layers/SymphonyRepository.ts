@@ -6,8 +6,10 @@ import {
   SymphonyExecutionTarget,
   SymphonyIssue,
   SymphonyIssueId,
+  SymphonyPullRequestSummary,
   SymphonyRun,
   SymphonyRunAttempt,
+  SymphonyRunProgress,
   SymphonyRunId,
   SymphonySecretStatus,
   SymphonySettings,
@@ -47,6 +49,8 @@ interface RunRow {
   readonly prUrl: string | null;
   readonly executionTarget: string | null;
   readonly cloudTask: string | null;
+  readonly pullRequest: string | null;
+  readonly currentStep: string | null;
   readonly attempts: string;
   readonly nextRetryAt: string | null;
   readonly lastError: string | null;
@@ -81,6 +85,8 @@ const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValida
 const decodeSecretStatus = Schema.decodeUnknownSync(SymphonySecretStatus);
 const decodeExecutionTarget = Schema.decodeUnknownSync(SymphonyExecutionTarget);
 const decodeCloudTask = Schema.decodeUnknownSync(SymphonyCloudTask);
+const decodePullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary);
+const decodeRunProgress = Schema.decodeUnknownSync(SymphonyRunProgress);
 const decodeIssue = Schema.decodeUnknownSync(SymphonyIssue);
 const decodeRunAttemptArray = Schema.decodeUnknownSync(Schema.Array(SymphonyRunAttempt));
 const decodeRun = Schema.decodeUnknownSync(SymphonyRun);
@@ -174,6 +180,14 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       row.cloudTask === null
         ? null
         : yield* decodeJson("SymphonyRepository.run.cloudTask", row.cloudTask);
+    const pullRequestJson =
+      row.pullRequest === null
+        ? null
+        : yield* decodeJson("SymphonyRepository.run.pullRequest", row.pullRequest);
+    const currentStepJson =
+      row.currentStep === null
+        ? null
+        : yield* decodeJson("SymphonyRepository.run.currentStep", row.currentStep);
     const issue = yield* decodeWith("SymphonyRepository.run.issue.decode", decodeIssue, issueJson);
     const attempts = yield* decodeWith(
       "SymphonyRepository.run.attempts.decode",
@@ -196,6 +210,22 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
             decodeCloudTask,
             cloudTaskJson,
           );
+    const pullRequest =
+      pullRequestJson === null
+        ? null
+        : yield* decodeWith(
+            "SymphonyRepository.run.pullRequest.decode",
+            decodePullRequest,
+            pullRequestJson,
+          );
+    const currentStep =
+      currentStepJson === null
+        ? null
+        : yield* decodeWith(
+            "SymphonyRepository.run.currentStep.decode",
+            decodeRunProgress,
+            currentStepJson,
+          );
     return yield* decodeWith("SymphonyRepository.decodeRunRow", decodeRun, {
       runId: yield* decodeRunId(row.runId),
       projectId: yield* decodeProjectId(row.projectId),
@@ -207,6 +237,8 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       prUrl: row.prUrl,
       executionTarget,
       cloudTask,
+      pullRequest,
+      currentStep,
       attempts,
       nextRetryAt: row.nextRetryAt,
       lastError: row.lastError,
@@ -339,6 +371,8 @@ const makeRepository = Effect.gen(function* () {
         pr_url AS "prUrl",
         execution_target AS "executionTarget",
         cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -365,6 +399,8 @@ const makeRepository = Effect.gen(function* () {
         pr_url AS "prUrl",
         execution_target AS "executionTarget",
         cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -394,6 +430,8 @@ const makeRepository = Effect.gen(function* () {
         pr_url AS "prUrl",
         execution_target AS "executionTarget",
         cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -425,6 +463,8 @@ const makeRepository = Effect.gen(function* () {
         pr_url,
         execution_target,
         cloud_task_json,
+        pull_request_json,
+        current_step_json,
         attempts_json,
         next_retry_at,
         last_error,
@@ -444,6 +484,8 @@ const makeRepository = Effect.gen(function* () {
         ${run.prUrl},
         ${run.executionTarget},
         ${run.cloudTask ? JSON.stringify(run.cloudTask) : null},
+        ${run.pullRequest ? JSON.stringify(run.pullRequest) : null},
+        ${run.currentStep ? JSON.stringify(run.currentStep) : null},
         ${JSON.stringify(run.attempts)},
         ${run.nextRetryAt},
         ${run.lastError},
@@ -460,6 +502,8 @@ const makeRepository = Effect.gen(function* () {
         pr_url = excluded.pr_url,
         execution_target = excluded.execution_target,
         cloud_task_json = excluded.cloud_task_json,
+        pull_request_json = excluded.pull_request_json,
+        current_step_json = excluded.current_step_json,
         attempts_json = excluded.attempts_json,
         next_retry_at = excluded.next_retry_at,
         last_error = excluded.last_error,

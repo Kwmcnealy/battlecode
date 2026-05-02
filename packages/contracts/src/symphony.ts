@@ -58,6 +58,8 @@ export const SymphonyRunStatus = Schema.Literals([
   "running",
   "retry-queued",
   "cloud-submitted",
+  "cloud-running",
+  "review-ready",
   "completed",
   "failed",
   "canceled",
@@ -135,6 +137,29 @@ export const SymphonyTrackerConfig = Schema.Struct({
       Effect.succeed(["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]),
     ),
   ),
+  reviewStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["In Review", "Review"])),
+  ),
+  doneStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["Done", "Closed"])),
+  ),
+  canceledStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["Canceled", "Cancelled"])),
+  ),
+  transitionStates: Schema.Struct({
+    started: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed(null)),
+    ),
+    review: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed(null)),
+    ),
+    done: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed(null)),
+    ),
+    canceled: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed(null)),
+    ),
+  }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SymphonyTrackerConfig = typeof SymphonyTrackerConfig.Type;
 
@@ -232,6 +257,25 @@ export const SymphonyRunAttempt = Schema.Struct({
 });
 export type SymphonyRunAttempt = typeof SymphonyRunAttempt.Type;
 
+export const SymphonyPullRequestSummary = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  url: Schema.String,
+  baseBranch: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  updatedAt: IsoDateTime,
+});
+export type SymphonyPullRequestSummary = typeof SymphonyPullRequestSummary.Type;
+
+export const SymphonyRunProgress = Schema.Struct({
+  source: Schema.Literals(["symphony", "linear", "local-thread", "codex-cloud", "github"]),
+  label: TrimmedNonEmptyString,
+  detail: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+export type SymphonyRunProgress = typeof SymphonyRunProgress.Type;
+
 export const SymphonyRun = Schema.Struct({
   runId: SymphonyRunId,
   projectId: ProjectId,
@@ -245,6 +289,14 @@ export const SymphonyRun = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   cloudTask: Schema.NullOr(SymphonyCloudTask).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  pullRequest: Schema.NullOr(SymphonyPullRequestSummary).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  currentStep: Schema.NullOr(SymphonyRunProgress).pipe(
+    Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   attempts: Schema.Array(SymphonyRunAttempt),

@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
+import type { ProviderKind, ServerProvider, SymphonyRun } from "@t3tools/contracts";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -18,6 +18,15 @@ export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // nearby thread usually reuses an already-hot subscription.
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export type SidebarNewThreadEnvMode = "local" | "worktree";
+export type SymphonySidebarRunClickTarget =
+  | {
+      kind: "thread";
+      threadId: NonNullable<SymphonyRun["threadId"]>;
+    }
+  | {
+      kind: "details";
+      runId: SymphonyRun["runId"];
+    };
 type SidebarProject = {
   id: string;
   name: string;
@@ -212,6 +221,30 @@ export function resolveSidebarNewThreadSeedContext(input: {
 
   return {
     envMode: input.defaultEnvMode,
+  };
+}
+
+export function symphonyRunIsSidebarActive(run: Pick<SymphonyRun, "status">): boolean {
+  return (
+    run.status === "running" ||
+    run.status === "cloud-submitted" ||
+    run.status === "cloud-running" ||
+    run.status === "retry-queued"
+  );
+}
+
+export function resolveSymphonySidebarRunClickTarget(
+  run: Pick<SymphonyRun, "executionTarget" | "runId" | "threadId">,
+): SymphonySidebarRunClickTarget {
+  if (run.executionTarget === "local" && run.threadId) {
+    return {
+      kind: "thread",
+      threadId: run.threadId,
+    };
+  }
+  return {
+    kind: "details",
+    runId: run.runId,
   };
 }
 

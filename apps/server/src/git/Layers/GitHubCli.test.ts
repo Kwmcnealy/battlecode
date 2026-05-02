@@ -58,6 +58,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -69,7 +70,7 @@ layer("GitHubCliLive", (it) => {
           "view",
           "#42",
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
         expect.objectContaining({ cwd: "/repo" }),
       );
@@ -116,6 +117,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -170,6 +172,7 @@ layer("GitHubCliLive", (it) => {
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
+          updatedAt: null,
         },
       ]);
     }),

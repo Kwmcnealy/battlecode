@@ -156,9 +156,79 @@ query SymphonyIssueComments($issueId: String!) {
 }
 `;
 
+const LINEAR_ISSUES_BY_IDS_QUERY = `
+query SymphonyIssuesByIds($ids: [String!]) {
+  issues(first: 100, filter: { id: { in: $ids } }) {
+    nodes {
+      id
+      identifier
+      title
+      description
+      priority
+      url
+      branchName
+      createdAt
+      updatedAt
+      team { id name key }
+      state { id name }
+      labels { nodes { name } }
+      relations { nodes { type relatedIssue { id identifier state { name } } } }
+    }
+  }
+}
+`;
+
+const LINEAR_WORKFLOW_STATES_QUERY = `
+query SymphonyWorkflowStates($teamId: String!) {
+  workflowStates(first: 100, filter: { team: { id: { eq: $teamId } } }) {
+    nodes {
+      id
+      name
+      team { id name key }
+    }
+  }
+}
+`;
+
+const LINEAR_UPDATE_ISSUE_STATE_MUTATION = `
+mutation SymphonyUpdateIssueState($issueId: String!, $stateId: String!) {
+  issueUpdate(id: $issueId, input: { stateId: $stateId }) {
+    success
+    issue {
+      id
+      identifier
+      state { id name }
+    }
+  }
+}
+`;
+
 export interface LinearCommentResult {
   readonly id: string;
   readonly url: string | null;
+}
+
+export interface LinearWorkflowTeam {
+  readonly id: string;
+  readonly name: string | null;
+  readonly key: string | null;
+}
+
+export interface LinearWorkflowState {
+  readonly id: string;
+  readonly name: string;
+}
+
+export interface LinearIssueWorkflowContext {
+  readonly issue: SymphonyIssue;
+  readonly team: LinearWorkflowTeam;
+  readonly state: LinearWorkflowState;
+}
+
+export interface LinearIssueStateUpdateResult {
+  readonly changed: boolean;
+  readonly stateId: string;
+  readonly stateName: string;
 }
 
 export interface LinearCodexTaskDetection {
@@ -205,6 +275,45 @@ function linearGraphql(input: {
         cause,
       }),
   });
+}
+
+function normalizeLinearWorkflowTeam(value: unknown): LinearWorkflowTeam | null {
+  const team = readRecord(value);
+  const id = team ? readString(team.id) : null;
+  if (!team || !id) {
+    return null;
+  }
+  return {
+    id,
+    name: readString(team.name),
+    key: readString(team.key),
+  };
+}
+
+function normalizeLinearWorkflowState(value: unknown): LinearWorkflowState | null {
+  const state = readRecord(value);
+  const id = state ? readString(state.id) : null;
+  const name = state ? readString(state.name) : null;
+  if (!state || !id || !name) {
+    return null;
+  }
+  return { id, name };
+}
+
+function normalizeLinearIssueWorkflowContext(
+  node: Record<string, unknown>,
+): LinearIssueWorkflowContext | null {
+  const issue = normalizeLinearIssue(node);
+  const team = normalizeLinearWorkflowTeam(node.team);
+  const state = normalizeLinearWorkflowState(node.state);
+  if (!issue || !team || !state) {
+    return null;
+  }
+  return {
+    issue,
+    team,
+    state,
+  };
 }
 
 export function testLinearConnection(input: {
@@ -341,6 +450,167 @@ export function detectLinearCodexTask(input: {
         message: null,
       };
     }),
+  );
+}
+
+export function fetchLinearIssuesByIds(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly issueIds: readonly string[];
+}): Effect.Effect<readonly LinearIssueWorkflowContext[], SymphonyError> {
+  const issueIds = [...new Set(input.issueIds.filter((id) => id.trim().length > 0))];
+  if (issueIds.length === 0) {
+    return Effect.succeed([]);
+  }
+
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_ISSUES_BY_IDS_QUERY,
+    variables: {
+      ids: issueIds,
+    },
+  }).pipe(
+    Effect.map((body) => {
+      const data = readNestedRecord(body, "data");
+      const issues = data ? readNestedRecord(data, "issues") : null;
+      const nodes = issues ? readArray(issues.nodes) : [];
+      return nodes.flatMap((node) => {
+        const record = readRecord(node);
+        const normalized = record ? normalizeLinearIssueWorkflowContext(record) : null;
+        return normalized ? [normalized] : [];
+      });
+    }),
+  );
+}
+
+function namesMatch(left: string, right: string): boolean {
+  return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
+}
+
+export function resolveLinearWorkflowStateId(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly teamId: string;
+  readonly stateName: string;
+}): Effect.Effect<LinearWorkflowState, SymphonyError> {
+  const targetStateName = input.stateName.trim();
+  if (targetStateName.length === 0) {
+    return Effect.fail(new SymphonyError({ message: "Linear workflow state name is required." }));
+  }
+
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_WORKFLOW_STATES_QUERY,
+    variables: {
+      teamId: input.teamId,
+    },
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const workflowStates = data ? readNestedRecord(data, "workflowStates") : null;
+          const nodes = workflowStates ? readArray(workflowStates.nodes) : [];
+          const states = nodes.flatMap((node) => {
+            const record = readRecord(node);
+            const state = record ? normalizeLinearWorkflowState(record) : null;
+            return state ? [state] : [];
+          });
+          const matchedState = states.find((state) => namesMatch(state.name, targetStateName));
+          if (!matchedState) {
+            throw new Error(`Linear workflow state "${targetStateName}" was not found.`);
+          }
+          return matchedState;
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message:
+              cause instanceof Error
+                ? cause.message
+                : `Failed to resolve Linear workflow state "${targetStateName}".`,
+            cause,
+          }),
+      }),
+    ),
+  );
+}
+
+export function updateLinearIssueState(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly issue: LinearIssueWorkflowContext;
+  readonly stateName: string;
+}): Effect.Effect<LinearIssueStateUpdateResult, SymphonyError, never> {
+  const targetStateName = input.stateName.trim();
+  if (targetStateName.length === 0) {
+    return Effect.fail(new SymphonyError({ message: "Linear workflow state name is required." }));
+  }
+  if (namesMatch(input.issue.state.name, targetStateName)) {
+    const result: LinearIssueStateUpdateResult = {
+      changed: false,
+      stateId: input.issue.state.id,
+      stateName: input.issue.state.name,
+    };
+    return Effect.succeed(result);
+  }
+
+  return resolveLinearWorkflowStateId({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    teamId: input.issue.team.id,
+    stateName: targetStateName,
+  }).pipe(
+    Effect.flatMap(
+      (targetState): Effect.Effect<LinearIssueStateUpdateResult, SymphonyError, never> => {
+        if (targetState.id === input.issue.state.id) {
+          const result: LinearIssueStateUpdateResult = {
+            changed: false,
+            stateId: targetState.id,
+            stateName: targetState.name,
+          };
+          return Effect.succeed(result);
+        }
+        return linearGraphql({
+          endpoint: input.endpoint,
+          apiKey: input.apiKey,
+          query: LINEAR_UPDATE_ISSUE_STATE_MUTATION,
+          variables: {
+            issueId: input.issue.issue.id,
+            stateId: targetState.id,
+          },
+        }).pipe(
+          Effect.flatMap((body) =>
+            Effect.try({
+              try: () => {
+                const data = readNestedRecord(body, "data");
+                const issueUpdate = data ? readNestedRecord(data, "issueUpdate") : null;
+                if (issueUpdate?.success !== true) {
+                  throw new Error("Linear did not update the issue state.");
+                }
+                const issue = issueUpdate ? readNestedRecord(issueUpdate, "issue") : null;
+                const state = issue ? normalizeLinearWorkflowState(issue.state) : null;
+                const result: LinearIssueStateUpdateResult = {
+                  changed: true,
+                  stateId: state?.id ?? targetState.id,
+                  stateName: state?.name ?? targetState.name,
+                };
+                return result;
+              },
+              catch: (cause) =>
+                new SymphonyError({
+                  message:
+                    cause instanceof Error
+                      ? cause.message
+                      : "Failed to parse Linear issue state update response.",
+                  cause,
+                }),
+            }),
+          ),
+        );
+      },
+    ),
   );
 }
 

@@ -19,6 +19,7 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatEnvironmentIdProjectProjectIdSymphonyRouteImport } from './routes/_chat.$environmentId.project.$projectId.symphony'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -70,6 +71,12 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatEnvironmentIdProjectProjectIdSymphonyRoute =
+  ChatEnvironmentIdProjectProjectIdSymphonyRouteImport.update({
+    id: '/$environmentId/project/$projectId/symphony',
+    path: '/$environmentId/project/$projectId/symphony',
+    getParentRoute: () => ChatRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/settings/symphony': typeof SettingsSymphonyRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/$environmentId/project/$projectId/symphony': typeof ChatEnvironmentIdProjectProjectIdSymphonyRoute
 }
 export interface FileRoutesByTo {
   '/pair': typeof PairRoute
@@ -92,6 +100,7 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/$environmentId/project/$projectId/symphony': typeof ChatEnvironmentIdProjectProjectIdSymphonyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,6 +114,7 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/_chat/$environmentId/project/$projectId/symphony': typeof ChatEnvironmentIdProjectProjectIdSymphonyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/settings/symphony'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/$environmentId/project/$projectId/symphony'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/pair'
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/$environmentId/project/$projectId/symphony'
   id:
     | '__root__'
     | '/_chat'
@@ -141,6 +153,7 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/_chat/$environmentId/project/$projectId/symphony'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -221,6 +234,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/$environmentId/project/$projectId/symphony': {
+      id: '/_chat/$environmentId/project/$projectId/symphony'
+      path: '/$environmentId/project/$projectId/symphony'
+      fullPath: '/$environmentId/project/$projectId/symphony'
+      preLoaderRoute: typeof ChatEnvironmentIdProjectProjectIdSymphonyRouteImport
+      parentRoute: typeof ChatRoute
+    }
   }
 }
 
@@ -228,12 +248,15 @@ interface ChatRouteChildren {
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
+  ChatEnvironmentIdProjectProjectIdSymphonyRoute: typeof ChatEnvironmentIdProjectProjectIdSymphonyRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
+  ChatEnvironmentIdProjectProjectIdSymphonyRoute:
+    ChatEnvironmentIdProjectProjectIdSymphonyRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)

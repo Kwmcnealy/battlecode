@@ -1,4 +1,5 @@
 import { WorkflowIcon } from "lucide-react";
+import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   EnvironmentId,
@@ -9,6 +10,7 @@ import type {
 } from "@t3tools/contracts";
 
 import { ensureEnvironmentApi } from "../../environmentApi";
+import { useUiStateStore } from "../../uiStateStore";
 import { Badge } from "../ui/badge";
 import { Spinner } from "../ui/spinner";
 import { IssueQueueTable } from "./IssueQueueTable";
@@ -36,9 +38,16 @@ export function SymphonyPanel({
   const [snapshot, setSnapshot] = useState<SymphonySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<SymphonyAction | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [linkedThreadBusy, setLinkedThreadBusy] = useState(false);
   const api = useMemo(() => ensureEnvironmentApi(environmentId), [environmentId]);
+  const projectKey = useMemo(
+    () => scopedProjectKey(scopeProjectRef(environmentId, projectId)),
+    [environmentId, projectId],
+  );
+  const selectedRunId = useUiStateStore(
+    (state) => state.selectedSymphonyRunByProjectKey[projectKey] ?? null,
+  );
+  const setSelectedSymphonyRun = useUiStateStore((state) => state.setSelectedSymphonyRun);
 
   const loadSnapshot = useCallback(async () => {
     const next = await api.symphony.getSnapshot({ projectId });
@@ -171,6 +180,12 @@ export function SymphonyPanel({
     ? (allRuns.find((run) => run.runId === selectedRunId) ?? null)
     : null;
 
+  useEffect(() => {
+    if (selectedRunId && snapshot && !selectedRun) {
+      setSelectedSymphonyRun(projectKey, null);
+    }
+  }, [projectKey, selectedRun, selectedRunId, setSelectedSymphonyRun, snapshot]);
+
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="border-b border-border bg-card/70 px-4 py-3 shadow-[inset_0_-1px_0_color-mix(in_srgb,var(--theme-primary)_18%,transparent)]">
@@ -211,7 +226,7 @@ export function SymphonyPanel({
             runs={allRuns}
             busyAction={busyAction}
             selectedRunId={selectedRunId}
-            onSelectRun={(run) => setSelectedRunId(run.runId)}
+            onSelectRun={(run) => setSelectedSymphonyRun(projectKey, run.runId)}
             onIssueAction={runIssueAction}
             onOpenLinkedThread={(run) => void openLinkedThread(run)}
           />
@@ -222,7 +237,7 @@ export function SymphonyPanel({
             open={selectedRun !== null}
             linkedThreadBusy={linkedThreadBusy}
             onOpenChange={(open) => {
-              if (!open) setSelectedRunId(null);
+              if (!open) setSelectedSymphonyRun(projectKey, null);
             }}
             onOpenLinkedThread={() => {
               if (selectedRun) void openLinkedThread(selectedRun);

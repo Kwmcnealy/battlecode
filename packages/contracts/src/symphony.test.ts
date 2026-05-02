@@ -3,7 +3,9 @@ import { Schema } from "effect";
 
 import {
   SymphonyCloudTask,
+  SymphonyPullRequestSummary,
   SymphonyRun,
+  SymphonyRunProgress,
   SymphonySnapshot,
   SymphonySettings,
   SymphonyUpdateExecutionDefaultInput,
@@ -30,6 +32,15 @@ describe("Symphony contracts", () => {
       "Duplicate",
       "Done",
     ]);
+    expect(config.tracker.reviewStates).toEqual(["In Review", "Review"]);
+    expect(config.tracker.doneStates).toEqual(["Done", "Closed"]);
+    expect(config.tracker.canceledStates).toEqual(["Canceled", "Cancelled"]);
+    expect(config.tracker.transitionStates).toEqual({
+      started: null,
+      review: null,
+      done: null,
+      canceled: null,
+    });
     expect(config.polling.intervalMs).toBe(30_000);
     expect(config.agent.maxConcurrentAgents).toBe(10);
     expect("codex" in config).toBe(false);
@@ -166,6 +177,63 @@ describe("Symphony contracts", () => {
     expect(run.executionTarget).toBe("codex-cloud");
     expect(run.cloudTask?.provider).toBe("codex-cloud-linear");
     expect(run.status).toBe("cloud-submitted");
+    expect(run.pullRequest).toBeNull();
+    expect(run.currentStep).toBeNull();
+  });
+
+  it("accepts review-ready runs with PR summaries and progress details", () => {
+    const pullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary)({
+      number: 42,
+      title: "Implement Symphony lifecycle",
+      url: "https://github.com/t3/battlecode/pull/42",
+      baseBranch: "development",
+      headBranch: "symphony/app-42",
+      state: "open",
+      updatedAt: "2026-05-02T12:00:00.000Z",
+    });
+    const currentStep = Schema.decodeUnknownSync(SymphonyRunProgress)({
+      source: "github",
+      label: "Pull request open",
+      detail: "Waiting for review or merge.",
+      updatedAt: "2026-05-02T12:00:00.000Z",
+    });
+
+    const run = Schema.decodeUnknownSync(SymphonyRun)({
+      runId: "run-2",
+      projectId: ProjectId.make("project-symphony"),
+      issue: {
+        id: "issue-2",
+        identifier: "BC-456",
+        title: "Track PR lifecycle",
+        description: null,
+        priority: null,
+        state: "In Review",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+      },
+      status: "review-ready",
+      workspacePath: "/repo/.worktrees/symphony/app-456",
+      branchName: "symphony/app-456",
+      threadId: null,
+      prUrl: pullRequest.url,
+      executionTarget: "local",
+      cloudTask: null,
+      pullRequest,
+      currentStep,
+      attempts: [],
+      nextRetryAt: null,
+      lastError: null,
+      createdAt: "2026-05-02T12:00:00.000Z",
+      updatedAt: "2026-05-02T12:00:00.000Z",
+    });
+
+    expect(run.status).toBe("review-ready");
+    expect(run.pullRequest?.state).toBe("open");
+    expect(run.currentStep?.source).toBe("github");
   });
 
   it("accepts execution default updates", () => {

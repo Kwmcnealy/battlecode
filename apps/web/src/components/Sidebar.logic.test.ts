@@ -15,10 +15,12 @@ import {
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarThreadProviderBadge,
+  resolveSymphonySidebarRunClickTarget,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
+  symphonyRunIsSidebarActive,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./Sidebar.logic";
 import {
@@ -26,6 +28,7 @@ import {
   OrchestrationLatestTurn,
   ProjectId,
   type ServerProvider,
+  SymphonyRunId,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -397,6 +400,43 @@ describe("resolveAdjacentThreadId", () => {
         direction: "previous",
       }),
     ).toBeNull();
+  });
+});
+
+describe("Symphony sidebar routing", () => {
+  it("treats only live execution states as active", () => {
+    expect(symphonyRunIsSidebarActive({ status: "running" })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "cloud-submitted" })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "cloud-running" })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "retry-queued" })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "target-pending" })).toBe(false);
+    expect(symphonyRunIsSidebarActive({ status: "review-ready" })).toBe(false);
+  });
+
+  it("routes local Symphony runs with threads to chat", () => {
+    expect(
+      resolveSymphonySidebarRunClickTarget({
+        executionTarget: "local",
+        runId: SymphonyRunId.make("run-local"),
+        threadId: ThreadId.make("thread-local"),
+      }),
+    ).toEqual({
+      kind: "thread",
+      threadId: ThreadId.make("thread-local"),
+    });
+  });
+
+  it("routes cloud Symphony runs to details", () => {
+    expect(
+      resolveSymphonySidebarRunClickTarget({
+        executionTarget: "codex-cloud",
+        runId: SymphonyRunId.make("run-cloud"),
+        threadId: null,
+      }),
+    ).toEqual({
+      kind: "details",
+      runId: SymphonyRunId.make("run-cloud"),
+    });
   });
 });
 

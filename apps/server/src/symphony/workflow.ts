@@ -105,6 +105,18 @@ tracker:
     - Done
     - Closed
     - Canceled
+  review_states:
+    - In Review
+  done_states:
+    - Done
+    - Closed
+  canceled_states:
+    - Canceled
+  transition_states:
+    started: In Progress
+    review: In Review
+    done: Done
+    canceled: Canceled
 polling:
   interval_ms: 30000
 agent:

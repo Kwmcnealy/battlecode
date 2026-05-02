@@ -124,9 +124,17 @@ export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queue
   return {
     pendingTarget: runs.filter((run) => run.status === "target-pending"),
     eligible: runs.filter((run) => run.status === "eligible"),
-    running: runs.filter((run) => run.status === "running" || run.status === "cloud-submitted"),
+    running: runs.filter(
+      (run) =>
+        run.status === "running" ||
+        run.status === "cloud-submitted" ||
+        run.status === "cloud-running",
+    ),
     retrying: runs.filter((run) => run.status === "retry-queued"),
-    completed: runs.filter((run) => run.status === "completed" || run.status === "released"),
+    completed: runs.filter(
+      (run) =>
+        run.status === "review-ready" || run.status === "completed" || run.status === "released",
+    ),
     failed: runs.filter((run) => run.status === "failed"),
     canceled: runs.filter((run) => run.status === "canceled"),
   };
@@ -173,6 +181,8 @@ export function makeRun(
     prUrl: null,
     executionTarget: null,
     cloudTask: null,
+    pullRequest: null,
+    currentStep: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,

@@ -129,11 +129,17 @@ export function RunDetailsDrawer({
                   Codex task
                 </Button>
               ) : null}
-              {run.prUrl ? (
+              {(run.pullRequest?.url ?? run.prUrl) ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  render={<a href={run.prUrl} target="_blank" rel="noreferrer" />}
+                  render={
+                    <a
+                      href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
                 >
                   <GitPullRequestIcon className="size-4" />
                   PR
@@ -147,7 +153,11 @@ export function RunDetailsDrawer({
                 <DetailRow label="Workspace" value={run.workspacePath} />
                 <DetailRow label="Branch" value={run.branchName} />
                 <DetailRow label="Thread" value={run.threadId} />
-                <DetailRow label="PR URL" value={run.prUrl} />
+                <DetailRow label="PR URL" value={run.pullRequest?.url ?? run.prUrl} />
+                <DetailRow label="PR state" value={run.pullRequest?.state ?? null} />
+                <DetailRow label="Linear state" value={run.issue.state} />
+                <DetailRow label="Current step" value={run.currentStep?.label ?? null} />
+                <DetailRow label="Step detail" value={run.currentStep?.detail ?? null} />
                 <DetailRow
                   label="Target"
                   value={run.executionTarget ? TARGET_LABEL[run.executionTarget] : null}

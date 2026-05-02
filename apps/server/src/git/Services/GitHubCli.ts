@@ -18,6 +18,7 @@ export interface GitHubPullRequestSummary {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state?: "open" | "closed" | "merged";
+  readonly updatedAt?: string | null;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
@@ -43,11 +44,12 @@ export interface GitHubCliShape {
   }) => Effect.Effect<ProcessRunResult, GitHubCliError>;
 
   /**
-   * List open pull requests for a head branch.
+   * List pull requests for a head branch. Defaults to open pull requests.
    */
   readonly listOpenPullRequests: (input: {
     readonly cwd: string;
     readonly headSelector: string;
+    readonly state?: "open" | "closed" | "all";
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 

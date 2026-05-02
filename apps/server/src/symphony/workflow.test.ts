@@ -8,6 +8,17 @@ describe("Symphony workflow parsing", () => {
 tracker:
   kind: linear
   project_slug: battlecode
+  review_states:
+    - QA
+  done_states:
+    - Shipped
+  canceled_states:
+    - Won't Do
+  transition_states:
+    started: In Progress
+    review: QA
+    done: Shipped
+    canceled: Won't Do
 polling:
   interval_ms: 5000
 agent:
@@ -21,6 +32,15 @@ Work on {{ issue.identifier }}.
 `);
 
     expect(workflow.config.tracker.projectSlug).toBe("battlecode");
+    expect(workflow.config.tracker.reviewStates).toEqual(["QA"]);
+    expect(workflow.config.tracker.doneStates).toEqual(["Shipped"]);
+    expect(workflow.config.tracker.canceledStates).toEqual(["Won't Do"]);
+    expect(workflow.config.tracker.transitionStates).toEqual({
+      started: "In Progress",
+      review: "QA",
+      done: "Shipped",
+      canceled: "Won't Do",
+    });
     expect(workflow.config.polling.intervalMs).toBe(5000);
     expect(workflow.config.agent.maxConcurrentAgents).toBe(3);
     expect(workflow.config.hooks.afterCreate).toBe("echo ready\n");

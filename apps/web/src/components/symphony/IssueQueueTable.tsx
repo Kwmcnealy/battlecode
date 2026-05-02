@@ -2,6 +2,7 @@ import {
   CloudIcon,
   ExternalLinkIcon,
   EyeIcon,
+  GitPullRequestIcon,
   MessageSquareIcon,
   PlayIcon,
   RefreshCwIcon,
@@ -26,6 +27,7 @@ const STOPPABLE_STATUSES = new Set<SymphonyRun["status"]>([
   "running",
   "retry-queued",
   "cloud-submitted",
+  "cloud-running",
 ]);
 const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>([
   "target-pending",
@@ -45,7 +47,8 @@ function getIssueQueueRowState(run: SymphonyRun) {
     canStop: STOPPABLE_STATUSES.has(run.status),
     targetLabel: run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose",
     taskHref,
-    canRefreshCloudStatus: isCloud && run.status === "cloud-submitted",
+    canRefreshCloudStatus:
+      isCloud && (run.status === "cloud-submitted" || run.status === "cloud-running"),
     cloudMessage: isCloud ? (run.cloudTask?.lastMessage ?? run.lastError) : null,
   };
 }
@@ -78,12 +81,13 @@ export function IssueQueueTable({
 
   return (
     <div className="overflow-auto border-b border-border/70">
-      <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+      <table className="w-full min-w-[920px] border-collapse text-left text-sm">
         <thead className="bg-muted/30 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
           <tr>
             <th className="px-4 py-2 font-medium">Issue</th>
             <th className="px-3 py-2 font-medium">State</th>
             <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 font-medium">Current Step</th>
             <th className="px-3 py-2 font-medium">Target</th>
             <th className="px-3 py-2 font-medium">Branch</th>
             <th className="px-3 py-2 font-medium">Thread / Task</th>
@@ -104,10 +108,18 @@ export function IssueQueueTable({
             return (
               <tr
                 key={run.runId}
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  "border-t border-border/60",
+                  "cursor-pointer border-t border-border/60 hover:bg-accent/35",
                   selectedRunId === run.runId && "bg-primary/5",
                 )}
+                onClick={() => onSelectRun(run)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onSelectRun(run);
+                }}
               >
                 <td className="max-w-[22rem] px-4 py-3">
                   <div className="flex min-w-0 flex-col gap-0.5">
@@ -139,6 +151,11 @@ export function IssueQueueTable({
                     </div>
                   ) : null}
                 </td>
+                <td className="max-w-[15rem] px-3 py-3 text-xs text-muted-foreground">
+                  <div className="line-clamp-2" title={run.currentStep?.detail ?? undefined}>
+                    {run.currentStep?.label ?? "-"}
+                  </div>
+                </td>
                 <td className="px-3 py-3">
                   <Badge variant="outline" className="whitespace-nowrap">
                     {targetLabel}
@@ -154,7 +171,14 @@ export function IssueQueueTable({
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button size="xs" variant="ghost" onClick={() => onSelectRun(run)}>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectRun(run);
+                      }}
+                    >
                       <EyeIcon className="size-3" />
                       Details
                     </Button>
@@ -163,7 +187,10 @@ export function IssueQueueTable({
                         size="xs"
                         variant="outline"
                         disabled={busyAction !== null}
-                        onClick={() => onOpenLinkedThread(run)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenLinkedThread(run);
+                        }}
                       >
                         <MessageSquareIcon className="size-3" />
                         Open Thread
@@ -171,11 +198,35 @@ export function IssueQueueTable({
                     ) : null}
                     {run.executionTarget === "codex-cloud" ? (
                       <>
+                        {(run.pullRequest?.url ?? run.prUrl) ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            render={
+                              <a
+                                href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            }
+                          >
+                            <GitPullRequestIcon className="size-3" />
+                            Open PR
+                          </Button>
+                        ) : null}
                         {taskHref ? (
                           <Button
                             size="xs"
                             variant="outline"
-                            render={<a href={taskHref} target="_blank" rel="noreferrer" />}
+                            render={
+                              <a
+                                href={taskHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                              />
+                            }
                           >
                             <ExternalLinkIcon className="size-3" />
                             {run.cloudTask?.taskUrl ? "Open Codex Task" : "Open Linear Issue"}
@@ -186,7 +237,10 @@ export function IssueQueueTable({
                             size="xs"
                             variant="outline"
                             disabled={busyAction !== null}
-                            onClick={() => onIssueAction("refresh-cloud", run)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onIssueAction("refresh-cloud", run);
+                            }}
                           >
                             <RefreshCwIcon className="size-3" />
                             Refresh Cloud Status
@@ -194,13 +248,34 @@ export function IssueQueueTable({
                         ) : null}
                       </>
                     ) : null}
+                    {run.executionTarget !== "codex-cloud" &&
+                    (run.pullRequest?.url ?? run.prUrl) ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        render={
+                          <a
+                            href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        }
+                      >
+                        <GitPullRequestIcon className="size-3" />
+                        Open PR
+                      </Button>
+                    ) : null}
                     {canLaunch ? (
                       <>
                         <Button
                           size="xs"
                           variant="outline"
                           disabled={busyAction !== null}
-                          onClick={() => onIssueAction("launch-local", run)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onIssueAction("launch-local", run);
+                          }}
                         >
                           <PlayIcon className="size-3" />
                           {canRetry ? "Retry Local" : "Run Local"}
@@ -209,7 +284,10 @@ export function IssueQueueTable({
                           size="xs"
                           variant="outline"
                           disabled={busyAction !== null}
-                          onClick={() => onIssueAction("launch-cloud", run)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onIssueAction("launch-cloud", run);
+                          }}
                         >
                           <CloudIcon className="size-3" />
                           {canRetry ? "Retry Cloud" : "Send to Cloud"}
@@ -220,7 +298,10 @@ export function IssueQueueTable({
                       size="xs"
                       variant="outline"
                       disabled={busyAction !== null || !canStop}
-                      onClick={() => onIssueAction("stop", run)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onIssueAction("stop", run);
+                      }}
                     >
                       <SquareIcon className="size-3" />
                       Stop

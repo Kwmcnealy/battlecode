@@ -36,6 +36,8 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
     prUrl: null,
     executionTarget: null,
     cloudTask: null,
+    pullRequest: null,
+    currentStep: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,
@@ -78,25 +80,50 @@ describe("IssueQueueTable", () => {
 
   it("offers local and cloud launch actions for target-pending rows", async () => {
     const onIssueAction = vi.fn();
+    const onSelectRun = vi.fn();
     const screen = await render(
       <IssueQueueTable
         runs={[makeRun()]}
         busyAction={null}
         selectedRunId={null}
-        onSelectRun={vi.fn()}
+        onSelectRun={onSelectRun}
         onIssueAction={onIssueAction}
         onOpenLinkedThread={vi.fn()}
       />,
     );
 
     try {
-      await userEvent.click(page.getByRole("button", { name: /Run Local/i }));
-      await userEvent.click(page.getByRole("button", { name: /Send to Cloud/i }));
+      await userEvent.click(page.getByRole("button", { name: "Run Local", exact: true }));
+      await userEvent.click(page.getByRole("button", { name: "Send to Cloud", exact: true }));
 
       expect(onIssueAction.mock.calls.map((call) => call[0])).toEqual([
         "launch-local",
         "launch-cloud",
       ]);
+      expect(onSelectRun).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("selects rows when the issue body is clicked", async () => {
+    const onSelectRun = vi.fn();
+    const run = makeRun();
+    const screen = await render(
+      <IssueQueueTable
+        runs={[run]}
+        busyAction={null}
+        selectedRunId={null}
+        onSelectRun={onSelectRun}
+        onIssueAction={vi.fn()}
+        onOpenLinkedThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await userEvent.click(page.getByText("Implement Symphony target routing"));
+
+      expect(onSelectRun).toHaveBeenCalledWith(run);
     } finally {
       await screen.unmount();
     }
@@ -184,7 +211,7 @@ describe("IssueQueueTable", () => {
         .element(page.getByRole("link", { name: /Open Linear Issue/i }))
         .toHaveAttribute("href", "https://linear.app/t3/issue/APP-1");
       await expect
-        .element(page.getByRole("button", { name: /Refresh Cloud Status/i }))
+        .element(page.getByRole("button", { name: "Refresh Cloud Status", exact: true }))
         .toBeInTheDocument();
     } finally {
       await screen.unmount();
