@@ -1348,7 +1348,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (state) => state.projectExpandedById[project.projectKey] ?? true,
   );
   const symphonyExpanded = useUiStateStore(
-    (state) => state.symphonyExpandedByProjectKey[project.projectKey] ?? true,
+    (state) => state.symphonyExpandedByProjectKey[project.projectKey] ?? false,
   );
   const toggleSymphonyExpanded = useUiStateStore((state) => state.toggleSymphonyExpanded);
   const threadLastVisitedAts = useUiStateStore(

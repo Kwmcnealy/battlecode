@@ -665,7 +665,7 @@ export function setSymphonyExpanded(
   projectKey: string,
   expanded: boolean,
 ): UiState {
-  if ((state.symphonyExpandedByProjectKey[projectKey] ?? true) === expanded) {
+  if ((state.symphonyExpandedByProjectKey[projectKey] ?? false) === expanded) {
     return state;
   }
   return {
@@ -681,7 +681,7 @@ export function toggleSymphonyExpanded(state: UiState, projectKey: string): UiSt
   return setSymphonyExpanded(
     state,
     projectKey,
-    !(state.symphonyExpandedByProjectKey[projectKey] ?? true),
+    !(state.symphonyExpandedByProjectKey[projectKey] ?? false),
   );
 }
 

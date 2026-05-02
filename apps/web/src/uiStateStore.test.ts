@@ -77,6 +77,7 @@ describe("uiStateStore pure functions", () => {
   it("tracks Symphony sidebar collapse independently from project collapse", () => {
     const initialState = makeUiState({
       projectExpandedById: { "project-1": true },
+      symphonyExpandedByProjectKey: { "project-1": true },
     });
 
     const collapsed = setSymphonyExpanded(initialState, "project-1", false);
@@ -84,6 +85,13 @@ describe("uiStateStore pure functions", () => {
 
     expect(collapsed.projectExpandedById["project-1"]).toBe(true);
     expect(collapsed.symphonyExpandedByProjectKey["project-1"]).toBe(false);
+    expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
+  });
+
+  it("defaults Symphony sidebar groups to collapsed", () => {
+    const initialState = makeUiState();
+    const expanded = toggleSymphonyExpanded(initialState, "project-1");
+
     expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
   });
 
