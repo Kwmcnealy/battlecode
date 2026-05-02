@@ -441,11 +441,21 @@ function SidebarSymphonySection({
           />
           <span
             className={`min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.08em] ${
-              hasActiveSymphony ? "symphony-sidebar-active-text" : "text-primary"
+              hasActiveSymphony ? "text-destructive" : "text-primary"
             }`}
           >
             Symphony
           </span>
+          {hasActiveSymphony ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-[3px]"
+              aria-label="Symphony running"
+            >
+              <span className="verbose-dot verbose-dot-1 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+              <span className="verbose-dot verbose-dot-2 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+              <span className="verbose-dot verbose-dot-3 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+            </span>
+          ) : null}
           <span className="font-mono text-[10px] text-muted-foreground/55">
             {runEntries.length + orphanThreads.length}
           </span>

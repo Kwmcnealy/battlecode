@@ -1033,15 +1033,6 @@ label:has(> select#reasoning-effort) select {
   }
 }
 
-@keyframes symphony-sidebar-gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 220% 50%;
-  }
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .verbose-card-enter {
     animation: verbose-card-enter 160ms ease-out both;
@@ -1058,16 +1049,4 @@ label:has(> select#reasoning-effort) select {
   .verbose-dot.verbose-dot-3 {
     animation-delay: 360ms;
   }
-  .symphony-sidebar-active-text {
-    animation: symphony-sidebar-gradient 1.8s linear infinite;
-  }
-}
-
-.symphony-sidebar-active-text {
-  background: linear-gradient(90deg, #a855f7 0%, #d8b4fe 42%, #f0abfc 58%, #a855f7 100%);
-  background-clip: text;
-  background-size: 220% 100%;
-  color: transparent;
-  text-shadow: 0 0 12px rgba(168, 85, 247, 0.42);
-  -webkit-background-clip: text;
 }
