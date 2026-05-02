@@ -383,11 +383,13 @@ function SidebarSymphonySection({
   const runEntries = useMemo(
     () =>
       snapshotEntries.flatMap((entry) =>
-        flattenSymphonyRuns(entry.snapshot).map((run) => ({
-          member: entry.member,
-          snapshot: entry.snapshot,
-          run,
-        })),
+        flattenSymphonyRuns(entry.snapshot)
+          .filter((run) => run.archivedAt === null)
+          .map((run) => ({
+            member: entry.member,
+            snapshot: entry.snapshot,
+            run,
+          })),
       ),
     [snapshotEntries],
   );

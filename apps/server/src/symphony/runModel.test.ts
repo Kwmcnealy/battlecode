@@ -59,6 +59,10 @@ describe("Symphony run model", () => {
       makeRunWithStatus("released"),
       makeRunWithStatus("failed"),
       makeRunWithStatus("canceled"),
+      {
+        ...makeRunWithStatus("completed"),
+        archivedAt: "2026-01-01T00:10:00.000Z",
+      },
     ]);
 
     expect(queues.pendingTarget).toHaveLength(1);
@@ -76,6 +80,7 @@ describe("Symphony run model", () => {
     ]);
     expect(queues.failed).toHaveLength(1);
     expect(queues.canceled).toHaveLength(1);
+    expect(queues.archived.map((run) => run.status)).toEqual(["completed"]);
   });
 
   it("creates new runs awaiting an explicit execution target", () => {
@@ -84,6 +89,7 @@ describe("Symphony run model", () => {
     expect(run.status).toBe("target-pending");
     expect(run.executionTarget).toBeNull();
     expect(run.cloudTask).toBeNull();
+    expect(run.archivedAt).toBeNull();
   });
 
   it("uses GPT-5.5 high reasoning for local Symphony runs", () => {

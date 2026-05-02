@@ -405,12 +405,18 @@ describe("resolveAdjacentThreadId", () => {
 
 describe("Symphony sidebar routing", () => {
   it("treats only live execution states as active", () => {
-    expect(symphonyRunIsSidebarActive({ status: "running" })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "cloud-submitted" })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "cloud-running" })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "retry-queued" })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "target-pending" })).toBe(false);
-    expect(symphonyRunIsSidebarActive({ status: "review-ready" })).toBe(false);
+    expect(symphonyRunIsSidebarActive({ status: "running", archivedAt: null })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "cloud-submitted", archivedAt: null })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "cloud-running", archivedAt: null })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "retry-queued", archivedAt: null })).toBe(true);
+    expect(symphonyRunIsSidebarActive({ status: "target-pending", archivedAt: null })).toBe(false);
+    expect(symphonyRunIsSidebarActive({ status: "review-ready", archivedAt: null })).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "running",
+        archivedAt: "2026-05-02T12:00:00.000Z",
+      }),
+    ).toBe(false);
   });
 
   it("routes local Symphony runs with threads to chat", () => {

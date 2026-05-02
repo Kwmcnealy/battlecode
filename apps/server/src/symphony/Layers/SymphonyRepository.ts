@@ -11,6 +11,7 @@ import {
   SymphonyRunAttempt,
   SymphonyRunProgress,
   SymphonyRunId,
+  type SymphonyRunStatus,
   SymphonySecretStatus,
   SymphonySettings,
   SymphonyWorkflowValidation,
@@ -51,6 +52,7 @@ interface RunRow {
   readonly cloudTask: string | null;
   readonly pullRequest: string | null;
   readonly currentStep: string | null;
+  readonly archivedAt: string | null;
   readonly attempts: string;
   readonly nextRetryAt: string | null;
   readonly lastError: string | null;
@@ -79,6 +81,10 @@ interface RuntimeStateDbRow {
 
 interface ProjectWorkspaceRootRow {
   readonly workspaceRoot: string;
+}
+
+interface ProjectIdRow {
+  readonly projectId: string;
 }
 
 const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValidation);
@@ -239,6 +245,7 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       cloudTask,
       pullRequest,
       currentStep,
+      archivedAt: row.archivedAt,
       attempts,
       nextRetryAt: row.nextRetryAt,
       lastError: row.lastError,
@@ -373,6 +380,7 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -383,6 +391,66 @@ const makeRepository = Effect.gen(function* () {
       ORDER BY updated_at DESC, issue_identifier ASC
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRuns")),
+      Effect.flatMap((rows) => Effect.forEach(rows, decodeRunRow, { concurrency: 8 })),
+    );
+
+  const monitoringStatuses: readonly SymphonyRunStatus[] = [
+    "running",
+    "cloud-submitted",
+    "cloud-running",
+    "review-ready",
+    "completed",
+  ];
+
+  const listProjectIdsWithRunsInStatuses: SymphonyRepositoryShape["listProjectIdsWithRunsInStatuses"] =
+    ({ statuses, includeArchived }) => {
+      if (statuses.length === 0) {
+        return Effect.succeed([]);
+      }
+      return sql<ProjectIdRow>`
+        SELECT DISTINCT project_id AS "projectId"
+        FROM symphony_runs
+        WHERE ${sql.in("status", statuses)}
+          AND (${includeArchived === true ? 1 : 0} = 1 OR archived_at IS NULL)
+        ORDER BY project_id ASC
+      `.pipe(
+        Effect.mapError(
+          toPersistenceSqlError("SymphonyRepository.listProjectIdsWithRunsInStatuses"),
+        ),
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) => decodeProjectId(row.projectId), { concurrency: 8 }),
+        ),
+      );
+    };
+
+  const listRunsForMonitoring: SymphonyRepositoryShape["listRunsForMonitoring"] = (projectId) =>
+    sql<RunRow>`
+      SELECT
+        run_id AS "runId",
+        project_id AS "projectId",
+        issue_json AS "issue",
+        status,
+        workspace_path AS "workspacePath",
+        branch_name AS "branchName",
+        thread_id AS "threadId",
+        pr_url AS "prUrl",
+        execution_target AS "executionTarget",
+        cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
+        archived_at AS "archivedAt",
+        attempts_json AS "attempts",
+        next_retry_at AS "nextRetryAt",
+        last_error AS "lastError",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM symphony_runs
+      WHERE project_id = ${projectId}
+        AND archived_at IS NULL
+        AND ${sql.in("status", monitoringStatuses)}
+      ORDER BY updated_at DESC, issue_identifier ASC
+    `.pipe(
+      Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRunsForMonitoring")),
       Effect.flatMap((rows) => Effect.forEach(rows, decodeRunRow, { concurrency: 8 })),
     );
 
@@ -401,6 +469,7 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -432,6 +501,7 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
@@ -465,6 +535,7 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json,
         pull_request_json,
         current_step_json,
+        archived_at,
         attempts_json,
         next_retry_at,
         last_error,
@@ -486,6 +557,7 @@ const makeRepository = Effect.gen(function* () {
         ${run.cloudTask ? JSON.stringify(run.cloudTask) : null},
         ${run.pullRequest ? JSON.stringify(run.pullRequest) : null},
         ${run.currentStep ? JSON.stringify(run.currentStep) : null},
+        ${run.archivedAt},
         ${JSON.stringify(run.attempts)},
         ${run.nextRetryAt},
         ${run.lastError},
@@ -504,6 +576,7 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json = excluded.cloud_task_json,
         pull_request_json = excluded.pull_request_json,
         current_step_json = excluded.current_step_json,
+        archived_at = excluded.archived_at,
         attempts_json = excluded.attempts_json,
         next_retry_at = excluded.next_retry_at,
         last_error = excluded.last_error,
@@ -626,6 +699,8 @@ const makeRepository = Effect.gen(function* () {
     getSettings,
     upsertSettings,
     listRuns,
+    listProjectIdsWithRunsInStatuses,
+    listRunsForMonitoring,
     getRunByIssue,
     getRunByThreadId,
     upsertRun,

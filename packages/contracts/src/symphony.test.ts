@@ -103,6 +103,7 @@ describe("Symphony contracts", () => {
         completed: [],
         failed: [],
         canceled: [],
+        archived: [],
       },
       totals: {
         pendingTarget: 0,
@@ -112,6 +113,7 @@ describe("Symphony contracts", () => {
         completed: 0,
         failed: 0,
         canceled: 0,
+        archived: 0,
       },
       events: [],
       updatedAt: "2026-04-30T12:00:00.000Z",
@@ -179,6 +181,7 @@ describe("Symphony contracts", () => {
     expect(run.status).toBe("cloud-submitted");
     expect(run.pullRequest).toBeNull();
     expect(run.currentStep).toBeNull();
+    expect(run.archivedAt).toBeNull();
   });
 
   it("accepts review-ready runs with PR summaries and progress details", () => {
@@ -234,6 +237,105 @@ describe("Symphony contracts", () => {
     expect(run.status).toBe("review-ready");
     expect(run.pullRequest?.state).toBe("open");
     expect(run.currentStep?.source).toBe("github");
+  });
+
+  it("decodes archived completed runs as completed with archive metadata", () => {
+    const snapshot = Schema.decodeUnknownSync(SymphonySnapshot)({
+      projectId: ProjectId.make("project-symphony"),
+      status: "idle",
+      settings: {
+        projectId: ProjectId.make("project-symphony"),
+        workflowPath: "/repo/battlecode/WORKFLOW.md",
+        workflowStatus: {
+          status: "valid",
+          message: null,
+          validatedAt: "2026-05-02T12:00:00.000Z",
+          configHash: "hash-1",
+        },
+        linearSecret: {
+          source: "stored",
+          configured: true,
+          lastTestedAt: null,
+          lastError: null,
+        },
+        executionDefaultTarget: "local",
+        updatedAt: "2026-05-02T12:00:00.000Z",
+      },
+      queues: {
+        pendingTarget: [],
+        eligible: [],
+        running: [],
+        retrying: [],
+        completed: [],
+        failed: [],
+        canceled: [],
+        archived: [
+          {
+            runId: "run-archived",
+            projectId: ProjectId.make("project-symphony"),
+            issue: {
+              id: "issue-archived",
+              identifier: "BC-789",
+              title: "Archive completed run",
+              description: null,
+              priority: null,
+              state: "Done",
+              branchName: null,
+              url: null,
+              labels: [],
+              blockedBy: [],
+              createdAt: null,
+              updatedAt: null,
+            },
+            status: "completed",
+            workspacePath: null,
+            branchName: "symphony/bc-789",
+            threadId: null,
+            prUrl: "https://github.com/t3/battlecode/pull/789",
+            executionTarget: "codex-cloud",
+            cloudTask: null,
+            pullRequest: {
+              number: 789,
+              title: "Archive completed run",
+              url: "https://github.com/t3/battlecode/pull/789",
+              baseBranch: "development",
+              headBranch: "symphony/bc-789",
+              state: "merged",
+              updatedAt: "2026-05-02T12:20:00.000Z",
+            },
+            currentStep: {
+              source: "github",
+              label: "Pull request merged",
+              detail: "#789 Archive completed run",
+              updatedAt: "2026-05-02T12:20:00.000Z",
+            },
+            archivedAt: "2026-05-02T12:21:00.000Z",
+            attempts: [],
+            nextRetryAt: null,
+            lastError: null,
+            createdAt: "2026-05-02T12:00:00.000Z",
+            updatedAt: "2026-05-02T12:21:00.000Z",
+          },
+        ],
+      },
+      totals: {
+        pendingTarget: 0,
+        eligible: 0,
+        running: 0,
+        retrying: 0,
+        completed: 0,
+        failed: 0,
+        canceled: 0,
+        archived: 1,
+      },
+      events: [],
+      updatedAt: "2026-05-02T12:22:00.000Z",
+    });
+
+    expect(snapshot.queues.archived).toHaveLength(1);
+    expect(snapshot.queues.archived[0]?.status).toBe("completed");
+    expect(snapshot.queues.archived[0]?.archivedAt).toBe("2026-05-02T12:21:00.000Z");
+    expect(snapshot.totals.archived).toBe(1);
   });
 
   it("accepts execution default updates", () => {

@@ -121,22 +121,24 @@ export function blockerIsTerminal(
 }
 
 export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queues"] {
+  const activeRuns = runs.filter((run) => run.archivedAt === null);
   return {
-    pendingTarget: runs.filter((run) => run.status === "target-pending"),
-    eligible: runs.filter((run) => run.status === "eligible"),
-    running: runs.filter(
+    pendingTarget: activeRuns.filter((run) => run.status === "target-pending"),
+    eligible: activeRuns.filter((run) => run.status === "eligible"),
+    running: activeRuns.filter(
       (run) =>
         run.status === "running" ||
         run.status === "cloud-submitted" ||
         run.status === "cloud-running",
     ),
-    retrying: runs.filter((run) => run.status === "retry-queued"),
-    completed: runs.filter(
+    retrying: activeRuns.filter((run) => run.status === "retry-queued"),
+    completed: activeRuns.filter(
       (run) =>
         run.status === "review-ready" || run.status === "completed" || run.status === "released",
     ),
-    failed: runs.filter((run) => run.status === "failed"),
-    canceled: runs.filter((run) => run.status === "canceled"),
+    failed: activeRuns.filter((run) => run.status === "failed"),
+    canceled: activeRuns.filter((run) => run.status === "canceled"),
+    archived: runs.filter((run) => run.archivedAt !== null),
   };
 }
 
@@ -149,6 +151,7 @@ export function buildTotals(queues: SymphonySnapshot["queues"]): SymphonySnapsho
     completed: queues.completed.length,
     failed: queues.failed.length,
     canceled: queues.canceled.length,
+    archived: queues.archived.length,
   };
 }
 
@@ -183,6 +186,7 @@ export function makeRun(
     cloudTask: null,
     pullRequest: null,
     currentStep: null,
+    archivedAt: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,

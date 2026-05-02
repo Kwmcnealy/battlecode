@@ -224,7 +224,10 @@ export function resolveSidebarNewThreadSeedContext(input: {
   };
 }
 
-export function symphonyRunIsSidebarActive(run: Pick<SymphonyRun, "status">): boolean {
+export function symphonyRunIsSidebarActive(
+  run: Pick<SymphonyRun, "status" | "archivedAt">,
+): boolean {
+  if (run.archivedAt !== null) return false;
   return (
     run.status === "running" ||
     run.status === "cloud-submitted" ||

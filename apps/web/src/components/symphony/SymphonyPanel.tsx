@@ -12,6 +12,7 @@ import type {
 import { ensureEnvironmentApi } from "../../environmentApi";
 import { useUiStateStore } from "../../uiStateStore";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { IssueQueueTable } from "./IssueQueueTable";
 import { RunDetailsDrawer } from "./RunDetailsDrawer";
@@ -39,6 +40,7 @@ export function SymphonyPanel({
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<SymphonyAction | null>(null);
   const [linkedThreadBusy, setLinkedThreadBusy] = useState(false);
+  const [runView, setRunView] = useState<"active" | "archived">("active");
   const api = useMemo(() => ensureEnvironmentApi(environmentId), [environmentId]);
   const projectKey = useMemo(
     () => scopedProjectKey(scopeProjectRef(environmentId, projectId)),
@@ -165,7 +167,7 @@ export function SymphonyPanel({
     [api, onOpenThread, projectId],
   );
 
-  const allRuns = snapshot
+  const activeRuns = snapshot
     ? [
         ...snapshot.queues.pendingTarget,
         ...snapshot.queues.running,
@@ -174,8 +176,11 @@ export function SymphonyPanel({
         ...snapshot.queues.failed,
         ...snapshot.queues.canceled,
         ...snapshot.queues.completed,
-      ]
+      ].filter((run) => run.archivedAt === null)
     : [];
+  const archivedRuns = snapshot ? snapshot.queues.archived : [];
+  const allRuns = [...activeRuns, ...archivedRuns];
+  const visibleRuns = runView === "archived" ? archivedRuns : activeRuns;
   const selectedRun = selectedRunId
     ? (allRuns.find((run) => run.runId === selectedRunId) ?? null)
     : null;
@@ -222,8 +227,32 @@ export function SymphonyPanel({
             onAction={runAction}
             onTargetChange={(target) => void updateDefaultTarget(target)}
           />
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-2">
+            <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
+              <Button
+                type="button"
+                size="xs"
+                variant={runView === "active" ? "secondary" : "ghost"}
+                className="rounded-none border-0"
+                onClick={() => setRunView("active")}
+              >
+                Active
+                <span className="font-mono text-[10px]">{activeRuns.length}</span>
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant={runView === "archived" ? "secondary" : "ghost"}
+                className="rounded-none border-0"
+                onClick={() => setRunView("archived")}
+              >
+                Archived
+                <span className="font-mono text-[10px]">{archivedRuns.length}</span>
+              </Button>
+            </div>
+          </div>
           <IssueQueueTable
-            runs={allRuns}
+            runs={visibleRuns}
             busyAction={busyAction}
             selectedRunId={selectedRunId}
             onSelectRun={(run) => setSelectedSymphonyRun(projectKey, run.runId)}

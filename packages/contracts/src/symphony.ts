@@ -299,6 +299,7 @@ export const SymphonyRun = Schema.Struct({
     Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   attempts: Schema.Array(SymphonyRunAttempt),
   nextRetryAt: Schema.NullOr(IsoDateTime),
   lastError: Schema.NullOr(Schema.String),
@@ -327,6 +328,7 @@ export const SymphonyQueueSnapshot = Schema.Struct({
   completed: Schema.Array(SymphonyRun),
   failed: Schema.Array(SymphonyRun),
   canceled: Schema.Array(SymphonyRun),
+  archived: Schema.Array(SymphonyRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type SymphonyQueueSnapshot = typeof SymphonyQueueSnapshot.Type;
 
@@ -338,6 +340,7 @@ export const SymphonyTotals = Schema.Struct({
   completed: NonNegativeInt,
   failed: NonNegativeInt,
   canceled: NonNegativeInt,
+  archived: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
 });
 export type SymphonyTotals = typeof SymphonyTotals.Type;
 

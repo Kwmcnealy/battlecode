@@ -9,6 +9,8 @@ import {
   type SymphonyCloudTask,
   type SymphonyExecutionTarget,
   type SymphonyPullRequestSummary,
+  type SymphonyRunProgress,
+  type SymphonyRunStatus,
   type SymphonySecretStatus,
   type SymphonySettings,
   type SymphonySnapshot,
@@ -81,6 +83,36 @@ import {
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 const DASHBOARD_EVENT_LIMIT = 80;
+const SIGNAL_WARNING_PREFIX = "GitHub PR lookup failed: ";
+const MONITORED_RUN_STATUSES: readonly SymphonyRunStatus[] = [
+  "running",
+  "cloud-submitted",
+  "cloud-running",
+  "review-ready",
+  "completed",
+];
+
+type ReconcileReason =
+  | "scheduler"
+  | "manual-refresh"
+  | "cloud-refresh"
+  | "thread-event"
+  | "candidate-refresh";
+
+interface PullRequestLookupResult {
+  readonly pullRequest: SymphonyPullRequestSummary | null;
+  readonly warning: string | null;
+}
+
+interface ReconciledRunResult {
+  readonly run: SymphonyRun;
+  readonly changed: boolean;
+  readonly statusChanged: boolean;
+  readonly prChanged: boolean;
+  readonly currentStepChanged: boolean;
+  readonly archivedChanged: boolean;
+  readonly warningChanged: boolean;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -89,6 +121,75 @@ function nowIso(): string {
 function toSymphonyError(message: string) {
   return (cause: unknown): SymphonyError =>
     Schema.is(SymphonyError)(cause) ? cause : new SymphonyError({ message, cause });
+}
+
+function errorDetail(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return cause.message.trim();
+  }
+  return String(cause);
+}
+
+function warningFromLastError(lastError: string | null): string | null {
+  return lastError?.startsWith(SIGNAL_WARNING_PREFIX) === true ? lastError : null;
+}
+
+function runProgressChanged(
+  left: SymphonyRunProgress | null,
+  right: SymphonyRunProgress | null,
+): boolean {
+  return (
+    left?.source !== right?.source ||
+    left?.label !== right?.label ||
+    left?.detail !== right?.detail ||
+    left?.updatedAt !== right?.updatedAt
+  );
+}
+
+function pullRequestChanged(
+  left: SymphonyPullRequestSummary | null,
+  right: SymphonyPullRequestSummary | null,
+): boolean {
+  return (
+    left?.number !== right?.number ||
+    left?.title !== right?.title ||
+    left?.url !== right?.url ||
+    left?.baseBranch !== right?.baseBranch ||
+    left?.headBranch !== right?.headBranch ||
+    left?.state !== right?.state ||
+    left?.updatedAt !== right?.updatedAt
+  );
+}
+
+function issueChanged(left: SymphonyRun["issue"], right: SymphonyRun["issue"]): boolean {
+  if (
+    left.id !== right.id ||
+    left.identifier !== right.identifier ||
+    left.title !== right.title ||
+    left.description !== right.description ||
+    left.priority !== right.priority ||
+    left.state !== right.state ||
+    left.branchName !== right.branchName ||
+    left.url !== right.url ||
+    left.createdAt !== right.createdAt ||
+    left.updatedAt !== right.updatedAt ||
+    left.labels.length !== right.labels.length ||
+    left.blockedBy.length !== right.blockedBy.length
+  ) {
+    return true;
+  }
+  if (left.labels.some((label, index) => label !== right.labels[index])) {
+    return true;
+  }
+  return left.blockedBy.some((blocker, index) => {
+    const other = right.blockedBy[index];
+    return (
+      other === undefined ||
+      blocker.id !== other.id ||
+      blocker.identifier !== other.identifier ||
+      blocker.state !== other.state
+    );
+  });
 }
 
 const emptyCodexCloudTask = (): SymphonyCloudTask => ({
@@ -394,15 +495,35 @@ const makeSymphonyService = Effect.gen(function* () {
   const resolvePullRequestSummary = (input: {
     readonly run: SymphonyRun;
     readonly projectRoot: string;
-  }): Effect.Effect<SymphonyPullRequestSummary | null, never> => {
-    if (!input.run.branchName) {
-      return Effect.succeed(input.run.pullRequest ?? null);
-    }
+  }): Effect.Effect<PullRequestLookupResult, never> => {
     const cwd =
       input.run.executionTarget === "codex-cloud"
         ? input.projectRoot
         : (input.run.workspacePath ?? input.projectRoot);
     const checkedAt = nowIso();
+    const knownReference = input.run.pullRequest?.url ?? input.run.prUrl;
+    if (knownReference) {
+      return github
+        .getPullRequest({
+          cwd,
+          reference: knownReference,
+        })
+        .pipe(
+          Effect.map((pullRequest) => ({
+            pullRequest: toSymphonyPullRequestSummary(pullRequest, checkedAt),
+            warning: null,
+          })),
+          Effect.catch((cause) =>
+            Effect.succeed({
+              pullRequest: input.run.pullRequest ?? null,
+              warning: `${SIGNAL_WARNING_PREFIX}${errorDetail(cause)}`,
+            }),
+          ),
+        );
+    }
+    if (!input.run.branchName) {
+      return Effect.succeed({ pullRequest: input.run.pullRequest ?? null, warning: null });
+    }
     return github
       .listOpenPullRequests({
         cwd,
@@ -422,9 +543,17 @@ const makeSymphonyService = Effect.gen(function* () {
             sortedPullRequests.find((pullRequest) => pullRequest.state === "merged") ??
             sortedPullRequests[0] ??
             null;
-          return preferred ? toSymphonyPullRequestSummary(preferred, checkedAt) : null;
+          return {
+            pullRequest: preferred ? toSymphonyPullRequestSummary(preferred, checkedAt) : null,
+            warning: null,
+          };
         }),
-        Effect.catch(() => Effect.succeed(input.run.pullRequest ?? null)),
+        Effect.catch((cause) =>
+          Effect.succeed({
+            pullRequest: input.run.pullRequest ?? null,
+            warning: `${SIGNAL_WARNING_PREFIX}${errorDetail(cause)}`,
+          }),
+        ),
       );
   };
 
@@ -712,25 +841,34 @@ const makeSymphonyService = Effect.gen(function* () {
     }).pipe(Effect.ignoreCause({ log: true }));
   };
 
-  const applyLifecycleSignalsToRun = (input: {
+  const reconcileRunSignals = (input: {
     readonly projectRoot: string;
     readonly workflow: { readonly config: SymphonyWorkflowConfig };
     readonly run: SymphonyRun;
     readonly linearIssue?: LinearIssueWorkflowContext | null;
     readonly thread?: OrchestrationThread | null;
-  }): Effect.Effect<SymphonyRun, SymphonyError> =>
+    readonly reason: ReconcileReason;
+  }): Effect.Effect<ReconciledRunResult, SymphonyError> =>
     Effect.gen(function* () {
-      const pullRequest = yield* resolvePullRequestSummary({
-        run: input.run,
+      const reconciledAt = nowIso();
+      const branchName =
+        input.run.branchName ??
+        (input.run.executionTarget === "codex-cloud"
+          ? (input.run.issue.branchName ?? branchNameForIssue(input.run.issue.identifier))
+          : null);
+      const runWithBranch: SymphonyRun =
+        branchName === input.run.branchName ? input.run : { ...input.run, branchName };
+      const pullRequestLookup = yield* resolvePullRequestSummary({
+        run: runWithBranch,
         projectRoot: input.projectRoot,
       });
       const lifecycle = resolveRunLifecycle({
         run: input.linearIssue
           ? {
-              ...input.run,
+              ...runWithBranch,
               issue: input.linearIssue.issue,
             }
-          : input.run,
+          : runWithBranch,
         config: input.workflow.config,
         linear: input.linearIssue
           ? {
@@ -738,43 +876,78 @@ const makeSymphonyService = Effect.gen(function* () {
               updatedAt: input.linearIssue.issue.updatedAt,
             }
           : null,
-        pullRequest,
+        pullRequest: pullRequestLookup.pullRequest,
         thread: input.thread ?? null,
-        now: nowIso(),
+        now: reconciledAt,
       });
-      const nextPrUrl = lifecycle.pullRequest?.url ?? input.run.prUrl;
+      const nextPrUrl = lifecycle.pullRequest?.url ?? runWithBranch.prUrl;
+      const warning = pullRequestLookup.warning;
+      const nextCurrentStep =
+        warning && lifecycle.pullRequest === null
+          ? {
+              ...lifecycle.currentStep,
+              detail: warning,
+              updatedAt: reconciledAt,
+            }
+          : lifecycle.currentStep;
+      const nextArchivedAt =
+        lifecycle.status === "completed"
+          ? (runWithBranch.archivedAt ?? reconciledAt)
+          : runWithBranch.archivedAt;
+      const previousWarning = warningFromLastError(input.run.lastError);
+      const nextLastError =
+        warning ??
+        (lifecycle.status === "failed"
+          ? runWithBranch.lastError
+          : previousWarning !== null
+            ? null
+            : runWithBranch.lastError);
       const nextRun: SymphonyRun = {
-        ...input.run,
-        issue: input.linearIssue?.issue ?? input.run.issue,
+        ...runWithBranch,
+        issue: input.linearIssue?.issue ?? runWithBranch.issue,
         status: lifecycle.status,
         pullRequest: lifecycle.pullRequest,
-        currentStep: lifecycle.currentStep,
+        currentStep: nextCurrentStep,
         prUrl: nextPrUrl,
-        updatedAt:
-          lifecycle.status !== input.run.status ||
-          nextPrUrl !== input.run.prUrl ||
-          lifecycle.pullRequest?.updatedAt !== input.run.pullRequest?.updatedAt ||
-          lifecycle.currentStep.label !== input.run.currentStep?.label ||
-          lifecycle.currentStep.detail !== input.run.currentStep?.detail
-            ? lifecycle.currentStep.updatedAt
-            : input.run.updatedAt,
+        archivedAt: nextArchivedAt,
+        lastError: nextLastError,
+        updatedAt: input.run.updatedAt,
       };
-      const changed =
-        nextRun.status !== input.run.status ||
-        nextRun.issue.state !== input.run.issue.state ||
+      const statusChanged = nextRun.status !== input.run.status;
+      const prChanged =
         nextRun.prUrl !== input.run.prUrl ||
-        nextRun.pullRequest?.url !== input.run.pullRequest?.url ||
-        nextRun.pullRequest?.state !== input.run.pullRequest?.state ||
-        nextRun.currentStep?.label !== input.run.currentStep?.label ||
-        nextRun.currentStep?.detail !== input.run.currentStep?.detail;
+        pullRequestChanged(nextRun.pullRequest ?? null, input.run.pullRequest ?? null);
+      const currentStepChanged = runProgressChanged(
+        nextRun.currentStep ?? null,
+        input.run.currentStep ?? null,
+      );
+      const archivedChanged = nextRun.archivedAt !== input.run.archivedAt;
+      const warningChanged = previousWarning !== warning;
+      const changed =
+        statusChanged ||
+        input.run.branchName !== nextRun.branchName ||
+        issueChanged(nextRun.issue, input.run.issue) ||
+        prChanged ||
+        currentStepChanged ||
+        archivedChanged ||
+        nextRun.lastError !== input.run.lastError;
+      const persistedRun: SymphonyRun = changed
+        ? {
+            ...nextRun,
+            updatedAt: reconciledAt,
+          }
+        : nextRun;
 
       if (changed) {
         yield* repository
-          .upsertRun(nextRun)
+          .upsertRun(persistedRun)
           .pipe(Effect.mapError(toSymphonyError("Failed to reconcile Symphony run lifecycle.")));
       }
 
-      if (lifecycle.pullRequest?.url && lifecycle.pullRequest.url !== input.run.pullRequest?.url) {
+      if (
+        persistedRun.pullRequest?.url &&
+        persistedRun.pullRequest.url !== input.run.pullRequest?.url
+      ) {
         yield* emitProjectEvent({
           projectId: input.run.projectId,
           issueId: input.run.issue.id,
@@ -782,54 +955,87 @@ const makeSymphonyService = Effect.gen(function* () {
           type: "run.pr-detected",
           message: `Detected pull request for ${input.run.issue.identifier}`,
           payload: {
-            prUrl: lifecycle.pullRequest.url,
-            pullRequest: lifecycle.pullRequest,
+            prUrl: persistedRun.pullRequest.url,
+            pullRequest: persistedRun.pullRequest,
+            reason: input.reason,
           },
         });
       }
 
-      if (nextRun.status !== input.run.status) {
+      if (statusChanged) {
         yield* emitProjectEvent({
           projectId: input.run.projectId,
           issueId: input.run.issue.id,
           runId: input.run.runId,
-          type: `run.${nextRun.status}`,
-          message: `${input.run.issue.identifier} moved to ${nextRun.status}`,
+          type: `run.${persistedRun.status}`,
+          message: `${input.run.issue.identifier} moved to ${persistedRun.status}`,
           payload: {
             previousStatus: input.run.status,
-            nextStatus: nextRun.status,
+            nextStatus: persistedRun.status,
+            reason: input.reason,
           },
         });
-        if (nextRun.status === "review-ready") {
+        if (persistedRun.status === "review-ready") {
           yield* transitionLinearRunState({
             projectId: input.run.projectId,
             workflow: input.workflow,
-            run: nextRun,
+            run: persistedRun,
             stateName: input.workflow.config.tracker.transitionStates.review,
             reason: "review-ready",
           });
         }
-        if (nextRun.status === "completed") {
+        if (persistedRun.status === "completed") {
           yield* transitionLinearRunState({
             projectId: input.run.projectId,
             workflow: input.workflow,
-            run: nextRun,
+            run: persistedRun,
             stateName: input.workflow.config.tracker.transitionStates.done,
             reason: "completed",
           });
         }
-        if (nextRun.status === "canceled") {
+        if (persistedRun.status === "canceled") {
           yield* transitionLinearRunState({
             projectId: input.run.projectId,
             workflow: input.workflow,
-            run: nextRun,
+            run: persistedRun,
             stateName: input.workflow.config.tracker.transitionStates.canceled,
             reason: "canceled",
           });
         }
       }
 
-      if (nextRun.status === "canceled" && input.run.status !== "canceled" && input.run.threadId) {
+      if (archivedChanged && persistedRun.archivedAt !== null) {
+        yield* emitProjectEvent({
+          projectId: input.run.projectId,
+          issueId: input.run.issue.id,
+          runId: input.run.runId,
+          type: "run.archived",
+          message: `${input.run.issue.identifier} archived`,
+          payload: {
+            archivedAt: persistedRun.archivedAt,
+            reason: input.reason,
+          },
+        });
+      }
+
+      if (warningChanged && warning) {
+        yield* emitProjectEvent({
+          projectId: input.run.projectId,
+          issueId: input.run.issue.id,
+          runId: input.run.runId,
+          type: "run.signal-warning",
+          message: warning,
+          payload: {
+            reason: input.reason,
+          },
+        });
+      }
+
+      if (
+        persistedRun.status === "canceled" &&
+        input.run.status !== "canceled" &&
+        input.run.threadId
+      ) {
         yield* orchestrationEngine
           .dispatch({
             type: "thread.session.stop",
@@ -840,7 +1046,19 @@ const makeSymphonyService = Effect.gen(function* () {
           .pipe(Effect.ignoreCause({ log: true }));
       }
 
-      return nextRun;
+      if (changed) {
+        yield* publishSnapshotUpdate(input.run.projectId, { force: true });
+      }
+
+      return {
+        run: persistedRun,
+        changed,
+        statusChanged,
+        prChanged,
+        currentStepChanged,
+        archivedChanged,
+        warningChanged,
+      };
     });
 
   const refreshCandidates = (
@@ -875,13 +1093,14 @@ const makeSymphonyService = Effect.gen(function* () {
         .pipe(Effect.mapError(toSymphonyError("Failed to load existing Symphony runs.")));
       const trackedRuns = existingRunsBeforeRefresh.filter(
         (run) =>
-          run.status === "running" ||
-          run.status === "cloud-submitted" ||
-          run.status === "cloud-running" ||
-          run.status === "review-ready" ||
-          run.status === "eligible" ||
-          run.status === "retry-queued" ||
-          run.status === "target-pending",
+          run.archivedAt === null &&
+          (run.status === "running" ||
+            run.status === "cloud-submitted" ||
+            run.status === "cloud-running" ||
+            run.status === "review-ready" ||
+            run.status === "eligible" ||
+            run.status === "retry-queued" ||
+            run.status === "target-pending"),
       );
       const trackedLinearIssues = yield* fetchTrackedLinearIssues({
         projectId,
@@ -918,18 +1137,20 @@ const makeSymphonyService = Effect.gen(function* () {
       yield* Effect.forEach(
         existingRuns.filter(
           (run) =>
-            run.status === "running" ||
-            run.status === "cloud-submitted" ||
-            run.status === "cloud-running" ||
-            run.status === "review-ready",
+            run.archivedAt === null &&
+            (run.status === "running" ||
+              run.status === "cloud-submitted" ||
+              run.status === "cloud-running" ||
+              run.status === "review-ready"),
         ),
         (run) =>
-          applyLifecycleSignalsToRun({
+          reconcileRunSignals({
             projectRoot: project.workspaceRoot,
             workflow,
             run,
             linearIssue: trackedLinearIssueById.get(run.issue.id) ?? null,
             thread: run.threadId ? (threadById.get(run.threadId) ?? null) : null,
+            reason: "candidate-refresh",
           }),
         { concurrency: 4 },
       );
@@ -938,6 +1159,9 @@ const makeSymphonyService = Effect.gen(function* () {
         .pipe(Effect.mapError(toSymphonyError("Failed to load reconciled Symphony runs.")));
       yield* Effect.forEach(
         reconciledRuns.filter((run) => {
+          if (run.archivedAt !== null) {
+            return false;
+          }
           if (fetchedIssueIds.has(run.issue.id)) {
             return false;
           }
@@ -1304,6 +1528,7 @@ const makeSymphonyService = Effect.gen(function* () {
         ...input.run,
         status: "cloud-submitted",
         workspacePath: null,
+        branchName,
         threadId: null,
         executionTarget: "codex-cloud",
         cloudTask: submittedCodexCloudTask({
@@ -1411,6 +1636,7 @@ const makeSymphonyService = Effect.gen(function* () {
         status: input.target === "local" ? "eligible" : "target-pending",
         executionTarget: input.target,
         cloudTask: input.target === "local" ? null : run.cloudTask,
+        archivedAt: null,
         nextRetryAt: null,
         lastError: null,
         updatedAt: nowIso(),
@@ -1448,6 +1674,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
       const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const runningCount = runs.filter((run) => {
+        if (run.archivedAt !== null) return false;
         if (run.status !== "running") return false;
         if (!run.threadId) return true;
         return threadById.get(run.threadId)?.latestTurn?.state === "running";
@@ -1458,6 +1685,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const candidates = runs
         .filter(
           (run) =>
+            run.archivedAt === null &&
             run.executionTarget === "local" &&
             (run.status === "eligible" || run.status === "retry-queued"),
         )
@@ -1569,11 +1797,6 @@ const makeSymphonyService = Effect.gen(function* () {
         (currentTask.status !== "failed" || currentTask.lastMessage !== detectedFailureMessage);
       const nextRun: SymphonyRun = {
         ...input.run,
-        status: detectedFailureMessage
-          ? "failed"
-          : taskDetected && input.run.status === "cloud-submitted"
-            ? "cloud-running"
-            : input.run.status,
         lastError: nextLastError,
         cloudTask: {
           ...currentTask,
@@ -1614,53 +1837,104 @@ const makeSymphonyService = Effect.gen(function* () {
       return nextRun;
     });
 
-  const reconcileRunWithThread = (run: SymphonyRun): Effect.Effect<void, SymphonyError> => {
-    if (run.status !== "running" || !run.threadId) return Effect.void;
-
-    return Effect.gen(function* () {
-      const thread = yield* readThread(run.threadId!);
+  const reconcileRunWithThread = (input: {
+    readonly projectRoot: string;
+    readonly workflow: { readonly config: SymphonyWorkflowConfig };
+    readonly run: SymphonyRun;
+    readonly linearIssue?: LinearIssueWorkflowContext | null;
+    readonly thread?: OrchestrationThread | null;
+    readonly reason: ReconcileReason;
+  }): Effect.Effect<void, SymphonyError> =>
+    Effect.gen(function* () {
+      const run = input.run;
+      const thread = input.thread ?? null;
       const latestTurn = thread?.latestTurn ?? null;
-      if (!latestTurn) return;
+      if (!run.threadId || !thread || !latestTurn) {
+        yield* reconcileRunSignals({
+          projectRoot: input.projectRoot,
+          workflow: input.workflow,
+          run,
+          linearIssue: input.linearIssue ?? null,
+          thread,
+          reason: input.reason,
+        });
+        return;
+      }
 
       if (latestTurn.state === "running") {
         const attempts = replaceLatestAttempt(run, { status: "streaming-turn" });
-        if (attempts === run.attempts) return;
-        yield* repository
-          .upsertRun({
-            ...run,
-            attempts,
-            updatedAt: nowIso(),
-          })
-          .pipe(Effect.mapError(toSymphonyError("Failed to update Symphony run attempt.")));
+        const nextRun =
+          attempts === run.attempts
+            ? run
+            : {
+                ...run,
+                attempts,
+                updatedAt: nowIso(),
+              };
+        if (nextRun !== run) {
+          yield* repository
+            .upsertRun(nextRun)
+            .pipe(Effect.mapError(toSymphonyError("Failed to update Symphony run attempt.")));
+        }
+        yield* reconcileRunSignals({
+          projectRoot: input.projectRoot,
+          workflow: input.workflow,
+          run: nextRun,
+          linearIssue: input.linearIssue ?? null,
+          thread,
+          reason: input.reason,
+        });
+        return;
+      }
+
+      if (run.status !== "running") {
+        yield* reconcileRunSignals({
+          projectRoot: input.projectRoot,
+          workflow: input.workflow,
+          run,
+          linearIssue: input.linearIssue ?? null,
+          thread,
+          reason: input.reason,
+        });
         return;
       }
 
       const completedAt = latestTurn.completedAt ?? nowIso();
       if (latestTurn.state === "completed") {
-        const project = yield* readProject(run.projectId);
-        const workflow = yield* loadValidatedWorkflow(run.projectId);
-        const attemptedRun: SymphonyRun = {
-          ...run,
-          attempts: replaceLatestAttempt(run, {
-            status: "succeeded",
-            completedAt,
-            error: null,
-          }),
-          nextRetryAt: null,
-          lastError: null,
-          updatedAt: completedAt,
-        };
-        yield* repository
-          .upsertRun(attemptedRun)
-          .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
-        const nextRun = yield* applyLifecycleSignalsToRun({
-          projectRoot: project.workspaceRoot,
-          workflow,
+        const latestAttempt = run.attempts.at(-1);
+        const attemptAlreadySucceeded =
+          latestAttempt?.status === "succeeded" && latestAttempt.completedAt === completedAt;
+        const attemptedRun: SymphonyRun = attemptAlreadySucceeded
+          ? run
+          : {
+              ...run,
+              attempts: replaceLatestAttempt(run, {
+                status: "succeeded",
+                completedAt,
+                error: null,
+              }),
+              nextRetryAt: null,
+              lastError: null,
+              updatedAt: completedAt,
+            };
+        if (!attemptAlreadySucceeded) {
+          yield* repository
+            .upsertRun(attemptedRun)
+            .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
+        }
+        const reconciled = yield* reconcileRunSignals({
+          projectRoot: input.projectRoot,
+          workflow: input.workflow,
           run: attemptedRun,
+          linearIssue: input.linearIssue ?? null,
           thread,
+          reason: input.reason,
         });
-        yield* runAfterRunHook({ projectId: run.projectId, run: nextRun });
-        if (nextRun.status === "running") {
+        const nextRun = reconciled.run;
+        if (!attemptAlreadySucceeded) {
+          yield* runAfterRunHook({ projectId: run.projectId, run: nextRun });
+        }
+        if (!attemptAlreadySucceeded && nextRun.status === "running") {
           yield* emitProjectEvent({
             projectId: run.projectId,
             issueId: run.issue.id,
@@ -1674,9 +1948,8 @@ const makeSymphonyService = Effect.gen(function* () {
       }
 
       if (latestTurn.state === "interrupted") {
-        const nextRun: SymphonyRun = {
+        const attemptedRun: SymphonyRun = {
           ...run,
-          status: "canceled",
           attempts: replaceLatestAttempt(run, {
             status: "canceled-by-reconciliation",
             completedAt,
@@ -1687,49 +1960,23 @@ const makeSymphonyService = Effect.gen(function* () {
           updatedAt: completedAt,
         };
         yield* repository
-          .upsertRun(nextRun)
-          .pipe(Effect.mapError(toSymphonyError("Failed to cancel Symphony run.")));
-        yield* runAfterRunHook({ projectId: run.projectId, run: nextRun });
-        yield* emitProjectEvent({
-          projectId: run.projectId,
-          issueId: run.issue.id,
-          runId: run.runId,
-          type: "run.canceled",
-          message: `${run.issue.identifier} canceled`,
-          payload: { threadId: run.threadId },
+          .upsertRun(attemptedRun)
+          .pipe(Effect.mapError(toSymphonyError("Failed to update interrupted Symphony attempt.")));
+        const reconciled = yield* reconcileRunSignals({
+          projectRoot: input.projectRoot,
+          workflow: input.workflow,
+          run: attemptedRun,
+          linearIssue: input.linearIssue ?? null,
+          thread,
+          reason: input.reason,
         });
-        const workflow = yield* loadValidatedWorkflow(run.projectId).pipe(
-          Effect.catchTag("SymphonyError", () => Effect.succeed(null)),
-        );
-        if (workflow) {
-          yield* transitionLinearRunState({
-            projectId: run.projectId,
-            workflow,
-            run: nextRun,
-            stateName: workflow.config.tracker.transitionStates.canceled,
-            reason: "canceled",
-          });
-        }
+        yield* runAfterRunHook({ projectId: run.projectId, run: reconciled.run });
         return;
       }
 
-      const workflow = yield* loadValidatedWorkflow(run.projectId).pipe(
-        Effect.catchTag("SymphonyError", () =>
-          Effect.succeed({
-            config: {
-              agent: {
-                maxTurns: 1,
-                maxRetryBackoffMs: 300_000,
-              },
-            },
-          } as {
-            readonly config: Pick<SymphonyWorkflowConfig, "agent">;
-          }),
-        ),
-      );
       const attemptNumber = Math.max(1, run.attempts.at(-1)?.attempt ?? run.attempts.length);
-      const canRetry = attemptNumber < workflow.config.agent.maxTurns;
-      const errorMessage = thread?.session?.lastError ?? "Codex turn failed.";
+      const canRetry = attemptNumber < input.workflow.config.agent.maxTurns;
+      const errorMessage = thread.session?.lastError ?? "Codex turn failed.";
       const nextRun: SymphonyRun = {
         ...run,
         status: canRetry ? "retry-queued" : "failed",
@@ -1739,7 +1986,7 @@ const makeSymphonyService = Effect.gen(function* () {
           error: errorMessage,
         }),
         nextRetryAt: canRetry
-          ? retryAfterIso(attemptNumber, workflow.config.agent.maxRetryBackoffMs)
+          ? retryAfterIso(attemptNumber, input.workflow.config.agent.maxRetryBackoffMs)
           : null,
         lastError: errorMessage,
         updatedAt: completedAt,
@@ -1747,7 +1994,17 @@ const makeSymphonyService = Effect.gen(function* () {
       yield* repository
         .upsertRun(nextRun)
         .pipe(Effect.mapError(toSymphonyError("Failed to reconcile failed Symphony run.")));
-      yield* runAfterRunHook({ projectId: run.projectId, run: nextRun });
+      const reconciled = canRetry
+        ? { run: nextRun }
+        : yield* reconcileRunSignals({
+            projectRoot: input.projectRoot,
+            workflow: input.workflow,
+            run: nextRun,
+            linearIssue: input.linearIssue ?? null,
+            thread,
+            reason: input.reason,
+          });
+      yield* runAfterRunHook({ projectId: run.projectId, run: reconciled.run });
       yield* emitProjectEvent({
         projectId: run.projectId,
         issueId: run.issue.id,
@@ -1763,47 +2020,90 @@ const makeSymphonyService = Effect.gen(function* () {
         },
       });
     });
-  };
 
   const reconcileProjectRuns = (projectId: ProjectId): Effect.Effect<void, SymphonyError> =>
-    repository.listRuns(projectId).pipe(
-      Effect.mapError(toSymphonyError("Failed to load Symphony runs for reconciliation.")),
-      Effect.flatMap((runs) =>
-        Effect.forEach(
-          runs.filter(
-            (run) =>
-              (run.status === "running" && run.threadId !== null) ||
-              run.status === "cloud-submitted" ||
-              run.status === "cloud-running" ||
-              run.status === "review-ready",
-          ),
-          (run) =>
-            run.executionTarget === "codex-cloud"
-              ? refreshCloudRunStatus({ projectId, run }).pipe(
-                  Effect.flatMap((refreshedRun) =>
-                    Effect.gen(function* () {
-                      const project = yield* readProject(projectId);
-                      const workflow = yield* loadValidatedWorkflow(projectId);
-                      yield* applyLifecycleSignalsToRun({
-                        projectRoot: project.workspaceRoot,
-                        workflow,
-                        run: refreshedRun,
-                      });
-                    }),
-                  ),
-                )
-              : reconcileRunWithThread(run),
-          { concurrency: 4 },
-        ),
-      ),
-      Effect.asVoid,
-    );
+    Effect.gen(function* () {
+      const project = yield* readProject(projectId);
+      const workflow = yield* loadValidatedWorkflow(projectId);
+      const runs = yield* repository
+        .listRunsForMonitoring(projectId)
+        .pipe(Effect.mapError(toSymphonyError("Failed to load Symphony runs for monitoring.")));
+      if (runs.length === 0) return;
 
-  const publishSnapshotUpdate = (projectId: ProjectId): Effect.Effect<void, never> =>
+      const trackedLinearIssues = yield* fetchTrackedLinearIssues({
+        projectId,
+        workflow,
+        issueIds: runs.map((run) => run.issue.id),
+      }).pipe(
+        Effect.catchTag("SymphonyError", (error) =>
+          Effect.forEach(
+            runs,
+            (run) =>
+              emitProjectEvent({
+                projectId,
+                issueId: run.issue.id,
+                runId: run.runId,
+                type: "run.signal-warning",
+                message: `Linear issue lookup failed: ${error.message}`,
+                payload: { reason: "scheduler" },
+              }),
+            { concurrency: 4 },
+          ).pipe(Effect.as([] as readonly LinearIssueWorkflowContext[])),
+        ),
+      );
+      const trackedLinearIssueById = new Map(
+        trackedLinearIssues.map((issue) => [issue.issue.id, issue] as const),
+      );
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
+
+      yield* Effect.forEach(
+        runs,
+        (run) =>
+          Effect.gen(function* () {
+            const refreshedRun =
+              run.executionTarget === "codex-cloud" &&
+              (run.status === "cloud-submitted" || run.status === "cloud-running")
+                ? yield* refreshCloudRunStatus({ projectId, run })
+                : run;
+            const thread = refreshedRun.threadId
+              ? (threadById.get(refreshedRun.threadId) ?? null)
+              : null;
+            const linearIssue = trackedLinearIssueById.get(refreshedRun.issue.id) ?? null;
+
+            if (refreshedRun.executionTarget === "codex-cloud") {
+              yield* reconcileRunSignals({
+                projectRoot: project.workspaceRoot,
+                workflow,
+                run: refreshedRun,
+                linearIssue,
+                thread,
+                reason: "scheduler",
+              });
+              return;
+            }
+
+            yield* reconcileRunWithThread({
+              projectRoot: project.workspaceRoot,
+              workflow,
+              run: refreshedRun,
+              linearIssue,
+              thread,
+              reason: "scheduler",
+            });
+          }),
+        { concurrency: 4 },
+      );
+    });
+
+  const publishSnapshotUpdate = (
+    projectId: ProjectId,
+    options: { readonly force?: boolean } = {},
+  ): Effect.Effect<void, never> =>
     Ref.modify(snapshotPublishedAtByProject, (current) => {
       const now = Date.now();
       const lastPublishedAt = current.get(projectId) ?? 0;
-      if (now - lastPublishedAt < 1_000) {
+      if (options.force !== true && now - lastPublishedAt < 1_000) {
         return [false, current] as const;
       }
       const next = new Map(current);
@@ -1830,9 +2130,19 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.mapError(toSymphonyError("Failed to find Symphony run for thread event.")),
       Effect.flatMap((run) =>
         run
-          ? reconcileRunWithThread(run).pipe(
-              Effect.flatMap(() => publishSnapshotUpdate(run.projectId)),
-            )
+          ? Effect.gen(function* () {
+              const project = yield* readProject(run.projectId);
+              const workflow = yield* loadValidatedWorkflow(run.projectId);
+              const thread = run.threadId ? yield* readThread(run.threadId) : null;
+              yield* reconcileRunWithThread({
+                projectRoot: project.workspaceRoot,
+                workflow,
+                run,
+                thread,
+                reason: "thread-event",
+              });
+              yield* publishSnapshotUpdate(run.projectId);
+            })
           : Effect.void,
       ),
       Effect.ignoreCause({ log: true }),
@@ -1844,9 +2154,10 @@ const makeSymphonyService = Effect.gen(function* () {
       const runtimeState = yield* repository
         .getRuntimeState(projectId)
         .pipe(Effect.mapError(toSymphonyError("Failed to load Symphony runtime state.")));
-      if (runtimeState?.status !== "running") return;
 
       yield* reconcileProjectRuns(projectId);
+
+      if (runtimeState?.status !== "running") return;
 
       const settings = yield* loadSettings(projectId);
       if (settings.workflowStatus.status !== "valid" || !settings.linearSecret.configured) {
@@ -1889,17 +2200,26 @@ const makeSymphonyService = Effect.gen(function* () {
       ),
     );
 
-  const tickRunningProjects = repository.listRuntimeStates().pipe(
-    Effect.mapError(toSymphonyError("Failed to list Symphony runtime states.")),
-    Effect.flatMap((states) =>
-      Effect.forEach(
-        states.filter((state) => state.status === "running"),
-        (state) => runExclusiveSchedulerTick(state.projectId),
-        { concurrency: 2 },
-      ),
-    ),
-    Effect.ignoreCause({ log: true }),
-  );
+  const tickRunningProjects = Effect.gen(function* () {
+    const runtimeStates = yield* repository
+      .listRuntimeStates()
+      .pipe(Effect.mapError(toSymphonyError("Failed to list Symphony runtime states.")));
+    const monitoredProjectIds = yield* repository
+      .listProjectIdsWithRunsInStatuses({
+        statuses: MONITORED_RUN_STATUSES,
+        includeArchived: false,
+      })
+      .pipe(Effect.mapError(toSymphonyError("Failed to list Symphony monitored run projects.")));
+    const projectIds = [
+      ...new Set([
+        ...runtimeStates
+          .filter((state) => state.status === "running")
+          .map((state) => state.projectId),
+        ...monitoredProjectIds,
+      ]),
+    ];
+    yield* Effect.forEach(projectIds, runExclusiveSchedulerTick, { concurrency: 2 });
+  }).pipe(Effect.ignoreCause({ log: true }));
 
   const setLinearApiKey: SymphonyServiceShape["setLinearApiKey"] = ({ projectId, key }) =>
     Effect.gen(function* () {
@@ -2082,7 +2402,11 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.flatMap(() => buildSnapshot(projectId)),
     );
 
-  const refresh: SymphonyServiceShape["refresh"] = ({ projectId }) => refreshCandidates(projectId);
+  const refresh: SymphonyServiceShape["refresh"] = ({ projectId }) =>
+    reconcileProjectRuns(projectId).pipe(
+      Effect.ignoreCause({ log: true }),
+      Effect.flatMap(() => refreshCandidates(projectId)),
+    );
 
   const launchIssue: SymphonyServiceShape["launchIssue"] = ({ projectId, issueId, target }) =>
     launchIssueRun({ projectId, issueId, target }).pipe(
@@ -2098,10 +2422,11 @@ const makeSymphonyService = Effect.gen(function* () {
         const refreshedRun = yield* refreshCloudRunStatus({ projectId, run });
         const project = yield* readProject(projectId);
         const workflow = yield* loadValidatedWorkflow(projectId);
-        yield* applyLifecycleSignalsToRun({
+        yield* reconcileRunSignals({
           projectRoot: project.workspaceRoot,
           workflow,
           run: refreshedRun,
+          reason: "cloud-refresh",
         });
       }
       return yield* buildSnapshot(projectId);
@@ -2175,6 +2500,7 @@ const makeSymphonyService = Effect.gen(function* () {
                 status: "target-pending",
                 executionTarget: null,
                 cloudTask: null,
+                archivedAt: null,
                 nextRetryAt: null,
                 lastError: null,
                 updatedAt: nowIso(),

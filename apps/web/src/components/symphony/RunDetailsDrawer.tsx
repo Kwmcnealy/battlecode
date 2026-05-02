@@ -158,6 +158,7 @@ export function RunDetailsDrawer({
                 <DetailRow label="Linear state" value={run.issue.state} />
                 <DetailRow label="Current step" value={run.currentStep?.label ?? null} />
                 <DetailRow label="Step detail" value={run.currentStep?.detail ?? null} />
+                <DetailRow label="Archived at" value={formatDateTime(run.archivedAt)} />
                 <DetailRow
                   label="Target"
                   value={run.executionTarget ? TARGET_LABEL[run.executionTarget] : null}

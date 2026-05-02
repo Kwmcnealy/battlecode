@@ -38,6 +38,7 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
     cloudTask: null,
     pullRequest: null,
     currentStep: null,
+    archivedAt: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,

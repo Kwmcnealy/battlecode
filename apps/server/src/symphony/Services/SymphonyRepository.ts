@@ -3,6 +3,7 @@ import type {
   SymphonyEvent,
   SymphonyIssueId,
   SymphonyRun,
+  SymphonyRunStatus,
   SymphonySettings,
   ThreadId,
 } from "@t3tools/contracts";
@@ -32,6 +33,13 @@ export interface SymphonyRepositoryShape {
     settings: SymphonySettings,
   ) => Effect.Effect<SymphonySettings, SymphonyRepositoryError>;
   readonly listRuns: (
+    projectId: ProjectId,
+  ) => Effect.Effect<readonly SymphonyRun[], SymphonyRepositoryError>;
+  readonly listProjectIdsWithRunsInStatuses: (input: {
+    readonly statuses: readonly SymphonyRunStatus[];
+    readonly includeArchived?: boolean;
+  }) => Effect.Effect<readonly ProjectId[], SymphonyRepositoryError>;
+  readonly listRunsForMonitoring: (
     projectId: ProjectId,
   ) => Effect.Effect<readonly SymphonyRun[], SymphonyRepositoryError>;
   readonly getRunByIssue: (input: {
