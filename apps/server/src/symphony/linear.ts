@@ -99,7 +99,7 @@ query SymphonyCandidateIssues($projectSlug: String!, $states: [String!], $after:
     first: 50
     after: $after
     filter: {
-      project: { slug: { eq: $projectSlug } }
+      project: { slugId: { eq: $projectSlug } }
       state: { name: { in: $states } }
     }
   ) {

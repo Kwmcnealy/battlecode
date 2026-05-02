@@ -123,6 +123,7 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).query).toContain("slugId");
     expect(issues.map((issue) => issue.identifier)).toEqual(["APP-1", "APP-2"]);
   });
 });
