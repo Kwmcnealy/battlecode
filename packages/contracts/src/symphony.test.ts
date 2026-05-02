@@ -115,9 +115,23 @@ describe("Symphony contracts", () => {
       status: "submitted",
       taskUrl: null,
       linearCommentId: "comment-1",
+      linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+      repository: "openai/codex",
+      repositoryUrl: "https://github.com/openai/codex",
+      lastMessage: "No suitable environment or repository is available.",
       delegatedAt: "2026-04-30T12:00:00.000Z",
       lastCheckedAt: "2026-04-30T12:00:00.000Z",
     });
+    expect(
+      Schema.decodeUnknownSync(SymphonyCloudTask)({
+        provider: "codex-cloud-linear",
+        status: "submitted",
+        taskUrl: null,
+        linearCommentId: "comment-1",
+        delegatedAt: "2026-04-30T12:00:00.000Z",
+        lastCheckedAt: "2026-04-30T12:00:00.000Z",
+      }).linearCommentUrl,
+    ).toBeNull();
     const run = Schema.decodeUnknownSync(SymphonyRun)({
       runId: "run-1",
       projectId: ProjectId.make("project-symphony"),

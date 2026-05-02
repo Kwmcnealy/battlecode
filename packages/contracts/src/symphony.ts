@@ -82,6 +82,22 @@ export const SymphonyCloudTask = Schema.Struct({
   status: SymphonyCloudTaskStatus,
   taskUrl: Schema.NullOr(Schema.String),
   linearCommentId: Schema.NullOr(Schema.String),
+  linearCommentUrl: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  repository: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  repositoryUrl: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastMessage: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   delegatedAt: Schema.NullOr(IsoDateTime),
   lastCheckedAt: Schema.NullOr(IsoDateTime),
 });
