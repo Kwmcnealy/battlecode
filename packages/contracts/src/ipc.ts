@@ -51,9 +51,21 @@ import type {
   OrchestrationSubscribeThreadInput,
   OrchestrationThreadStreamItem,
 } from "./orchestration.ts";
-import type { EnvironmentId } from "./baseSchemas.ts";
+import type { EnvironmentId, ThreadId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
+import type {
+  SymphonyIssueActionInput,
+  SymphonyLaunchIssueInput,
+  SymphonyProjectInput,
+  SymphonySecretStatus,
+  SymphonySetLinearApiKeyInput,
+  SymphonySettings,
+  SymphonySnapshot,
+  SymphonySubscribeEvent,
+  SymphonyUpdateExecutionDefaultInput,
+  SymphonyUpdateWorkflowPathInput,
+} from "./symphony.ts";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -284,6 +296,35 @@ export interface EnvironmentApi {
     subscribeThread: (
       input: OrchestrationSubscribeThreadInput,
       callback: (event: OrchestrationThreadStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+  };
+  symphony: {
+    getSettings: (input: SymphonyProjectInput) => Promise<SymphonySettings>;
+    updateWorkflowPath: (input: SymphonyUpdateWorkflowPathInput) => Promise<SymphonySettings>;
+    createStarterWorkflow: (input: SymphonyProjectInput) => Promise<SymphonySettings>;
+    validateWorkflow: (input: SymphonyProjectInput) => Promise<SymphonySettings>;
+    setLinearApiKey: (input: SymphonySetLinearApiKeyInput) => Promise<SymphonySecretStatus>;
+    testLinearConnection: (input: SymphonyProjectInput) => Promise<SymphonySecretStatus>;
+    deleteLinearApiKey: (input: SymphonyProjectInput) => Promise<SymphonySecretStatus>;
+    getSnapshot: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
+    start: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
+    pause: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
+    resume: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
+    refresh: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
+    stopIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    retryIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
+    launchIssue: (input: SymphonyLaunchIssueInput) => Promise<SymphonySnapshot>;
+    updateExecutionDefault: (
+      input: SymphonyUpdateExecutionDefaultInput,
+    ) => Promise<SymphonySettings>;
+    refreshCloudStatus: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    subscribe: (
+      input: SymphonyProjectInput,
+      callback: (event: SymphonySubscribeEvent) => void,
       options?: {
         onResubscribe?: () => void;
       },

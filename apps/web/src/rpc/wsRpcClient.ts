@@ -7,6 +7,7 @@ import {
   type LocalApi,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
+  SYMPHONY_WS_METHODS,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { applyGitStatusStreamEvent } from "@t3tools/shared/git";
@@ -118,6 +119,31 @@ export interface WsRpcClient {
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly subscribeThread: RpcInputStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeThread>;
+  };
+  readonly symphony: {
+    readonly getSettings: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.getSettings>;
+    readonly updateWorkflowPath: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.updateWorkflowPath>;
+    readonly createStarterWorkflow: RpcUnaryMethod<
+      typeof SYMPHONY_WS_METHODS.createStarterWorkflow
+    >;
+    readonly validateWorkflow: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.validateWorkflow>;
+    readonly setLinearApiKey: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.setLinearApiKey>;
+    readonly testLinearConnection: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.testLinearConnection>;
+    readonly deleteLinearApiKey: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.deleteLinearApiKey>;
+    readonly getSnapshot: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.getSnapshot>;
+    readonly subscribe: RpcInputStreamMethod<typeof SYMPHONY_WS_METHODS.subscribe>;
+    readonly start: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.start>;
+    readonly pause: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.pause>;
+    readonly resume: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.resume>;
+    readonly refresh: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.refresh>;
+    readonly stopIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.stopIssue>;
+    readonly retryIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.retryIssue>;
+    readonly openLinkedThread: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.openLinkedThread>;
+    readonly launchIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.launchIssue>;
+    readonly updateExecutionDefault: RpcUnaryMethod<
+      typeof SYMPHONY_WS_METHODS.updateExecutionDefault
+    >;
+    readonly refreshCloudStatus: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.refreshCloudStatus>;
   };
 }
 
@@ -251,6 +277,46 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           listener,
           options,
         ),
+    },
+    symphony: {
+      getSettings: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.getSettings](input)),
+      updateWorkflowPath: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.updateWorkflowPath](input)),
+      createStarterWorkflow: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.createStarterWorkflow](input)),
+      validateWorkflow: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.validateWorkflow](input)),
+      setLinearApiKey: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.setLinearApiKey](input)),
+      testLinearConnection: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.testLinearConnection](input)),
+      deleteLinearApiKey: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.deleteLinearApiKey](input)),
+      getSnapshot: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.getSnapshot](input)),
+      subscribe: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[SYMPHONY_WS_METHODS.subscribe](input),
+          listener,
+          options,
+        ),
+      start: (input) => transport.request((client) => client[SYMPHONY_WS_METHODS.start](input)),
+      pause: (input) => transport.request((client) => client[SYMPHONY_WS_METHODS.pause](input)),
+      resume: (input) => transport.request((client) => client[SYMPHONY_WS_METHODS.resume](input)),
+      refresh: (input) => transport.request((client) => client[SYMPHONY_WS_METHODS.refresh](input)),
+      stopIssue: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.stopIssue](input)),
+      retryIssue: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.retryIssue](input)),
+      openLinkedThread: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.openLinkedThread](input)),
+      launchIssue: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.launchIssue](input)),
+      updateExecutionDefault: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.updateExecutionDefault](input)),
+      refreshCloudStatus: (input) =>
+        transport.request((client) => client[SYMPHONY_WS_METHODS.refreshCloudStatus](input)),
     },
   };
 }

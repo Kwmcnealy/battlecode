@@ -92,6 +92,24 @@ const rpcClientMock = {
     ),
     subscribeThread: vi.fn(() => () => undefined),
   },
+  symphony: {
+    getSettings: vi.fn(),
+    updateWorkflowPath: vi.fn(),
+    createStarterWorkflow: vi.fn(),
+    validateWorkflow: vi.fn(),
+    setLinearApiKey: vi.fn(),
+    testLinearConnection: vi.fn(),
+    deleteLinearApiKey: vi.fn(),
+    getSnapshot: vi.fn(),
+    start: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    refresh: vi.fn(),
+    stopIssue: vi.fn(),
+    retryIssue: vi.fn(),
+    openLinkedThread: vi.fn(),
+    subscribe: vi.fn(() => () => undefined),
+  },
 };
 
 vi.mock("./environments/runtime", () => ({

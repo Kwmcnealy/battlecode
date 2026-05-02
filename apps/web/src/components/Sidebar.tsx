@@ -43,6 +43,8 @@ import {
   type ScopedThreadRef,
   type ServerProvider,
   type SidebarProjectGroupingMode,
+  type SymphonyRun,
+  type SymphonySnapshot,
   type ThreadEnvMode,
   ThreadId,
 } from "@t3tools/contracts";
@@ -187,7 +189,9 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
+import { STATUS_BADGE_CLASSNAME, TARGET_LABEL, formatStatus } from "./symphony/symphonyDisplay";
 const THREAD_PREVIEW_LIMIT = 6;
+const SYMPHONY_THREAD_ID_PREFIX = "symphony-thread-";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -263,6 +267,291 @@ function buildThreadJumpLabelMap(input: {
     }
   }
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
+}
+
+function isSymphonyThread(thread: Pick<SidebarThreadSummary, "id">): boolean {
+  return String(thread.id).startsWith(SYMPHONY_THREAD_ID_PREFIX);
+}
+
+function flattenSymphonyRuns(snapshot: SymphonySnapshot): SymphonyRun[] {
+  const runs = [
+    ...snapshot.queues.pendingTarget,
+    ...snapshot.queues.running,
+    ...snapshot.queues.retrying,
+    ...snapshot.queues.eligible,
+    ...snapshot.queues.failed,
+    ...snapshot.queues.canceled,
+    ...snapshot.queues.completed,
+  ];
+  const seen = new Set<string>();
+  return runs.filter((run) => {
+    if (seen.has(run.runId)) {
+      return false;
+    }
+    seen.add(run.runId);
+    return true;
+  });
+}
+
+interface SidebarSymphonySnapshotEntry {
+  member: SidebarProjectGroupMember;
+  snapshot: SymphonySnapshot;
+}
+
+function useProjectSymphonySnapshots(
+  members: readonly SidebarProjectGroupMember[],
+): readonly SidebarSymphonySnapshotEntry[] {
+  const [snapshotsByKey, setSnapshotsByKey] = useState<Record<string, SymphonySnapshot>>({});
+  const memberKeys = useMemo(
+    () =>
+      members
+        .map((member) => scopedProjectKey(scopeProjectRef(member.environmentId, member.id)))
+        .join("|"),
+    [members],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    const unsubscribes: Array<() => void> = [];
+    setSnapshotsByKey({});
+
+    for (const member of members) {
+      const api = readEnvironmentApi(member.environmentId);
+      if (!api) {
+        continue;
+      }
+      const key = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
+      void api.symphony
+        .getSnapshot({ projectId: member.id })
+        .then((snapshot) => {
+          if (!disposed) {
+            setSnapshotsByKey((current) => ({ ...current, [key]: snapshot }));
+          }
+        })
+        .catch(() => undefined);
+      unsubscribes.push(
+        api.symphony.subscribe({ projectId: member.id }, (event) => {
+          setSnapshotsByKey((current) => ({ ...current, [key]: event.snapshot }));
+        }),
+      );
+    }
+
+    return () => {
+      disposed = true;
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
+    };
+  }, [memberKeys, members]);
+
+  return useMemo(
+    () =>
+      members.flatMap((member) => {
+        const key = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
+        const snapshot = snapshotsByKey[key];
+        return snapshot ? [{ member, snapshot }] : [];
+      }),
+    [members, snapshotsByKey],
+  );
+}
+
+function openExternalUrl(url: string): void {
+  const api = readLocalApi();
+  if (api) {
+    void api.shell.openExternal(url).catch((error) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Unable to open link",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    });
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function symphonyRunIsActive(run: SymphonyRun): boolean {
+  return (
+    run.status === "target-pending" ||
+    run.status === "eligible" ||
+    run.status === "running" ||
+    run.status === "retry-queued" ||
+    run.status === "cloud-submitted"
+  );
+}
+
+function SidebarSymphonySection({
+  expanded,
+  activeRouteThreadKey,
+  snapshotEntries,
+  symphonyThreads,
+  onToggle,
+  navigateToThread,
+}: {
+  expanded: boolean;
+  activeRouteThreadKey: string | null;
+  snapshotEntries: readonly SidebarSymphonySnapshotEntry[];
+  symphonyThreads: readonly SidebarThreadSummary[];
+  onToggle: () => void;
+  navigateToThread: (threadRef: ScopedThreadRef) => void;
+}) {
+  const runEntries = useMemo(
+    () =>
+      snapshotEntries.flatMap((entry) =>
+        flattenSymphonyRuns(entry.snapshot).map((run) => ({
+          member: entry.member,
+          snapshot: entry.snapshot,
+          run,
+        })),
+      ),
+    [snapshotEntries],
+  );
+  const runThreadIds = useMemo(
+    () => new Set(runEntries.flatMap((entry) => (entry.run.threadId ? [entry.run.threadId] : []))),
+    [runEntries],
+  );
+  const orphanThreads = useMemo(
+    () => symphonyThreads.filter((thread) => !runThreadIds.has(thread.id)),
+    [runThreadIds, symphonyThreads],
+  );
+  const hasRows = runEntries.length + orphanThreads.length > 0;
+  const hasActiveSymphony = runEntries.some((entry) => symphonyRunIsActive(entry.run));
+  const buttonRender = useMemo(() => <button type="button" />, []);
+
+  if (!hasRows) {
+    return null;
+  }
+
+  return (
+    <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
+      <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
+        <SidebarMenuSubButton
+          render={buttonRender}
+          data-thread-selection-safe
+          size="sm"
+          className="h-6 w-full translate-x-0 justify-start px-2 text-left"
+          onClick={onToggle}
+        >
+          <ChevronRightIcon
+            className={`size-3 shrink-0 text-muted-foreground/65 transition-transform duration-150 ${
+              expanded ? "rotate-90" : ""
+            }`}
+          />
+          <span
+            className={`min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.08em] ${
+              hasActiveSymphony ? "text-destructive" : "text-primary"
+            }`}
+          >
+            Symphony
+          </span>
+          {hasActiveSymphony ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-[3px]"
+              aria-label="Symphony running"
+            >
+              <span className="verbose-dot verbose-dot-1 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+              <span className="verbose-dot verbose-dot-2 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+              <span className="verbose-dot verbose-dot-3 h-1.5 w-1.5 rounded-full bg-destructive/80" />
+            </span>
+          ) : null}
+          <span className="font-mono text-[10px] text-muted-foreground/55">
+            {runEntries.length + orphanThreads.length}
+          </span>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>
+      {expanded
+        ? runEntries.map(({ member, run }) => {
+            const threadKey = run.threadId
+              ? scopedThreadKey(scopeThreadRef(member.environmentId, run.threadId))
+              : null;
+            const taskUrl =
+              run.executionTarget === "codex-cloud"
+                ? (run.cloudTask?.taskUrl ?? run.issue.url)
+                : null;
+            const clickable = threadKey !== null || taskUrl !== null;
+            return (
+              <SidebarMenuSubItem
+                key={`${scopedProjectKey(scopeProjectRef(member.environmentId, member.id))}:${
+                  run.runId
+                }`}
+                className="w-full"
+                data-thread-selection-safe
+              >
+                <SidebarMenuSubButton
+                  render={buttonRender}
+                  data-thread-selection-safe
+                  size="sm"
+                  isActive={threadKey !== null && activeRouteThreadKey === threadKey}
+                  className="h-7 w-full translate-x-0 justify-start gap-2 px-2 text-left"
+                  aria-disabled={!clickable}
+                  onClick={() => {
+                    if (run.threadId) {
+                      navigateToThread(scopeThreadRef(member.environmentId, run.threadId));
+                      return;
+                    }
+                    if (taskUrl) {
+                      openExternalUrl(taskUrl);
+                    }
+                  }}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span className="truncate font-mono text-[10px] text-primary">
+                      {run.issue.identifier}
+                    </span>
+                    <span className="truncate text-[11px] text-sidebar-foreground/85">
+                      {run.issue.title}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[9px] uppercase text-muted-foreground/65">
+                    {run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose"}
+                  </span>
+                  <span
+                    className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9px] uppercase ${
+                      STATUS_BADGE_CLASSNAME[run.status]
+                    }`}
+                  >
+                    {formatStatus(run.status)}
+                  </span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            );
+          })
+        : null}
+      {expanded
+        ? orphanThreads.map((thread) => {
+            const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+            const threadKey = scopedThreadKey(threadRef);
+            return (
+              <SidebarMenuSubItem key={threadKey} className="w-full" data-thread-selection-safe>
+                <SidebarMenuSubButton
+                  render={buttonRender}
+                  data-thread-selection-safe
+                  size="sm"
+                  isActive={activeRouteThreadKey === threadKey}
+                  className="h-7 w-full translate-x-0 justify-start gap-2 px-2 text-left"
+                  onClick={() => navigateToThread(threadRef)}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span className="truncate font-mono text-[10px] text-primary">Local</span>
+                    <span className="truncate text-[11px] text-sidebar-foreground/85">
+                      {thread.title}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[9px] uppercase text-muted-foreground/65">
+                    Local
+                  </span>
+                  <span className="inline-flex h-4 shrink-0 items-center border border-muted-foreground/30 bg-muted/40 px-1 font-mono text-[9px] uppercase text-muted-foreground">
+                    Thread
+                  </span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            );
+          })
+        : null}
+    </SidebarMenuSub>
+  );
 }
 
 interface SidebarThreadRowProps {
@@ -1056,10 +1345,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // thread-list change).
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
-  const projectThreads = sidebarThreads;
+  const symphonyThreads = useMemo(
+    () => sidebarThreads.filter((thread) => isSymphonyThread(thread)),
+    [sidebarThreads],
+  );
+  const projectThreads = useMemo(
+    () => sidebarThreads.filter((thread) => !isSymphonyThread(thread)),
+    [sidebarThreads],
+  );
+  const symphonySnapshotEntries = useProjectSymphonySnapshots(project.memberProjects);
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[project.projectKey] ?? true,
   );
+  const symphonyExpanded = useUiStateStore(
+    (state) => state.symphonyExpandedByProjectKey[project.projectKey] ?? false,
+  );
+  const toggleSymphonyExpanded = useUiStateStore((state) => state.toggleSymphonyExpanded);
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
       projectThreads.map(
@@ -1099,7 +1400,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     const counts = new Map<string, number>(
       project.memberProjects.map((member) => [member.physicalProjectKey, 0] as const),
     );
-    for (const thread of projectThreads) {
+    for (const thread of sidebarThreads) {
       const member = memberProjectByScopedKey.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       );
@@ -1109,7 +1410,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       counts.set(member.physicalProjectKey, (counts.get(member.physicalProjectKey) ?? 0) + 1);
     }
     return counts;
-  }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
+  }, [memberProjectByScopedKey, project.memberProjects, sidebarThreads]);
 
   const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
@@ -2069,6 +2370,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         </Tooltip>
       </div>
 
+      {projectExpanded ? (
+        <SidebarSymphonySection
+          expanded={symphonyExpanded}
+          activeRouteThreadKey={activeRouteThreadKey}
+          snapshotEntries={symphonySnapshotEntries}
+          symphonyThreads={symphonyThreads}
+          onToggle={() => toggleSymphonyExpanded(project.projectKey)}
+          navigateToThread={navigateToThread}
+        />
+      ) : null}
+
       <SidebarProjectThreadList
         projectKey={project.projectKey}
         projectExpanded={projectExpanded}
@@ -2834,6 +3146,9 @@ export default function Sidebar() {
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
+      if (isSymphonyThread(thread)) {
+        continue;
+      }
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -2958,7 +3273,8 @@ export default function Sidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
+    () =>
+      sidebarThreads.filter((thread) => thread.archivedAt === null && !isSymphonyThread(thread)),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {

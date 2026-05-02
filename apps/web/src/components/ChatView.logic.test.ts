@@ -189,6 +189,21 @@ describe("thread terminal content view resolution", () => {
     ).toBe("chat");
   });
 
+  it("resolves symphony tab only when a project is active", () => {
+    expect(
+      resolveThreadContentView({
+        requestedView: "symphony",
+        hasActiveProject: true,
+      }),
+    ).toBe("symphony");
+    expect(
+      resolveThreadContentView({
+        requestedView: "symphony",
+        hasActiveProject: false,
+      }),
+    ).toBe("chat");
+  });
+
   it("keeps the main terminal mounted while the chat tab is active", () => {
     const mounted = shouldMountThreadTerminalMainSurface({
       hasActiveProject: true,

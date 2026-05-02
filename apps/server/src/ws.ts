@@ -20,6 +20,8 @@ import {
   FilesystemBrowseError,
   ThreadId,
   type TerminalEvent,
+  SYMPHONY_WS_METHODS,
+  SymphonyError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -63,6 +65,7 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService.ts";
 import { respondToAuthError } from "./auth/http.ts";
+import { SymphonyService } from "./symphony/Services/SymphonyService.ts";
 
 function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   OrchestrationEvent,
@@ -153,6 +156,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const serverAuth = yield* ServerAuth;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
+      const symphony = yield* SymphonyService;
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -190,6 +194,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         Schema.is(OrchestrationDispatchCommandError)(cause)
           ? cause
           : new OrchestrationDispatchCommandError({
+              message: cause instanceof Error ? cause.message : fallbackMessage,
+              cause,
+            });
+
+      const toSymphonyError = (cause: unknown, fallbackMessage: string) =>
+        Schema.is(SymphonyError)(cause)
+          ? cause
+          : new SymphonyError({
               message: cause instanceof Error ? cause.message : fallbackMessage,
               cause,
             });
@@ -744,6 +756,220 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
             }),
             { "rpc.aggregate": "orchestration" },
+          ),
+        [SYMPHONY_WS_METHODS.getSettings]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.getSettings,
+            symphony
+              .getSettings(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to load Symphony settings"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.updateWorkflowPath]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.updateWorkflowPath,
+            symphony
+              .updateWorkflowPath(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to update Symphony workflow path"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.createStarterWorkflow]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.createStarterWorkflow,
+            symphony
+              .createStarterWorkflow(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to create Symphony starter workflow"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.validateWorkflow]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.validateWorkflow,
+            symphony
+              .validateWorkflow(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to validate Symphony workflow"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.setLinearApiKey]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.setLinearApiKey,
+            symphony
+              .setLinearApiKey(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to save Symphony Linear API key"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.testLinearConnection]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.testLinearConnection,
+            symphony
+              .testLinearConnection(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to test Symphony Linear connection"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.deleteLinearApiKey]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.deleteLinearApiKey,
+            symphony
+              .deleteLinearApiKey(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to delete Symphony Linear API key"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.getSnapshot]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.getSnapshot,
+            symphony
+              .getSnapshot(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to load Symphony snapshot"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.subscribe]: (input) =>
+          observeRpcStream(
+            SYMPHONY_WS_METHODS.subscribe,
+            symphony
+              .subscribe(input)
+              .pipe(
+                Stream.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to subscribe to Symphony events"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.start]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.start,
+            symphony
+              .start(input)
+              .pipe(Effect.mapError((cause) => toSymphonyError(cause, "Failed to start Symphony"))),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.pause]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.pause,
+            symphony
+              .pause(input)
+              .pipe(Effect.mapError((cause) => toSymphonyError(cause, "Failed to pause Symphony"))),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.resume]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.resume,
+            symphony
+              .resume(input)
+              .pipe(
+                Effect.mapError((cause) => toSymphonyError(cause, "Failed to resume Symphony")),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.refresh]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.refresh,
+            symphony
+              .refresh(input)
+              .pipe(
+                Effect.mapError((cause) => toSymphonyError(cause, "Failed to refresh Symphony")),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.stopIssue]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.stopIssue,
+            symphony
+              .stopIssue(input)
+              .pipe(
+                Effect.mapError((cause) => toSymphonyError(cause, "Failed to stop Symphony issue")),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.retryIssue]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.retryIssue,
+            symphony
+              .retryIssue(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to retry Symphony issue"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.launchIssue]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.launchIssue,
+            symphony
+              .launchIssue(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to launch Symphony issue"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.updateExecutionDefault]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.updateExecutionDefault,
+            symphony
+              .updateExecutionDefault(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to update Symphony execution default"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.refreshCloudStatus]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.refreshCloudStatus,
+            symphony
+              .refreshCloudStatus(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to refresh Symphony cloud status"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.openLinkedThread]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.openLinkedThread,
+            symphony
+              .openLinkedThread(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to open Symphony linked thread"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
           ),
         [WS_METHODS.serverGetConfig]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {

@@ -14,6 +14,7 @@ import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as CliError from "effect/unstable/cli/CliError";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/unstable/cli";
+import { afterEach, beforeEach, vi } from "vitest";
 
 import { cli } from "./cli.ts";
 import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config.ts";
@@ -39,6 +40,16 @@ const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);
 const runCliWithRuntime = (args: ReadonlyArray<string>) =>
   runCli(args).pipe(Effect.provide(CliRuntimeLayer));
+
+beforeEach(() => {
+  vi.stubEnv("VITE_DEV_SERVER_URL", undefined);
+  vi.stubEnv("VITE_HTTP_URL", undefined);
+  vi.stubEnv("VITE_WS_URL", undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {

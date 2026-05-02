@@ -45,6 +45,28 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
     },
+    symphony: {
+      getSettings: rpcClient.symphony.getSettings,
+      updateWorkflowPath: rpcClient.symphony.updateWorkflowPath,
+      createStarterWorkflow: rpcClient.symphony.createStarterWorkflow,
+      validateWorkflow: rpcClient.symphony.validateWorkflow,
+      setLinearApiKey: rpcClient.symphony.setLinearApiKey,
+      testLinearConnection: rpcClient.symphony.testLinearConnection,
+      deleteLinearApiKey: rpcClient.symphony.deleteLinearApiKey,
+      getSnapshot: rpcClient.symphony.getSnapshot,
+      start: rpcClient.symphony.start,
+      pause: rpcClient.symphony.pause,
+      resume: rpcClient.symphony.resume,
+      refresh: rpcClient.symphony.refresh,
+      stopIssue: rpcClient.symphony.stopIssue,
+      retryIssue: rpcClient.symphony.retryIssue,
+      openLinkedThread: rpcClient.symphony.openLinkedThread,
+      launchIssue: rpcClient.symphony.launchIssue,
+      updateExecutionDefault: rpcClient.symphony.updateExecutionDefault,
+      refreshCloudStatus: rpcClient.symphony.refreshCloudStatus,
+      subscribe: (input, callback, options) =>
+        rpcClient.symphony.subscribe(input, callback, options),
+    },
   };
 }
 

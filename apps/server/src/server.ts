@@ -67,6 +67,8 @@ import {
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import { SymphonyRepositoryLive } from "./symphony/Layers/SymphonyRepository.ts";
+import { SymphonyServiceLive } from "./symphony/Layers/SymphonyService.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -219,6 +221,16 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
+const SymphonyLayerLive = SymphonyServiceLive.pipe(
+  Layer.provideMerge(SymphonyRepositoryLive),
+  Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(ServerSecretStoreLive),
+  Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(GitHubCliLive),
+  Layer.provideMerge(RepositoryIdentityResolverLive),
+  Layer.provideMerge(OrchestrationLayerLive),
+);
+
 const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
@@ -235,6 +247,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
+  Layer.provideMerge(SymphonyLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),

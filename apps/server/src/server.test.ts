@@ -18,6 +18,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
+  SymphonyError,
   ThreadId,
   WS_METHODS,
   WsRpcGroup,
@@ -105,6 +106,7 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { SymphonyService, type SymphonyServiceShape } from "./symphony/Services/SymphonyService.ts";
 
 const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
@@ -335,6 +337,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    symphonyService?: Partial<SymphonyServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -480,6 +483,87 @@ const buildAppUnderTest = (options?: {
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(SymphonyService)({
+          getSettings: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          updateWorkflowPath: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          createStarterWorkflow: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          validateWorkflow: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          setLinearApiKey: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          testLinearConnection: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          deleteLinearApiKey: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          getSnapshot: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          subscribe: () =>
+            Stream.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          start: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          pause: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          resume: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          refresh: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          stopIssue: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          retryIssue: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          launchIssue: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          updateExecutionDefault: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          refreshCloudStatus: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          openLinkedThread: () =>
+            Effect.fail(
+              new SymphonyError({ message: "Symphony service not implemented in test." }),
+            ),
+          ...options?.layers?.symphonyService,
         }),
       ),
       Layer.provide(

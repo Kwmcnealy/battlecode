@@ -12,10 +12,12 @@ import {
   sanitizePersistedThreadActiveViewByKey,
   selectThreadActiveView,
   setProjectExpanded,
+  setSymphonyExpanded,
   setThreadActiveView,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
+  toggleSymphonyExpanded,
   type UiState,
 } from "./uiStateStore";
 
@@ -23,6 +25,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    symphonyExpandedByProjectKey: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     threadActiveViewByKey: {},
@@ -69,6 +72,27 @@ describe("uiStateStore pure functions", () => {
     const next = reorderProjects(initialState, [project1], [project3]);
 
     expect(next.projectOrder).toEqual([project2, project3, project1]);
+  });
+
+  it("tracks Symphony sidebar collapse independently from project collapse", () => {
+    const initialState = makeUiState({
+      projectExpandedById: { "project-1": true },
+      symphonyExpandedByProjectKey: { "project-1": true },
+    });
+
+    const collapsed = setSymphonyExpanded(initialState, "project-1", false);
+    const expanded = toggleSymphonyExpanded(collapsed, "project-1");
+
+    expect(collapsed.projectExpandedById["project-1"]).toBe(true);
+    expect(collapsed.symphonyExpandedByProjectKey["project-1"]).toBe(false);
+    expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
+  });
+
+  it("defaults Symphony sidebar groups to collapsed", () => {
+    const initialState = makeUiState();
+    const expanded = toggleSymphonyExpanded(initialState, "project-1");
+
+    expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
   });
 
   it("reorderProjects is a no-op when dragged key is not in projectOrder", () => {
@@ -399,14 +423,23 @@ describe("uiStateStore pure functions", () => {
     expect(selectThreadActiveView(makeUiState(), null)).toBe("chat");
   });
 
-  it("stores terminal as a per-thread active view override", () => {
+  it("stores terminal and symphony as per-thread active view overrides", () => {
     const thread1 = ThreadId.make("thread-1");
+    const thread2 = ThreadId.make("thread-2");
     const initialState = makeUiState();
 
-    const next = setThreadActiveView(initialState, thread1, "terminal");
+    const next = setThreadActiveView(
+      setThreadActiveView(initialState, thread1, "terminal"),
+      thread2,
+      "symphony",
+    );
 
     expect(selectThreadActiveView(next, thread1)).toBe("terminal");
-    expect(next.threadActiveViewByKey).toEqual({ [thread1]: "terminal" });
+    expect(selectThreadActiveView(next, thread2)).toBe("symphony");
+    expect(next.threadActiveViewByKey).toEqual({
+      [thread1]: "terminal",
+      [thread2]: "symphony",
+    });
   });
 
   it("removes the per-thread active view override when switching back to chat", () => {
@@ -607,10 +640,12 @@ describe("uiStateStore persistence round-trip", () => {
   it("persists only non-default thread active view state across restart", () => {
     const thread1 = ThreadId.make("thread-view-1");
     const thread2 = ThreadId.make("thread-view-2");
+    const thread3 = ThreadId.make("thread-view-3");
     const state = makeUiState({
       threadActiveViewByKey: {
         [thread1]: "terminal",
         [thread2]: "chat",
+        [thread3]: "symphony",
       },
     });
 
@@ -621,6 +656,7 @@ describe("uiStateStore persistence round-trip", () => {
     ) as PersistedUiState;
     expect(persisted.threadActiveViewByKey).toEqual({
       [thread1]: "terminal",
+      [thread3]: "symphony",
     });
   });
 
@@ -628,12 +664,14 @@ describe("uiStateStore persistence round-trip", () => {
     expect(
       sanitizePersistedThreadActiveViewByKey({
         "thread-good": "terminal",
+        "thread-symphony": "symphony",
         "thread-chat": "chat",
         "thread-bad": "files" as never,
         "": "terminal",
       }),
     ).toEqual({
       "thread-good": "terminal",
+      "thread-symphony": "symphony",
     });
   });
 });

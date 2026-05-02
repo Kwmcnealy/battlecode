@@ -13,7 +13,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
-import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -45,6 +45,8 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
+const STREAMING_ASSISTANT_FLUSH_INTERVAL = Duration.millis(50);
+const MAX_STREAMING_ASSISTANT_CHARS = 512;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -158,6 +160,16 @@ function orchestrationSessionStatusFromRuntimeState(
     case "error":
       return "error";
   }
+}
+
+function resolveSessionStateChangedStatus(input: {
+  readonly status: ReturnType<typeof orchestrationSessionStatusFromRuntimeState>;
+  readonly activeTurnId: TurnId | null;
+}): ReturnType<typeof orchestrationSessionStatusFromRuntimeState> {
+  if (input.activeTurnId !== null && (input.status === "ready" || input.status === "starting")) {
+    return "running";
+  }
+  return input.status;
 }
 
 function requestKindFromCanonicalRequestType(
@@ -569,6 +581,7 @@ const make = Effect.gen(function* () {
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
   });
+  const streamingFlushScheduledByMessageId = yield* Ref.make<ReadonlySet<MessageId>>(new Set());
 
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -763,10 +776,19 @@ const make = Effect.gen(function* () {
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
 
-  const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
+  const clearScheduledStreamingFlush = (messageId: MessageId) =>
+    Ref.update(streamingFlushScheduledByMessageId, (current) => {
+      const next = new Set(current);
+      next.delete(messageId);
+      return next;
+    });
 
-  const flushBufferedAssistantMessage = (input: {
+  const clearAssistantMessageState = (messageId: MessageId) =>
+    Effect.all([clearBufferedAssistantText(messageId), clearScheduledStreamingFlush(messageId)], {
+      discard: true,
+    });
+
+  const flushAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
     threadId: ThreadId;
     messageId: MessageId;
@@ -792,6 +814,39 @@ const make = Effect.gen(function* () {
       return true;
     });
 
+  const scheduleStreamingAssistantFlush = (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    messageId: MessageId;
+    turnId?: TurnId;
+  }) =>
+    Ref.modify(streamingFlushScheduledByMessageId, (current) => {
+      if (current.has(input.messageId)) {
+        return [false, current] as const;
+      }
+      const next = new Set(current);
+      next.add(input.messageId);
+      return [true, next] as const;
+    }).pipe(
+      Effect.flatMap((shouldSchedule) =>
+        shouldSchedule
+          ? Effect.sleep(STREAMING_ASSISTANT_FLUSH_INTERVAL).pipe(
+              Effect.flatMap(() =>
+                flushAssistantMessage({
+                  ...input,
+                  createdAt: new Date().toISOString(),
+                  commandTag: "assistant-delta-stream-flush",
+                }),
+              ),
+              Effect.ensuring(clearScheduledStreamingFlush(input.messageId)),
+              Effect.ignoreCause({ log: true }),
+              Effect.forkDetach,
+              Effect.asVoid,
+            )
+          : Effect.void,
+      ),
+    );
+
   const flushBufferedAssistantMessagesForTurn = (input: {
     event: ProviderRuntimeEvent;
     threadId: ThreadId;
@@ -808,7 +863,7 @@ const make = Effect.gen(function* () {
       yield* Effect.forEach(
         assistantMessageIds,
         (messageId) =>
-          flushBufferedAssistantMessage({
+          flushAssistantMessage({
             event: input.event,
             threadId: input.threadId,
             messageId,
@@ -1173,7 +1228,10 @@ const make = Effect.gen(function* () {
         const status = (() => {
           switch (event.type) {
             case "session.state.changed":
-              return orchestrationSessionStatusFromRuntimeState(event.payload.state);
+              return resolveSessionStateChangedStatus({
+                status: orchestrationSessionStatusFromRuntimeState(event.payload.state),
+                activeTurnId,
+              });
             case "turn.started":
               return "running";
             case "session.exited":
@@ -1260,29 +1318,44 @@ const make = Effect.gen(function* () {
           serverSettingsService.getSettings,
           (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
         );
-        if (assistantDeliveryMode === "buffered") {
-          const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
-          if (spillChunk.length > 0) {
-            yield* orchestrationEngine.dispatch({
-              type: "thread.message.assistant.delta",
-              commandId: providerCommandId(event, "assistant-delta-buffer-spill"),
-              threadId: thread.id,
-              messageId: assistantMessageId,
-              delta: spillChunk,
-              ...(turnId ? { turnId } : {}),
-              createdAt: now,
-            });
-          }
-        } else {
+        const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
+        if (spillChunk.length > 0) {
           yield* orchestrationEngine.dispatch({
             type: "thread.message.assistant.delta",
-            commandId: providerCommandId(event, "assistant-delta"),
+            commandId: providerCommandId(
+              event,
+              assistantDeliveryMode === "streaming"
+                ? "assistant-delta-stream-spill"
+                : "assistant-delta-buffer-spill",
+            ),
             threadId: thread.id,
             messageId: assistantMessageId,
-            delta: assistantDelta,
+            delta: spillChunk,
             ...(turnId ? { turnId } : {}),
             createdAt: now,
           });
+        } else if (assistantDeliveryMode === "streaming") {
+          const bufferedText = yield* Cache.getOption(
+            bufferedAssistantTextByMessageId,
+            assistantMessageId,
+          ).pipe(Effect.map((text) => Option.getOrElse(text, () => "")));
+          if (bufferedText.length >= MAX_STREAMING_ASSISTANT_CHARS) {
+            yield* flushAssistantMessage({
+              event,
+              threadId: thread.id,
+              messageId: assistantMessageId,
+              ...(turnId ? { turnId } : {}),
+              createdAt: now,
+              commandTag: "assistant-delta-stream-threshold",
+            });
+          } else {
+            yield* scheduleStreamingAssistantFlush({
+              event,
+              threadId: thread.id,
+              messageId: assistantMessageId,
+              ...(turnId ? { turnId } : {}),
+            });
+          }
         }
       }
 
