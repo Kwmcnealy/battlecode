@@ -183,10 +183,15 @@ describe("Symphony Linear helpers", () => {
               issue: {
                 comments: {
                   nodes: [
-                    { id: "comment-1", body: "No task here." },
                     {
-                      id: "comment-2",
-                      body: "Codex task: https://codex.openai.com/tasks/task-123)",
+                      id: "comment-old",
+                      body: "Codex task: https://codex.openai.com/tasks/old",
+                      createdAt: "2026-05-01T09:59:59.000Z",
+                    },
+                    {
+                      id: "comment-new",
+                      body: "Codex task: https://codex.openai.com/tasks/new",
+                      createdAt: "2026-05-01T10:00:01.000Z",
                     },
                   ],
                 },
@@ -203,12 +208,148 @@ describe("Symphony Linear helpers", () => {
         endpoint: "https://linear.example/graphql",
         apiKey: "lin_api_key",
         issueId: "linear-issue-1",
+        delegatedAfter: "2026-05-01T10:00:00.000Z",
       }),
     );
 
     expect(detected).toEqual({
-      taskUrl: "https://codex.openai.com/tasks/task-123",
-      linearCommentId: "comment-2",
+      taskUrl: "https://codex.openai.com/tasks/new",
+      linearCommentId: "comment-new",
+      status: "detected",
+      message: null,
+    });
+  });
+
+  it("detects Codex Cloud setup failures from Linear comments", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-setup",
+                      body: "No suitable environment or repository is available.",
+                      createdAt: "2026-05-01T10:00:01.000Z",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detected = await Effect.runPromise(
+      detectLinearCodexTask({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+        delegatedAfter: "2026-05-01T10:00:00.000Z",
+      }),
+    );
+
+    expect(detected).toEqual({
+      taskUrl: null,
+      linearCommentId: "comment-setup",
+      status: "failed",
+      message: "No suitable environment or repository is available.",
+    });
+  });
+
+  it("prefers post-delegation task links over earlier post-delegation setup failures", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-setup",
+                      body: "No suitable environment or repository is available.",
+                      createdAt: "2026-05-01T10:00:01.000Z",
+                    },
+                    {
+                      id: "comment-task",
+                      body: "Codex task: https://codex.openai.com/tasks/after-setup",
+                      createdAt: "2026-05-01T10:00:02.000Z",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detected = await Effect.runPromise(
+      detectLinearCodexTask({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+        delegatedAfter: "2026-05-01T10:00:00.000Z",
+      }),
+    );
+
+    expect(detected).toEqual({
+      taskUrl: "https://codex.openai.com/tasks/after-setup",
+      linearCommentId: "comment-task",
+      status: "detected",
+      message: null,
+    });
+  });
+
+  it("ignores stale setup failures before delegation", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-stale-setup",
+                      body: "No suitable environment or repository is available.",
+                      createdAt: "2026-05-01T09:59:59.000Z",
+                    },
+                    {
+                      id: "comment-stale-task",
+                      body: "Codex task: https://codex.openai.com/tasks/stale",
+                      createdAt: "2026-05-01T09:59:58.000Z",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detected = await Effect.runPromise(
+      detectLinearCodexTask({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+        delegatedAfter: "2026-05-01T10:00:00.000Z",
+      }),
+    );
+
+    expect(detected).toEqual({
+      status: "unknown",
+      taskUrl: null,
+      linearCommentId: null,
+      message: null,
     });
   });
 });

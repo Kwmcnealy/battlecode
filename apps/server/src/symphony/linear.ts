@@ -6,6 +6,8 @@ import {
   type SymphonyWorkflowConfig,
 } from "@t3tools/contracts";
 
+import { classifyCodexCloudReply } from "./codexCloud.ts";
+
 export const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,12 +143,13 @@ mutation SymphonyCreateComment($issueId: String!, $body: String!) {
 const LINEAR_ISSUE_COMMENTS_QUERY = `
 query SymphonyIssueComments($issueId: String!) {
   issue(id: $issueId) {
-    comments(first: 50) {
+    comments(first: 100) {
       nodes {
         id
         url
         body
         createdAt
+        user { id name displayName }
       }
     }
   }
@@ -159,8 +162,10 @@ export interface LinearCommentResult {
 }
 
 export interface LinearCodexTaskDetection {
+  readonly status: "detected" | "failed" | "unknown";
   readonly taskUrl: string | null;
   readonly linearCommentId: string | null;
+  readonly message: string | null;
 }
 
 function linearGraphql(input: {
@@ -257,16 +262,31 @@ export function createLinearComment(input: {
   );
 }
 
-function detectCodexTaskUrl(text: string | null): string | null {
-  if (!text) return null;
-  const match = text.match(/https:\/\/codex\.openai\.com\/[^\s)]+/i);
-  return match?.[0] ?? null;
+function parseValidDateMillis(value: string | null): number | null {
+  if (!value) return null;
+  const millis = Date.parse(value);
+  return Number.isNaN(millis) ? null : millis;
+}
+
+function shouldSkipComment(input: {
+  readonly commentCreatedAt: string | null;
+  readonly delegatedAfter: string | null | undefined;
+}): boolean {
+  const delegatedAfterMillis = parseValidDateMillis(input.delegatedAfter ?? null);
+  const commentCreatedAtMillis = parseValidDateMillis(input.commentCreatedAt);
+
+  return (
+    delegatedAfterMillis !== null &&
+    commentCreatedAtMillis !== null &&
+    commentCreatedAtMillis < delegatedAfterMillis
+  );
 }
 
 export function detectLinearCodexTask(input: {
   readonly endpoint: string;
   readonly apiKey: string;
   readonly issueId: string;
+  readonly delegatedAfter?: string | null;
 }): Effect.Effect<LinearCodexTaskDetection, SymphonyError> {
   return linearGraphql({
     endpoint: input.endpoint,
@@ -281,20 +301,44 @@ export function detectLinearCodexTask(input: {
       const issue = data ? readNestedRecord(data, "issue") : null;
       const comments = issue ? readNestedRecord(issue, "comments") : null;
       const nodes = comments ? readArray(comments.nodes) : [];
+      let firstFailedReply: LinearCodexTaskDetection | null = null;
       for (const entry of nodes) {
         const comment = readRecord(entry);
         if (!comment) continue;
-        const taskUrl = detectCodexTaskUrl(readString(comment.body));
-        if (taskUrl) {
+        if (
+          shouldSkipComment({
+            commentCreatedAt: readString(comment.createdAt),
+            delegatedAfter: input.delegatedAfter,
+          })
+        ) {
+          continue;
+        }
+        const classification = classifyCodexCloudReply(readString(comment.body));
+        if (classification.status === "detected") {
           return {
-            taskUrl,
+            status: "detected",
+            taskUrl: classification.taskUrl,
             linearCommentId: readString(comment.id),
+            message: classification.message,
+          };
+        }
+        if (classification.status === "failed" && !firstFailedReply) {
+          firstFailedReply = {
+            status: "failed",
+            taskUrl: classification.taskUrl,
+            linearCommentId: readString(comment.id),
+            message: classification.message,
           };
         }
       }
+      if (firstFailedReply) {
+        return firstFailedReply;
+      }
       return {
+        status: "unknown",
         taskUrl: null,
         linearCommentId: null,
+        message: null,
       };
     }),
   );
