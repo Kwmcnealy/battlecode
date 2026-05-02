@@ -357,6 +357,36 @@ const makeSymphonyService = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(toSymphonyError("Failed to update Symphony runtime state.")));
 
+  const invalidateWorkflowForProject = (input: {
+    readonly projectId: ProjectId;
+    readonly error: SymphonyError;
+  }): Effect.Effect<void, SymphonyError> =>
+    Effect.gen(function* () {
+      const invalidatedAt = nowIso();
+      const current = yield* loadSettings(input.projectId);
+      yield* saveSettings({
+        ...current,
+        workflowStatus: {
+          status: "invalid",
+          message: input.error.message,
+          validatedAt: invalidatedAt,
+          configHash: null,
+        },
+        updatedAt: invalidatedAt,
+      });
+      yield* persistRuntimeState({
+        projectId: input.projectId,
+        status: "error",
+        lastError: input.error.message,
+      });
+      yield* emitProjectEvent({
+        projectId: input.projectId,
+        type: "workflow.invalidated",
+        message: "Symphony workflow became invalid",
+        payload: { error: input.error.message },
+      });
+    });
+
   const ensureInsideProjectRoot = (input: {
     readonly projectRoot: string;
     readonly candidatePath: string;
@@ -1333,7 +1363,12 @@ const makeSymphonyService = Effect.gen(function* () {
       if (settings.workflowStatus.status !== "valid" || !settings.linearSecret.configured) {
         return;
       }
-      const workflow = yield* loadValidatedWorkflow(projectId);
+      const workflow = yield* loadValidatedWorkflow(projectId).pipe(
+        Effect.catchTag("SymphonyError", (error) =>
+          invalidateWorkflowForProject({ projectId, error }).pipe(Effect.as(null)),
+        ),
+      );
+      if (workflow === null) return;
       if (shouldPoll(runtimeState.lastPollAt, workflow.config.polling.intervalMs)) {
         yield* refreshCandidates(projectId);
       }
