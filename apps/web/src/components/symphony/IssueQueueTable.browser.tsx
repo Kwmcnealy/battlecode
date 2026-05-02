@@ -52,6 +52,24 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
   };
 }
 
+function makeCloudTask(
+  overrides: Partial<NonNullable<SymphonyRun["cloudTask"]>> = {},
+): NonNullable<SymphonyRun["cloudTask"]> {
+  return {
+    provider: "codex-cloud-linear",
+    status: "submitted",
+    taskUrl: null,
+    linearCommentId: null,
+    linearCommentUrl: null,
+    repository: null,
+    repositoryUrl: null,
+    lastMessage: null,
+    delegatedAt: CREATED_AT,
+    lastCheckedAt: CREATED_AT,
+    ...overrides,
+  };
+}
+
 describe("IssueQueueTable", () => {
   afterEach(() => {
     document.body.innerHTML = "";
@@ -91,18 +109,11 @@ describe("IssueQueueTable", () => {
           makeRun({
             status: "cloud-submitted",
             executionTarget: "codex-cloud",
-            cloudTask: {
-              provider: "codex-cloud-linear",
+            cloudTask: makeCloudTask({
               status: "detected",
               taskUrl: "https://codex.openai.com/tasks/task-123",
               linearCommentId: "comment-1",
-              linearCommentUrl: null,
-              repository: null,
-              repositoryUrl: null,
-              lastMessage: null,
-              delegatedAt: CREATED_AT,
-              lastCheckedAt: CREATED_AT,
-            },
+            }),
           }),
         ]}
         busyAction={null}
@@ -144,10 +155,8 @@ describe("IssueQueueTable", () => {
               createdAt: CREATED_AT,
               updatedAt: CREATED_AT,
             },
-            cloudTask: {
-              provider: "codex-cloud-linear",
+            cloudTask: makeCloudTask({
               status: "failed",
-              taskUrl: null,
               linearCommentId: "comment-setup",
               linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-setup",
               repository: "openai/codex",
@@ -155,7 +164,7 @@ describe("IssueQueueTable", () => {
               delegatedAt: "2026-05-01T10:00:00.000Z",
               lastCheckedAt: "2026-05-01T10:01:00.000Z",
               lastMessage: "No suitable environment or repository is available.",
-            },
+            }),
           }),
         ]}
         busyAction={null}
@@ -203,18 +212,10 @@ describe("IssueQueueTable", () => {
               createdAt: CREATED_AT,
               updatedAt: CREATED_AT,
             },
-            cloudTask: {
-              provider: "codex-cloud-linear",
+            cloudTask: makeCloudTask({
               status: "failed",
-              taskUrl: null,
-              linearCommentId: null,
-              linearCommentUrl: null,
-              repository: null,
-              repositoryUrl: null,
               delegatedAt: null,
-              lastCheckedAt: CREATED_AT,
-              lastMessage: null,
-            },
+            }),
             lastError: "Codex Cloud requires a GitHub origin remote for this project.",
           }),
         ]}

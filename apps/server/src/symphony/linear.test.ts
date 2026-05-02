@@ -12,6 +12,32 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function mockLinearComments(
+  comments: readonly {
+    readonly id: string;
+    readonly body: string;
+    readonly createdAt: string;
+  }[],
+) {
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            issue: {
+              comments: {
+                nodes: comments,
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("Symphony Linear helpers", () => {
   it("normalizes Linear issue nodes into Symphony issues", () => {
     const issue = normalizeLinearIssue({
@@ -175,33 +201,18 @@ describe("Symphony Linear helpers", () => {
   });
 
   it("detects Codex Cloud task links from Linear comments", async () => {
-    const fetchMock = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            data: {
-              issue: {
-                comments: {
-                  nodes: [
-                    {
-                      id: "comment-old",
-                      body: "Codex task: https://codex.openai.com/tasks/old",
-                      createdAt: "2026-05-01T09:59:59.000Z",
-                    },
-                    {
-                      id: "comment-new",
-                      body: "Codex task: https://codex.openai.com/tasks/new",
-                      createdAt: "2026-05-01T10:00:01.000Z",
-                    },
-                  ],
-                },
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    mockLinearComments([
+      {
+        id: "comment-old",
+        body: "Codex task: https://codex.openai.com/tasks/old",
+        createdAt: "2026-05-01T09:59:59.000Z",
+      },
+      {
+        id: "comment-new",
+        body: "Codex task: https://codex.openai.com/tasks/new",
+        createdAt: "2026-05-01T10:00:01.000Z",
+      },
+    ]);
 
     const detected = await Effect.runPromise(
       detectLinearCodexTask({
@@ -221,28 +232,13 @@ describe("Symphony Linear helpers", () => {
   });
 
   it("detects Codex Cloud setup failures from Linear comments", async () => {
-    const fetchMock = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            data: {
-              issue: {
-                comments: {
-                  nodes: [
-                    {
-                      id: "comment-setup",
-                      body: "No suitable environment or repository is available.",
-                      createdAt: "2026-05-01T10:00:01.000Z",
-                    },
-                  ],
-                },
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    mockLinearComments([
+      {
+        id: "comment-setup",
+        body: "No suitable environment or repository is available.",
+        createdAt: "2026-05-01T10:00:01.000Z",
+      },
+    ]);
 
     const detected = await Effect.runPromise(
       detectLinearCodexTask({
@@ -262,33 +258,18 @@ describe("Symphony Linear helpers", () => {
   });
 
   it("prefers post-delegation task links over earlier post-delegation setup failures", async () => {
-    const fetchMock = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            data: {
-              issue: {
-                comments: {
-                  nodes: [
-                    {
-                      id: "comment-setup",
-                      body: "No suitable environment or repository is available.",
-                      createdAt: "2026-05-01T10:00:01.000Z",
-                    },
-                    {
-                      id: "comment-task",
-                      body: "Codex task: https://codex.openai.com/tasks/after-setup",
-                      createdAt: "2026-05-01T10:00:02.000Z",
-                    },
-                  ],
-                },
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    mockLinearComments([
+      {
+        id: "comment-setup",
+        body: "No suitable environment or repository is available.",
+        createdAt: "2026-05-01T10:00:01.000Z",
+      },
+      {
+        id: "comment-task",
+        body: "Codex task: https://codex.openai.com/tasks/after-setup",
+        createdAt: "2026-05-01T10:00:02.000Z",
+      },
+    ]);
 
     const detected = await Effect.runPromise(
       detectLinearCodexTask({
@@ -308,33 +289,18 @@ describe("Symphony Linear helpers", () => {
   });
 
   it("ignores stale setup failures before delegation", async () => {
-    const fetchMock = vi.fn(
-      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            data: {
-              issue: {
-                comments: {
-                  nodes: [
-                    {
-                      id: "comment-stale-setup",
-                      body: "No suitable environment or repository is available.",
-                      createdAt: "2026-05-01T09:59:59.000Z",
-                    },
-                    {
-                      id: "comment-stale-task",
-                      body: "Codex task: https://codex.openai.com/tasks/stale",
-                      createdAt: "2026-05-01T09:59:58.000Z",
-                    },
-                  ],
-                },
-              },
-            },
-          }),
-          { status: 200 },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    mockLinearComments([
+      {
+        id: "comment-stale-setup",
+        body: "No suitable environment or repository is available.",
+        createdAt: "2026-05-01T09:59:59.000Z",
+      },
+      {
+        id: "comment-stale-task",
+        body: "Codex task: https://codex.openai.com/tasks/stale",
+        createdAt: "2026-05-01T09:59:58.000Z",
+      },
+    ]);
 
     const detected = await Effect.runPromise(
       detectLinearCodexTask({

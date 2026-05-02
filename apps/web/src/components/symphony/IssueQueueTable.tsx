@@ -35,6 +35,21 @@ const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>([
   "released",
 ]);
 
+function getIssueQueueRowState(run: SymphonyRun) {
+  const isCloud = run.executionTarget === "codex-cloud";
+  const taskHref = isCloud ? (run.cloudTask?.taskUrl ?? run.issue.url) : null;
+
+  return {
+    canRetry: RETRYABLE_STATUSES.has(run.status),
+    canLaunch: LAUNCHABLE_STATUSES.has(run.status),
+    canStop: STOPPABLE_STATUSES.has(run.status),
+    targetLabel: run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose",
+    taskHref,
+    canRefreshCloudStatus: isCloud && run.status === "cloud-submitted",
+    cloudMessage: isCloud ? (run.cloudTask?.lastMessage ?? run.lastError) : null,
+  };
+}
+
 export function IssueQueueTable({
   runs,
   busyAction,
@@ -77,20 +92,15 @@ export function IssueQueueTable({
         </thead>
         <tbody>
           {runs.map((run) => {
-            const canRetry = RETRYABLE_STATUSES.has(run.status);
-            const canLaunch = LAUNCHABLE_STATUSES.has(run.status);
-            const canStop = STOPPABLE_STATUSES.has(run.status);
-            const targetLabel = run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose";
-            const taskHref =
-              run.executionTarget === "codex-cloud"
-                ? (run.cloudTask?.taskUrl ?? run.issue.url)
-                : null;
-            const canRefreshCloudStatus =
-              run.executionTarget === "codex-cloud" && run.status === "cloud-submitted";
-            const cloudMessage =
-              run.executionTarget === "codex-cloud"
-                ? (run.cloudTask?.lastMessage ?? run.lastError)
-                : null;
+            const {
+              canRetry,
+              canLaunch,
+              canStop,
+              targetLabel,
+              taskHref,
+              canRefreshCloudStatus,
+              cloudMessage,
+            } = getIssueQueueRowState(run);
             return (
               <tr
                 key={run.runId}

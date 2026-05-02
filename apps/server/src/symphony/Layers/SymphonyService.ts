@@ -6,6 +6,7 @@ import {
   SymphonyIssueId,
   SymphonyRun,
   ThreadId,
+  type SymphonyCloudTask,
   type SymphonyExecutionTarget,
   type SymphonySecretStatus,
   type SymphonySettings,
@@ -84,6 +85,57 @@ function toSymphonyError(message: string) {
   return (cause: unknown): SymphonyError =>
     Schema.is(SymphonyError)(cause) ? cause : new SymphonyError({ message, cause });
 }
+
+const emptyCodexCloudTask = (): SymphonyCloudTask => ({
+  provider: "codex-cloud-linear",
+  status: "unknown",
+  taskUrl: null,
+  linearCommentId: null,
+  linearCommentUrl: null,
+  repository: null,
+  repositoryUrl: null,
+  lastMessage: null,
+  delegatedAt: null,
+  lastCheckedAt: null,
+});
+
+const submittedCodexCloudTask = (input: {
+  readonly comment: { readonly id: string; readonly url: string | null };
+  readonly repository: CodexCloudRepositoryContext;
+  readonly delegatedAt: string;
+}): SymphonyCloudTask => ({
+  ...emptyCodexCloudTask(),
+  status: "submitted",
+  linearCommentId: input.comment.id,
+  linearCommentUrl: input.comment.url,
+  repository: input.repository.nameWithOwner,
+  repositoryUrl: input.repository.httpsUrl,
+  delegatedAt: input.delegatedAt,
+  lastCheckedAt: input.delegatedAt,
+});
+
+const failedCodexCloudTask = (input: {
+  readonly previous: SymphonyCloudTask | null;
+  readonly comment: { readonly id: string; readonly url: string | null } | null;
+  readonly repository: CodexCloudRepositoryContext | null;
+  readonly delegatedAt: string | null;
+  readonly failedAt: string;
+  readonly message: string;
+}): SymphonyCloudTask => {
+  const previous = input.previous ?? emptyCodexCloudTask();
+  return {
+    ...previous,
+    status: "failed",
+    taskUrl: previous.taskUrl ?? null,
+    linearCommentId: input.comment?.id ?? previous.linearCommentId ?? null,
+    linearCommentUrl: input.comment?.url ?? previous.linearCommentUrl ?? null,
+    repository: input.repository?.nameWithOwner ?? previous.repository ?? null,
+    repositoryUrl: input.repository?.httpsUrl ?? previous.repositoryUrl ?? null,
+    lastMessage: input.message,
+    delegatedAt: input.delegatedAt ?? previous.delegatedAt ?? null,
+    lastCheckedAt: input.failedAt,
+  };
+};
 
 const makeSymphonyService = Effect.gen(function* () {
   const repository = yield* SymphonyRepository;
@@ -927,18 +979,11 @@ const makeSymphonyService = Effect.gen(function* () {
         workspacePath: null,
         threadId: null,
         executionTarget: "codex-cloud",
-        cloudTask: {
-          provider: "codex-cloud-linear",
-          status: "submitted",
-          taskUrl: null,
-          linearCommentId: createdComment.id,
-          linearCommentUrl: createdComment.url,
-          repository: repositoryContext.nameWithOwner,
-          repositoryUrl: repositoryContext.httpsUrl,
-          lastMessage: null,
+        cloudTask: submittedCodexCloudTask({
+          comment: createdComment,
+          repository: repositoryContext,
           delegatedAt,
-          lastCheckedAt: delegatedAt,
-        },
+        }),
         nextRetryAt: null,
         lastError: null,
         updatedAt: delegatedAt,
@@ -967,21 +1012,14 @@ const makeSymphonyService = Effect.gen(function* () {
             workspacePath: null,
             threadId: null,
             executionTarget: "codex-cloud",
-            cloudTask: {
-              provider: "codex-cloud-linear",
-              status: "failed",
-              taskUrl: input.run.cloudTask?.taskUrl ?? null,
-              linearCommentId: createdComment?.id ?? input.run.cloudTask?.linearCommentId ?? null,
-              linearCommentUrl:
-                createdComment?.url ?? input.run.cloudTask?.linearCommentUrl ?? null,
-              repository:
-                repositoryContext?.nameWithOwner ?? input.run.cloudTask?.repository ?? null,
-              repositoryUrl:
-                repositoryContext?.httpsUrl ?? input.run.cloudTask?.repositoryUrl ?? null,
-              lastMessage: error.message,
-              delegatedAt: delegatedAt ?? input.run.cloudTask?.delegatedAt ?? null,
-              lastCheckedAt: failedAt,
-            },
+            cloudTask: failedCodexCloudTask({
+              previous: input.run.cloudTask,
+              comment: createdComment,
+              repository: repositoryContext,
+              delegatedAt,
+              failedAt,
+              message: error.message,
+            }),
             nextRetryAt: null,
             lastError: error.message,
             updatedAt: failedAt,
@@ -1168,33 +1206,22 @@ const makeSymphonyService = Effect.gen(function* () {
         issueId: input.run.issue.id,
         delegatedAfter: input.run.cloudTask?.delegatedAt ?? null,
       });
-      const currentTask = input.run.cloudTask ?? {
-        provider: "codex-cloud-linear" as const,
-        status: "unknown" as const,
-        taskUrl: null,
-        linearCommentId: null,
-        linearCommentUrl: null,
-        repository: null,
-        repositoryUrl: null,
-        lastMessage: null,
-        delegatedAt: null,
-        lastCheckedAt: null,
-      };
-      const nextLastError =
-        detected.status === "detected"
-          ? null
-          : detected.status === "failed"
-            ? detected.message
-            : input.run.lastError;
-      const nextLastMessage =
-        detected.status === "detected"
-          ? null
-          : detected.status === "failed"
-            ? detected.message
-            : (currentTask.lastMessage ?? null);
+      const currentTask = input.run.cloudTask ?? emptyCodexCloudTask();
+      const taskDetected = detected.status === "detected";
+      const detectedFailureMessage = detected.status === "failed" ? detected.message : null;
+      const nextLastError = taskDetected
+        ? null
+        : detectedFailureMessage !== null
+          ? detectedFailureMessage
+          : input.run.lastError;
+      const nextLastMessage = taskDetected
+        ? null
+        : detectedFailureMessage !== null
+          ? detectedFailureMessage
+          : (currentTask.lastMessage ?? null);
       const shouldEmitFailed =
-        detected.status === "failed" &&
-        (currentTask.status !== "failed" || currentTask.lastMessage !== detected.message);
+        detectedFailureMessage !== null &&
+        (currentTask.status !== "failed" || currentTask.lastMessage !== detectedFailureMessage);
       const nextRun: SymphonyRun = {
         ...input.run,
         lastError: nextLastError,
