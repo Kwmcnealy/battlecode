@@ -87,7 +87,9 @@ export function resolveWorkflowPath(projectRoot: string, requestedPath: string):
     return candidate;
   }
 
-  throw new Error("Workflow file must stay inside the project root.");
+  throw new Error(
+    `Workflow file must stay inside the project root. root=${root} candidate=${candidate}`,
+  );
 }
 
 export function defaultWorkflowPath(projectRoot: string): string {
@@ -122,6 +124,8 @@ polling:
 agent:
   max_concurrent_agents: 3
   max_turns: 20
+codex:
+  runtime_mode: full-access
 ---
 
 You are working on Linear ticket {{ issue.identifier }}.

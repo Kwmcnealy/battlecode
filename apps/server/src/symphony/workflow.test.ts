@@ -26,6 +26,8 @@ agent:
 hooks:
   after_create: |
     echo ready
+codex:
+  runtime_mode: approval-required
 ---
 
 Work on {{ issue.identifier }}.
@@ -44,6 +46,7 @@ Work on {{ issue.identifier }}.
     expect(workflow.config.polling.intervalMs).toBe(5000);
     expect(workflow.config.agent.maxConcurrentAgents).toBe(3);
     expect(workflow.config.hooks.afterCreate).toBe("echo ready\n");
+    expect(workflow.config.codex.runtimeMode).toBe("approval-required");
     expect(workflow.promptTemplate).toBe("Work on {{ issue.identifier }}.");
   });
 
@@ -60,6 +63,7 @@ Run the issue.
     expect(workflow.config.tracker.endpoint).toBe("https://api.linear.app/graphql");
     expect(workflow.config.polling.intervalMs).toBe(30_000);
     expect(workflow.config.agent.maxConcurrentAgents).toBe(10);
+    expect(workflow.config.codex.runtimeMode).toBe("full-access");
   });
 
   it("rejects a workflow without a prompt body", () => {

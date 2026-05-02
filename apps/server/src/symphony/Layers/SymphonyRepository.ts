@@ -11,7 +11,6 @@ import {
   SymphonyRunAttempt,
   SymphonyRunProgress,
   SymphonyRunId,
-  type SymphonyRunStatus,
   SymphonySecretStatus,
   SymphonySettings,
   SymphonyWorkflowValidation,
@@ -29,6 +28,7 @@ import {
   type SymphonyRepositoryShape,
   type SymphonyRuntimeStateRow,
 } from "../Services/SymphonyRepository.ts";
+import { LINEAR_INELIGIBLE_LEGACY_ERROR, MONITORED_RUN_STATUSES } from "../lifecyclePolicy.ts";
 
 interface SettingsRow {
   readonly projectId: string;
@@ -394,23 +394,24 @@ const makeRepository = Effect.gen(function* () {
       Effect.flatMap((rows) => Effect.forEach(rows, decodeRunRow, { concurrency: 8 })),
     );
 
-  const monitoringStatuses: readonly SymphonyRunStatus[] = [
-    "running",
-    "cloud-submitted",
-    "cloud-running",
-    "review-ready",
-    "completed",
-  ];
-
   const listProjectIdsWithRunsInStatuses: SymphonyRepositoryShape["listProjectIdsWithRunsInStatuses"] =
     ({ statuses, includeArchived }) => {
       if (statuses.length === 0) {
         return Effect.succeed([]);
       }
+      const normalStatuses = statuses.filter((status) => status !== "canceled");
+      const includeRecoverableCanceled = statuses.includes("canceled");
       return sql<ProjectIdRow>`
         SELECT DISTINCT project_id AS "projectId"
         FROM symphony_runs
-        WHERE ${sql.in("status", statuses)}
+        WHERE (
+            ${normalStatuses.length > 0 ? sql.in("status", normalStatuses) : sql`0 = 1`}
+            OR ${
+              includeRecoverableCanceled
+                ? sql`(status = 'canceled' AND last_error = ${LINEAR_INELIGIBLE_LEGACY_ERROR})`
+                : sql`0 = 1`
+            }
+          )
           AND (${includeArchived === true ? 1 : 0} = 1 OR archived_at IS NULL)
         ORDER BY project_id ASC
       `.pipe(
@@ -447,7 +448,10 @@ const makeRepository = Effect.gen(function* () {
       FROM symphony_runs
       WHERE project_id = ${projectId}
         AND archived_at IS NULL
-        AND ${sql.in("status", monitoringStatuses)}
+        AND (
+          ${sql.in("status", MONITORED_RUN_STATUSES)}
+          OR (status = 'canceled' AND last_error = ${LINEAR_INELIGIBLE_LEGACY_ERROR})
+        )
       ORDER BY updated_at DESC, issue_identifier ASC
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRunsForMonitoring")),

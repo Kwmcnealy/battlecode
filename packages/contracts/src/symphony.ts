@@ -9,6 +9,7 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
+import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./orchestration.ts";
 
 export const SYMPHONY_WS_METHODS = {
   getSettings: "symphony.getSettings",
@@ -188,12 +189,18 @@ export const SymphonyAgentConfig = Schema.Struct({
 });
 export type SymphonyAgentConfig = typeof SymphonyAgentConfig.Type;
 
+export const SymphonyCodexConfig = Schema.Struct({
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+});
+export type SymphonyCodexConfig = typeof SymphonyCodexConfig.Type;
+
 export const SymphonyWorkflowConfig = Schema.Struct({
   tracker: SymphonyTrackerConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   polling: SymphonyPollingConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   workspace: SymphonyWorkspaceConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   hooks: SymphonyHooksConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agent: SymphonyAgentConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  codex: SymphonyCodexConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SymphonyWorkflowConfig = typeof SymphonyWorkflowConfig.Type;
 

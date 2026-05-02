@@ -11,6 +11,7 @@ import { Effect, Layer } from "effect";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { SymphonyRepository } from "../Services/SymphonyRepository.ts";
+import { LINEAR_INELIGIBLE_LEGACY_ERROR } from "../lifecyclePolicy.ts";
 import { makeRun } from "../runModel.ts";
 import { SymphonyRepositoryLive } from "./SymphonyRepository.ts";
 
@@ -113,12 +114,33 @@ layer("SymphonyRepositoryLive", (it) => {
           executionTarget: "local",
         }),
       );
+      yield* repository.upsertRun(
+        makeRepositoryRun(PROJECT_ID, makeIssue("issue-recoverable-canceled", "BC-7"), {
+          status: "canceled",
+          executionTarget: "local",
+          lastError: LINEAR_INELIGIBLE_LEGACY_ERROR,
+        }),
+      );
+      yield* repository.upsertRun(
+        makeRepositoryRun(PROJECT_ID, makeIssue("issue-user-canceled", "BC-8"), {
+          status: "canceled",
+          executionTarget: "local",
+          lastError: "Canceled from the Symphony dashboard.",
+        }),
+      );
 
       const monitoredRuns = yield* repository.listRunsForMonitoring(PROJECT_ID);
       assert.deepStrictEqual(monitoredRuns.map((run) => run.status).toSorted(), [
+        "canceled",
         "cloud-running",
         "completed",
         "running",
+      ]);
+      assert.deepStrictEqual(monitoredRuns.map((run) => run.issue.identifier).toSorted(), [
+        "BC-2",
+        "BC-3",
+        "BC-4",
+        "BC-7",
       ]);
     }),
   );

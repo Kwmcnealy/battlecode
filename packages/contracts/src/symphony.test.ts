@@ -43,9 +43,42 @@ describe("Symphony contracts", () => {
     });
     expect(config.polling.intervalMs).toBe(30_000);
     expect(config.agent.maxConcurrentAgents).toBe(10);
-    expect("codex" in config).toBe(false);
+    expect(config.codex.runtimeMode).toBe("full-access");
     expect("apiKeyRef" in config.tracker).toBe(false);
     expect("assignee" in config.tracker).toBe(false);
+  });
+
+  it("decodes workflow config with explicit lifecycle states and codex runtime", () => {
+    const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)({
+      tracker: {
+        kind: "linear",
+        projectSlug: "battlecode",
+        activeStates: ["Todo", "In Progress", "Rework", "Merging"],
+        reviewStates: ["Human Review"],
+        doneStates: ["Done", "Closed"],
+        canceledStates: ["Canceled", "Cancelled"],
+        transitionStates: {
+          started: "In Progress",
+          review: "Human Review",
+          done: "Done",
+          canceled: "Canceled",
+        },
+      },
+      codex: {
+        runtimeMode: "full-access",
+      },
+    });
+
+    expect(config.tracker.reviewStates).toEqual(["Human Review"]);
+    expect(config.tracker.doneStates).toEqual(["Done", "Closed"]);
+    expect(config.tracker.canceledStates).toEqual(["Canceled", "Cancelled"]);
+    expect(config.tracker.transitionStates).toEqual({
+      started: "In Progress",
+      review: "Human Review",
+      done: "Done",
+      canceled: "Canceled",
+    });
+    expect(config.codex.runtimeMode).toBe("full-access");
   });
 
   it("creates project-scoped settings without exposing secret material", () => {

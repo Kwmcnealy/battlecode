@@ -1,4 +1,5 @@
 import {
+  ApprovalRequestId,
   OrchestrationEvent,
   ProjectId,
   SymphonyError,
@@ -53,8 +54,14 @@ import {
   updateLinearIssueState,
   type LinearIssueWorkflowContext,
 } from "../linear.ts";
-import { resolveRunLifecycle } from "../runLifecycle.ts";
 import {
+  MONITORED_RUN_STATUSES,
+  RECOVERABLE_MONITORED_RUN_STATUSES,
+  isRecoverableLegacyCanceledRun,
+} from "../lifecyclePolicy.ts";
+import { classifyLinearState, resolveRunLifecycle } from "../runLifecycle.ts";
+import {
+  buildContinuationPrompt,
   blockerIsTerminal,
   buildHookEnv,
   buildIssuePrompt,
@@ -84,13 +91,9 @@ const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 const DASHBOARD_EVENT_LIMIT = 80;
 const SIGNAL_WARNING_PREFIX = "GitHub PR lookup failed: ";
-const MONITORED_RUN_STATUSES: readonly SymphonyRunStatus[] = [
-  "running",
-  "cloud-submitted",
-  "cloud-running",
-  "review-ready",
-  "completed",
-];
+const CONTINUATION_RETRY_DELAY_MS = 1_000;
+const NON_INTERACTIVE_USER_INPUT_RESPONSE =
+  "Continue if possible. If this cannot be answered non-interactively, record the blocker clearly in the thread.";
 
 type ReconcileReason =
   | "scheduler"
@@ -159,6 +162,136 @@ function pullRequestChanged(
     left?.state !== right?.state ||
     left?.updatedAt !== right?.updatedAt
   );
+}
+
+function continuationDelayIso(now = Date.now()): string {
+  return new Date(now + CONTINUATION_RETRY_DELAY_MS).toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function activityPayloadRecord(activity: OrchestrationThread["activities"][number]) {
+  return isRecord(activity.payload) ? activity.payload : null;
+}
+
+function requestIdFromActivity(
+  activity: OrchestrationThread["activities"][number],
+): ApprovalRequestId | null {
+  const payload = activityPayloadRecord(activity);
+  return typeof payload?.requestId === "string" ? ApprovalRequestId.make(payload.requestId) : null;
+}
+
+function isStalePendingRequestFailure(detail: unknown): boolean {
+  if (typeof detail !== "string") return false;
+  const normalized = detail.toLocaleLowerCase();
+  return (
+    normalized.includes("stale pending approval request") ||
+    normalized.includes("unknown pending approval request") ||
+    normalized.includes("unknown pending permission request") ||
+    normalized.includes("stale pending user-input request") ||
+    normalized.includes("unknown pending user-input request")
+  );
+}
+
+function pendingApprovalRequestIds(thread: OrchestrationThread): readonly ApprovalRequestId[] {
+  const openByRequestId = new Map<ApprovalRequestId, ApprovalRequestId>();
+  const activities = thread.activities.toSorted((left, right) => {
+    const sequenceDelta = (left.sequence ?? 0) - (right.sequence ?? 0);
+    if (sequenceDelta !== 0) return sequenceDelta;
+    return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+  });
+
+  for (const activity of activities) {
+    const requestId = requestIdFromActivity(activity);
+    if (!requestId) continue;
+    if (activity.kind === "approval.requested") {
+      openByRequestId.set(requestId, requestId);
+      continue;
+    }
+    if (activity.kind === "approval.resolved") {
+      openByRequestId.delete(requestId);
+      continue;
+    }
+    const detail = activityPayloadRecord(activity)?.detail;
+    if (
+      activity.kind === "provider.approval.respond.failed" &&
+      isStalePendingRequestFailure(detail)
+    ) {
+      openByRequestId.delete(requestId);
+    }
+  }
+
+  return [...openByRequestId.values()];
+}
+
+function preferredNonInteractiveOption(question: Record<string, unknown>): string {
+  const options = Array.isArray(question.options)
+    ? question.options
+        .filter(isRecord)
+        .map((option) => option.label)
+        .filter((label): label is string => typeof label === "string" && label.trim().length > 0)
+    : [];
+  const preferred =
+    options.find((label) => /approve.*session|remember/i.test(label)) ??
+    options.find((label) => /continue|proceed|approve/i.test(label)) ??
+    options[0];
+  return preferred ?? NON_INTERACTIVE_USER_INPUT_RESPONSE;
+}
+
+function pendingUserInputResponses(
+  thread: OrchestrationThread,
+): readonly { readonly requestId: ApprovalRequestId; readonly answers: Record<string, unknown> }[] {
+  const openByRequestId = new Map<ApprovalRequestId, Record<string, unknown>>();
+  const activities = thread.activities.toSorted((left, right) => {
+    const sequenceDelta = (left.sequence ?? 0) - (right.sequence ?? 0);
+    if (sequenceDelta !== 0) return sequenceDelta;
+    return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+  });
+
+  for (const activity of activities) {
+    const requestId = requestIdFromActivity(activity);
+    if (!requestId) continue;
+    const payload = activityPayloadRecord(activity);
+    if (activity.kind === "user-input.requested") {
+      const questions = Array.isArray(payload?.questions) ? payload.questions.filter(isRecord) : [];
+      openByRequestId.set(
+        requestId,
+        Object.fromEntries(
+          questions.flatMap((question) => {
+            const id = typeof question.id === "string" ? question.id : null;
+            return id ? [[id, preferredNonInteractiveOption(question)] as const] : [];
+          }),
+        ),
+      );
+      continue;
+    }
+    if (activity.kind === "user-input.resolved") {
+      openByRequestId.delete(requestId);
+      continue;
+    }
+    if (
+      activity.kind === "provider.user-input.respond.failed" &&
+      isStalePendingRequestFailure(payload?.detail)
+    ) {
+      openByRequestId.delete(requestId);
+    }
+  }
+
+  return [...openByRequestId.entries()].map(([requestId, answers]) => ({ requestId, answers }));
+}
+
+function recoveredLegacyBaselineStatus(run: SymphonyRun): SymphonyRunStatus {
+  if (run.executionTarget === "codex-cloud") {
+    return run.cloudTask?.status === "detected" || run.cloudTask?.taskUrl
+      ? "cloud-running"
+      : "cloud-submitted";
+  }
+  if (run.executionTarget === "local") {
+    return run.threadId ? "running" : "eligible";
+  }
+  return "target-pending";
 }
 
 function issueChanged(left: SymphonyRun["issue"], right: SymphonyRun["issue"]): boolean {
@@ -674,9 +807,12 @@ const makeSymphonyService = Effect.gen(function* () {
     readonly requestedPath: string;
   }): Effect.Effect<string, SymphonyError> =>
     Effect.gen(function* () {
-      const logicalPath = resolveWorkflowPath(input.projectRoot, input.requestedPath);
+      const root = path.resolve(input.projectRoot);
+      const logicalPath = path.isAbsolute(input.requestedPath)
+        ? path.resolve(input.requestedPath)
+        : path.resolve(root, input.requestedPath);
       const [realProjectRoot, realWorkflowPath] = yield* Effect.all(
-        [fs.realPath(input.projectRoot), fs.realPath(logicalPath)],
+        [fs.realPath(root), fs.realPath(logicalPath)],
         { concurrency: "unbounded" },
       ).pipe(
         Effect.mapError(
@@ -776,10 +912,34 @@ const makeSymphonyService = Effect.gen(function* () {
       const raw = yield* fs
         .readFileString(workflowPath)
         .pipe(Effect.mapError(toSymphonyError(`Failed to read workflow file at ${workflowPath}.`)));
-      return yield* Effect.try({
+      const workflow = yield* Effect.try({
         try: () => parseWorkflowMarkdown(raw),
         catch: toSymphonyError("Failed to parse WORKFLOW.md."),
       });
+      const configHash = hashWorkflow(raw);
+      if (settings.workflowStatus.configHash !== configHash) {
+        yield* saveSettings({
+          ...settings,
+          workflowPath,
+          workflowStatus: {
+            status: "valid",
+            message: `Workflow validated for Linear project ${workflow.config.tracker.projectSlug || "(unset)"}.`,
+            validatedAt: nowIso(),
+            configHash,
+          },
+          updatedAt: nowIso(),
+        });
+        yield* emitProjectEvent({
+          projectId,
+          type: "workflow.validated",
+          message: "Workflow revalidated after file change",
+          payload: {
+            workflowPath,
+            trackerProjectSlug: workflow.config.tracker.projectSlug,
+          },
+        });
+      }
+      return workflow;
     });
 
   const fetchTrackedLinearIssues = (input: {
@@ -840,6 +1000,210 @@ const makeSymphonyService = Effect.gen(function* () {
       }
     }).pipe(Effect.ignoreCause({ log: true }));
   };
+
+  const fetchLinearIssueForRun = (input: {
+    readonly projectId: ProjectId;
+    readonly workflow: { readonly config: SymphonyWorkflowConfig };
+    readonly run: SymphonyRun;
+  }): Effect.Effect<LinearIssueWorkflowContext | null, never> =>
+    fetchTrackedLinearIssues({
+      projectId: input.projectId,
+      workflow: input.workflow,
+      issueIds: [input.run.issue.id],
+    }).pipe(
+      Effect.map((issues) => issues.find((issue) => issue.issue.id === input.run.issue.id) ?? null),
+      Effect.catchTag("SymphonyError", (error) =>
+        emitProjectEvent({
+          projectId: input.projectId,
+          issueId: input.run.issue.id,
+          runId: input.run.runId,
+          type: "run.signal-warning",
+          message: `Linear issue lookup failed: ${error.message}`,
+          payload: { reason: "by-id-reconciliation" },
+        }).pipe(
+          Effect.as(null),
+          Effect.orElseSucceed(() => null),
+        ),
+      ),
+    );
+
+  const warnMissingTrackedLinearIssue = (input: {
+    readonly projectId: ProjectId;
+    readonly run: SymphonyRun;
+    readonly reason: ReconcileReason;
+  }): Effect.Effect<void, never> =>
+    emitProjectEvent({
+      projectId: input.projectId,
+      issueId: input.run.issue.id,
+      runId: input.run.runId,
+      type: "run.signal-warning",
+      message: `${input.run.issue.identifier} was not returned by Linear by-id reconciliation; keeping current Symphony status.`,
+      payload: { reason: input.reason },
+    }).pipe(Effect.asVoid, Effect.ignoreCause({ log: true }));
+
+  const runForLegacyRecovery = (run: SymphonyRun): SymphonyRun =>
+    isRecoverableLegacyCanceledRun(run)
+      ? {
+          ...run,
+          status: recoveredLegacyBaselineStatus(run),
+          nextRetryAt: null,
+          lastError: null,
+        }
+      : run;
+
+  const autoResolveLocalSymphonyPendingRequests = (input: {
+    readonly projectId: ProjectId;
+    readonly run: SymphonyRun;
+    readonly thread: OrchestrationThread;
+  }): Effect.Effect<boolean, never> =>
+    Effect.gen(function* () {
+      let responded = false;
+      yield* Effect.forEach(
+        pendingApprovalRequestIds(input.thread),
+        (requestId) =>
+          orchestrationEngine
+            .dispatch({
+              type: "thread.approval.respond",
+              commandId: commandId("symphony-approval-accept"),
+              threadId: input.thread.id,
+              requestId,
+              decision: "acceptForSession",
+              createdAt: nowIso(),
+            })
+            .pipe(
+              Effect.tap(() =>
+                emitProjectEvent({
+                  projectId: input.projectId,
+                  issueId: input.run.issue.id,
+                  runId: input.run.runId,
+                  type: "run.approval-auto-accepted",
+                  message: `${input.run.issue.identifier} auto-accepted a Symphony local approval`,
+                  payload: { requestId },
+                }).pipe(Effect.ignoreCause({ log: true })),
+              ),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  responded = true;
+                }),
+              ),
+              Effect.ignoreCause({ log: true }),
+            ),
+        { concurrency: 4 },
+      );
+      yield* Effect.forEach(
+        pendingUserInputResponses(input.thread),
+        ({ requestId, answers }) =>
+          orchestrationEngine
+            .dispatch({
+              type: "thread.user-input.respond",
+              commandId: commandId("symphony-user-input-continue"),
+              threadId: input.thread.id,
+              requestId,
+              answers,
+              createdAt: nowIso(),
+            })
+            .pipe(
+              Effect.tap(() =>
+                emitProjectEvent({
+                  projectId: input.projectId,
+                  issueId: input.run.issue.id,
+                  runId: input.run.runId,
+                  type: "run.user-input-auto-answered",
+                  message: `${input.run.issue.identifier} auto-answered a Symphony local prompt`,
+                  payload: { requestId },
+                }).pipe(Effect.ignoreCause({ log: true })),
+              ),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  responded = true;
+                }),
+              ),
+              Effect.ignoreCause({ log: true }),
+            ),
+        { concurrency: 4 },
+      );
+      return responded;
+    });
+
+  const ensureLocalSymphonyThreadFullAccess = (input: {
+    readonly projectId: ProjectId;
+    readonly run: SymphonyRun;
+    readonly threadId: ThreadId;
+    readonly branchName: string;
+    readonly workspacePath: string;
+  }): Effect.Effect<boolean, SymphonyError> =>
+    Effect.gen(function* () {
+      const ensuredAt = nowIso();
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const thread = readModel.threads.find((entry) => entry.id === input.threadId) ?? null;
+      let changed = false;
+
+      if (!thread) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.create",
+            commandId: commandId("thread-create"),
+            threadId: input.threadId,
+            projectId: input.projectId,
+            title: `Symphony ${input.run.issue.identifier}: ${input.run.issue.title}`,
+            modelSelection: defaultSymphonyLocalModelSelection(),
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: input.branchName,
+            worktreePath: input.workspacePath,
+            createdAt: ensuredAt,
+          })
+          .pipe(Effect.mapError(toSymphonyError("Failed to create Symphony thread.")));
+        changed = true;
+      } else {
+        if (thread.branch !== input.branchName || thread.worktreePath !== input.workspacePath) {
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.meta.update",
+              commandId: commandId("symphony-thread-meta-sync"),
+              threadId: input.threadId,
+              branch: input.branchName,
+              worktreePath: input.workspacePath,
+            })
+            .pipe(Effect.mapError(toSymphonyError("Failed to sync Symphony thread metadata.")));
+          changed = true;
+        }
+        if (thread.runtimeMode !== "full-access") {
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.runtime-mode.set",
+              commandId: commandId("symphony-full-access"),
+              threadId: input.threadId,
+              runtimeMode: "full-access",
+              createdAt: ensuredAt,
+            })
+            .pipe(Effect.mapError(toSymphonyError("Failed to set Symphony thread full access.")));
+          changed = true;
+          yield* emitProjectEvent({
+            projectId: input.projectId,
+            issueId: input.run.issue.id,
+            runId: input.run.runId,
+            type: "run.runtime-mode-corrected",
+            message: `${input.run.issue.identifier} Symphony thread set to full-access`,
+            payload: {
+              previousRuntimeMode: thread.runtimeMode,
+              threadId: input.threadId,
+            },
+          });
+        }
+        const responded = yield* autoResolveLocalSymphonyPendingRequests({
+          projectId: input.projectId,
+          run: input.run,
+          thread,
+        });
+        changed = changed || responded;
+      }
+
+      if (changed) {
+        yield* publishSnapshotUpdate(input.projectId, { force: true });
+      }
+      return changed;
+    });
 
   const reconcileRunSignals = (input: {
     readonly projectRoot: string;
@@ -1094,19 +1458,33 @@ const makeSymphonyService = Effect.gen(function* () {
       const trackedRuns = existingRunsBeforeRefresh.filter(
         (run) =>
           run.archivedAt === null &&
-          (run.status === "running" ||
-            run.status === "cloud-submitted" ||
-            run.status === "cloud-running" ||
-            run.status === "review-ready" ||
+          (MONITORED_RUN_STATUSES.includes(run.status) ||
             run.status === "eligible" ||
             run.status === "retry-queued" ||
-            run.status === "target-pending"),
+            run.status === "target-pending" ||
+            isRecoverableLegacyCanceledRun(run)),
       );
       const trackedLinearIssues = yield* fetchTrackedLinearIssues({
         projectId,
         workflow,
         issueIds: trackedRuns.map((run) => run.issue.id),
-      });
+      }).pipe(
+        Effect.catchTag("SymphonyError", (error) =>
+          Effect.forEach(
+            trackedRuns,
+            (run) =>
+              emitProjectEvent({
+                projectId,
+                issueId: run.issue.id,
+                runId: run.runId,
+                type: "run.signal-warning",
+                message: `Linear issue lookup failed: ${error.message}`,
+                payload: { reason: "candidate-refresh" },
+              }),
+            { concurrency: 4 },
+          ).pipe(Effect.as([] as readonly LinearIssueWorkflowContext[])),
+        ),
+      );
       const trackedLinearIssueById = new Map(
         trackedLinearIssues.map((issue) => [issue.issue.id, issue] as const),
       );
@@ -1138,20 +1516,19 @@ const makeSymphonyService = Effect.gen(function* () {
         existingRuns.filter(
           (run) =>
             run.archivedAt === null &&
-            (run.status === "running" ||
-              run.status === "cloud-submitted" ||
-              run.status === "cloud-running" ||
-              run.status === "review-ready"),
+            (MONITORED_RUN_STATUSES.includes(run.status) || isRecoverableLegacyCanceledRun(run)),
         ),
-        (run) =>
-          reconcileRunSignals({
+        (run) => {
+          const trackedIssue = trackedLinearIssueById.get(run.issue.id) ?? null;
+          return reconcileRunSignals({
             projectRoot: project.workspaceRoot,
             workflow,
-            run,
-            linearIssue: trackedLinearIssueById.get(run.issue.id) ?? null,
+            run: trackedIssue ? runForLegacyRecovery(run) : run,
+            linearIssue: trackedIssue,
             thread: run.threadId ? (threadById.get(run.threadId) ?? null) : null,
             reason: "candidate-refresh",
-          }),
+          });
+        },
         { concurrency: 4 },
       );
       const reconciledRuns = yield* repository
@@ -1165,83 +1542,66 @@ const makeSymphonyService = Effect.gen(function* () {
           if (fetchedIssueIds.has(run.issue.id)) {
             return false;
           }
-          const trackedIssue = trackedLinearIssueById.get(run.issue.id);
-          const lifecycle = trackedIssue
-            ? resolveRunLifecycle({
-                run,
-                config: workflow.config,
-                linear: {
-                  stateName: trackedIssue.state.name,
-                  updatedAt: trackedIssue.issue.updatedAt,
-                },
-              })
-            : null;
-          if (
-            lifecycle?.status === "review-ready" ||
-            lifecycle?.status === "completed" ||
-            lifecycle?.status === "canceled"
-          ) {
-            return false;
-          }
           return (
             run.status === "eligible" ||
             run.status === "target-pending" ||
             run.status === "retry-queued" ||
             run.status === "running" ||
             run.status === "cloud-submitted" ||
-            run.status === "cloud-running"
+            run.status === "cloud-running" ||
+            isRecoverableLegacyCanceledRun(run)
           );
         }),
         (run) => {
           const releasedAt = nowIso();
-          const activeRun =
-            run.status === "running" ||
-            run.status === "cloud-submitted" ||
-            run.status === "cloud-running";
-          const nextStatus = activeRun ? "canceled" : "released";
+          const trackedIssue = trackedLinearIssueById.get(run.issue.id) ?? null;
+          if (!trackedIssue) {
+            return warnMissingTrackedLinearIssue({
+              projectId,
+              run,
+              reason: "candidate-refresh",
+            });
+          }
+          const linearClassification = classifyLinearState(
+            trackedIssue.state.name,
+            workflow.config.tracker,
+          );
+          if (
+            linearClassification === "active" ||
+            linearClassification === "review" ||
+            linearClassification === "done" ||
+            linearClassification === "canceled"
+          ) {
+            return reconcileRunSignals({
+              projectRoot: project.workspaceRoot,
+              workflow,
+              run: runForLegacyRecovery(run),
+              linearIssue: trackedIssue,
+              thread: run.threadId ? (threadById.get(run.threadId) ?? null) : null,
+              reason: "candidate-refresh",
+            }).pipe(Effect.asVoid);
+          }
           const nextRun: SymphonyRun = {
             ...run,
-            status: nextStatus,
-            attempts:
-              run.status === "running"
-                ? replaceLatestAttempt(run, {
-                    status: "canceled-by-reconciliation",
-                    completedAt: releasedAt,
-                    error: "Linear issue is no longer eligible for Symphony.",
-                  })
-                : run.attempts,
+            issue: trackedIssue.issue,
+            status: "released",
             nextRetryAt: null,
-            lastError: activeRun
-              ? "Linear issue is no longer eligible for Symphony."
-              : run.lastError,
+            lastError: null,
             updatedAt: releasedAt,
           };
           return repository.upsertRun(nextRun).pipe(
             Effect.mapError(toSymphonyError("Failed to reconcile ineligible Symphony run.")),
             Effect.flatMap(() =>
-              run.status === "running" && run.threadId
-                ? orchestrationEngine
-                    .dispatch({
-                      type: "thread.session.stop",
-                      commandId: commandId("reconcile-stop"),
-                      threadId: run.threadId,
-                      createdAt: releasedAt,
-                    })
-                    .pipe(Effect.ignoreCause({ log: true }))
-                : Effect.void,
-            ),
-            Effect.flatMap(() =>
               emitProjectEvent({
                 projectId,
                 issueId: run.issue.id,
                 runId: run.runId,
-                type: activeRun ? "run.canceled-by-linear" : "run.released",
-                message: activeRun
-                  ? `${run.issue.identifier} canceled because Linear is no longer eligible`
-                  : `${run.issue.identifier} released because Linear is no longer eligible`,
-                payload: { previousStatus: run.status, nextStatus },
+                type: "run.released",
+                message: `${run.issue.identifier} released because Linear is no longer eligible`,
+                payload: { previousStatus: run.status, nextStatus: "released" },
               }),
             ),
+            Effect.tap(() => publishSnapshotUpdate(projectId, { force: true })),
           );
         },
         { concurrency: 4 },
@@ -1392,23 +1752,13 @@ const makeSymphonyService = Effect.gen(function* () {
         failRunOnError: true,
       });
 
-      if (!input.run.threadId) {
-        yield* orchestrationEngine
-          .dispatch({
-            type: "thread.create",
-            commandId: commandId("thread-create"),
-            threadId: runThreadId,
-            projectId: input.projectId,
-            title: `Symphony ${input.run.issue.identifier}: ${input.run.issue.title}`,
-            modelSelection: defaultSymphonyLocalModelSelection(),
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: branchName,
-            worktreePath: workspacePath,
-            createdAt: launchedAt,
-          })
-          .pipe(Effect.mapError(toSymphonyError("Failed to create Symphony thread.")));
-      }
+      yield* ensureLocalSymphonyThreadFullAccess({
+        projectId: input.projectId,
+        run: nextRun,
+        threadId: runThreadId,
+        branchName,
+        workspacePath,
+      });
 
       yield* orchestrationEngine
         .dispatch({
@@ -1837,6 +2187,127 @@ const makeSymphonyService = Effect.gen(function* () {
       return nextRun;
     });
 
+  const startLocalContinuationTurn = (input: {
+    readonly projectId: ProjectId;
+    readonly workflow: { readonly config: SymphonyWorkflowConfig };
+    readonly run: SymphonyRun;
+  }): Effect.Effect<void, SymphonyError> =>
+    Effect.gen(function* () {
+      if (!input.run.workspacePath || !input.run.branchName || !input.run.threadId) {
+        return yield* new SymphonyError({
+          message: "Cannot continue a local Symphony run without a thread, workspace, and branch.",
+        });
+      }
+
+      const startedAt = nowIso();
+      const attemptNumber = input.run.attempts.length + 1;
+      const turnNumber = Math.min(attemptNumber, input.workflow.config.agent.maxTurns);
+      const nextRun: SymphonyRun = {
+        ...input.run,
+        status: "running",
+        executionTarget: "local",
+        cloudTask: null,
+        attempts: [
+          ...input.run.attempts,
+          {
+            attempt: attemptNumber,
+            status: "launching-agent-process",
+            startedAt,
+            completedAt: null,
+            error: null,
+          },
+        ],
+        nextRetryAt: null,
+        lastError: null,
+        currentStep: {
+          source: "local-thread",
+          label: "Starting continuation turn",
+          detail: `Continuation turn #${turnNumber} of ${input.workflow.config.agent.maxTurns}`,
+          updatedAt: startedAt,
+        },
+        updatedAt: startedAt,
+      };
+
+      yield* repository
+        .upsertRun(nextRun)
+        .pipe(Effect.mapError(toSymphonyError("Failed to queue Symphony continuation turn.")));
+      yield* ensureLocalSymphonyThreadFullAccess({
+        projectId: input.projectId,
+        run: nextRun,
+        threadId: input.run.threadId,
+        branchName: input.run.branchName,
+        workspacePath: input.run.workspacePath,
+      });
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: commandId("continuation-turn-start"),
+          threadId: input.run.threadId,
+          message: {
+            messageId: messageId(),
+            role: "user",
+            text: buildContinuationPrompt({
+              turnNumber,
+              maxTurns: input.workflow.config.agent.maxTurns,
+            }),
+            attachments: [],
+          },
+          modelSelection: defaultSymphonyLocalModelSelection(),
+          titleSeed: `Symphony ${input.run.issue.identifier}`,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: nowIso(),
+        })
+        .pipe(Effect.mapError(toSymphonyError("Failed to launch Symphony continuation turn.")));
+      yield* emitProjectEvent({
+        projectId: input.projectId,
+        issueId: input.run.issue.id,
+        runId: input.run.runId,
+        type: "run.continuation-started",
+        message: `Started continuation turn for ${input.run.issue.identifier}`,
+        payload: {
+          threadId: input.run.threadId,
+          attempt: attemptNumber,
+          turnNumber,
+        },
+      });
+      yield* publishSnapshotUpdate(input.projectId, { force: true });
+    });
+
+  const scheduleLocalContinuationDelay = (input: {
+    readonly projectId: ProjectId;
+    readonly run: SymphonyRun;
+  }): Effect.Effect<void, SymphonyError> =>
+    Effect.gen(function* () {
+      const scheduledAt = nowIso();
+      const nextRetryAt = continuationDelayIso();
+      const nextRun: SymphonyRun = {
+        ...input.run,
+        status: "running",
+        nextRetryAt,
+        lastError: null,
+        currentStep: {
+          source: "symphony",
+          label: "Continuation scheduled",
+          detail: "Waiting briefly before checking the active Linear issue again.",
+          updatedAt: scheduledAt,
+        },
+        updatedAt: scheduledAt,
+      };
+      yield* repository
+        .upsertRun(nextRun)
+        .pipe(Effect.mapError(toSymphonyError("Failed to schedule Symphony continuation.")));
+      yield* emitProjectEvent({
+        projectId: input.projectId,
+        issueId: input.run.issue.id,
+        runId: input.run.runId,
+        type: "run.continuation-scheduled",
+        message: `${input.run.issue.identifier} scheduled a continuation check`,
+        payload: { nextRetryAt },
+      });
+      yield* publishSnapshotUpdate(input.projectId, { force: true });
+    });
+
   const reconcileRunWithThread = (input: {
     readonly projectRoot: string;
     readonly workflow: { readonly config: SymphonyWorkflowConfig };
@@ -1902,6 +2373,12 @@ const makeSymphonyService = Effect.gen(function* () {
       const completedAt = latestTurn.completedAt ?? nowIso();
       if (latestTurn.state === "completed") {
         const latestAttempt = run.attempts.at(-1);
+        if (
+          latestAttempt?.completedAt === null &&
+          Date.parse(latestAttempt.startedAt) > Date.parse(completedAt)
+        ) {
+          return;
+        }
         const attemptAlreadySucceeded =
           latestAttempt?.status === "succeeded" && latestAttempt.completedAt === completedAt;
         const attemptedRun: SymphonyRun = attemptAlreadySucceeded
@@ -1922,11 +2399,26 @@ const makeSymphonyService = Effect.gen(function* () {
             .upsertRun(attemptedRun)
             .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
         }
+        const linearIssue =
+          input.linearIssue !== undefined
+            ? input.linearIssue
+            : yield* fetchLinearIssueForRun({
+                projectId: run.projectId,
+                workflow: input.workflow,
+                run: attemptedRun,
+              });
+        if (linearIssue === null) {
+          yield* warnMissingTrackedLinearIssue({
+            projectId: run.projectId,
+            run: attemptedRun,
+            reason: input.reason,
+          });
+        }
         const reconciled = yield* reconcileRunSignals({
           projectRoot: input.projectRoot,
           workflow: input.workflow,
           run: attemptedRun,
-          linearIssue: input.linearIssue ?? null,
+          linearIssue,
           thread,
           reason: input.reason,
         });
@@ -1934,43 +2426,77 @@ const makeSymphonyService = Effect.gen(function* () {
         if (!attemptAlreadySucceeded) {
           yield* runAfterRunHook({ projectId: run.projectId, run: nextRun });
         }
-        if (!attemptAlreadySucceeded && nextRun.status === "running") {
-          yield* emitProjectEvent({
+        const linearClassification = linearIssue
+          ? classifyLinearState(linearIssue.state.name, input.workflow.config.tracker)
+          : "released";
+        if (nextRun.status === "running" && linearClassification === "active") {
+          if (nextRun.nextRetryAt && !retryIsReady(nextRun.nextRetryAt)) {
+            return;
+          }
+          if (
+            nextRun.attempts.length >= input.workflow.config.agent.maxTurns &&
+            nextRun.nextRetryAt === null
+          ) {
+            yield* scheduleLocalContinuationDelay({
+              projectId: run.projectId,
+              run: nextRun,
+            });
+            return;
+          }
+          yield* startLocalContinuationTurn({
             projectId: run.projectId,
-            issueId: run.issue.id,
-            runId: run.runId,
-            type: "run.awaiting-review-signal",
-            message: `${run.issue.identifier} finished its local turn and is waiting for a PR or Linear review state`,
-            payload: { threadId: run.threadId },
+            workflow: input.workflow,
+            run: nextRun,
           });
         }
         return;
       }
 
       if (latestTurn.state === "interrupted") {
+        const attemptNumber = Math.max(1, run.attempts.at(-1)?.attempt ?? run.attempts.length);
+        const canRetry = attemptNumber < input.workflow.config.agent.maxTurns;
         const attemptedRun: SymphonyRun = {
           ...run,
+          status: canRetry ? "retry-queued" : "failed",
           attempts: replaceLatestAttempt(run, {
-            status: "canceled-by-reconciliation",
+            status: "failed",
             completedAt,
             error: "Codex turn was interrupted.",
           }),
-          nextRetryAt: null,
+          nextRetryAt: canRetry
+            ? retryAfterIso(attemptNumber, input.workflow.config.agent.maxRetryBackoffMs)
+            : null,
           lastError: "Codex turn was interrupted.",
           updatedAt: completedAt,
         };
         yield* repository
           .upsertRun(attemptedRun)
           .pipe(Effect.mapError(toSymphonyError("Failed to update interrupted Symphony attempt.")));
-        const reconciled = yield* reconcileRunSignals({
-          projectRoot: input.projectRoot,
-          workflow: input.workflow,
-          run: attemptedRun,
-          linearIssue: input.linearIssue ?? null,
-          thread,
-          reason: input.reason,
-        });
+        const reconciled = canRetry
+          ? { run: attemptedRun }
+          : yield* reconcileRunSignals({
+              projectRoot: input.projectRoot,
+              workflow: input.workflow,
+              run: attemptedRun,
+              linearIssue: input.linearIssue ?? null,
+              thread,
+              reason: input.reason,
+            });
         yield* runAfterRunHook({ projectId: run.projectId, run: reconciled.run });
+        yield* emitProjectEvent({
+          projectId: run.projectId,
+          issueId: run.issue.id,
+          runId: run.runId,
+          type: canRetry ? "run.retry-queued" : "run.failed",
+          message: canRetry
+            ? `${run.issue.identifier} was interrupted and queued for retry`
+            : `${run.issue.identifier} was interrupted`,
+          payload: {
+            threadId: run.threadId,
+            nextRetryAt: attemptedRun.nextRetryAt,
+            error: attemptedRun.lastError,
+          },
+        });
         return;
       }
 
@@ -2070,12 +2596,22 @@ const makeSymphonyService = Effect.gen(function* () {
               ? (threadById.get(refreshedRun.threadId) ?? null)
               : null;
             const linearIssue = trackedLinearIssueById.get(refreshedRun.issue.id) ?? null;
+            const runForReconciliation = linearIssue
+              ? runForLegacyRecovery(refreshedRun)
+              : refreshedRun;
+            if (!linearIssue && isRecoverableLegacyCanceledRun(refreshedRun)) {
+              yield* warnMissingTrackedLinearIssue({
+                projectId,
+                run: refreshedRun,
+                reason: "scheduler",
+              });
+            }
 
             if (refreshedRun.executionTarget === "codex-cloud") {
               yield* reconcileRunSignals({
                 projectRoot: project.workspaceRoot,
                 workflow,
-                run: refreshedRun,
+                run: runForReconciliation,
                 linearIssue,
                 thread,
                 reason: "scheduler",
@@ -2086,7 +2622,7 @@ const makeSymphonyService = Effect.gen(function* () {
             yield* reconcileRunWithThread({
               projectRoot: project.workspaceRoot,
               workflow,
-              run: refreshedRun,
+              run: runForReconciliation,
               linearIssue,
               thread,
               reason: "scheduler",
@@ -2206,7 +2742,7 @@ const makeSymphonyService = Effect.gen(function* () {
       .pipe(Effect.mapError(toSymphonyError("Failed to list Symphony runtime states.")));
     const monitoredProjectIds = yield* repository
       .listProjectIdsWithRunsInStatuses({
-        statuses: MONITORED_RUN_STATUSES,
+        statuses: RECOVERABLE_MONITORED_RUN_STATUSES,
         includeArchived: false,
       })
       .pipe(Effect.mapError(toSymphonyError("Failed to list Symphony monitored run projects.")));

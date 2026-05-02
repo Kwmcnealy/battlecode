@@ -40,6 +40,7 @@ const CONFIG: SymphonyWorkflowConfig = {
     maxTurns: 20,
     maxRetryBackoffMs: 300_000,
   },
+  codex: { runtimeMode: "full-access" },
 };
 
 function makeIssue(overrides: Partial<SymphonyIssue> = {}): SymphonyIssue {
@@ -209,6 +210,41 @@ describe("Symphony run lifecycle", () => {
 
     expect(result.status).toBe("canceled");
     expect(result.currentStep.source).toBe("linear");
+  });
+
+  it("treats interrupted local turns as retryable failures, not canceled", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeThread({
+        turnId: "turn-interrupted" as never,
+        state: "interrupted",
+        requestedAt: CREATED_AT,
+        startedAt: CREATED_AT,
+        completedAt: "2026-05-02T12:10:00.000Z",
+        assistantMessageId: null,
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.currentStep.label).toBe("Codex turn failed");
+  });
+
+  it("marks configured Linear review states as review-ready", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: {
+        ...CONFIG,
+        tracker: {
+          ...CONFIG.tracker,
+          reviewStates: ["Human Review"],
+        },
+      },
+      linear: { stateName: "Human Review", updatedAt: CREATED_AT },
+    });
+
+    expect(result.status).toBe("review-ready");
+    expect(result.currentStep.label).toBe("Linear review state");
   });
 
   it("marks runs completed from configured Linear done states", () => {

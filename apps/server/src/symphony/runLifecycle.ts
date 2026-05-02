@@ -9,7 +9,7 @@ import type {
 
 export type LinearStateClassification = "active" | "review" | "done" | "canceled" | "released";
 export type PullRequestClassification = "review" | "done" | "closed" | "none";
-export type LocalThreadClassification = "running" | "completed" | "failed" | "canceled" | "idle";
+export type LocalThreadClassification = "running" | "completed" | "failed" | "idle";
 export type CloudTaskClassification = "submitted" | "running" | "failed" | "unknown";
 
 export interface LinearLifecycleSignal {
@@ -100,7 +100,7 @@ export function classifyLocalThreadState(
     return "completed";
   }
   if (latestTurn.state === "interrupted") {
-    return "canceled";
+    return "failed";
   }
   return "failed";
 }
@@ -236,15 +236,6 @@ export function deriveRunProgress(
       updatedAt: input.thread?.latestTurn?.completedAt ?? now,
     });
   }
-  if (threadState === "canceled") {
-    return progress({
-      source: "local-thread",
-      label: "Codex turn interrupted",
-      detail: input.run.lastError,
-      updatedAt: input.thread?.latestTurn?.completedAt ?? now,
-    });
-  }
-
   return progress({
     source: "symphony",
     label: input.status === "target-pending" ? "Waiting for target selection" : "Queued",
@@ -278,9 +269,7 @@ export function resolveRunLifecycle(input: RunLifecycleInput): RunLifecycleResul
                 ? "cloud-submitted"
                 : threadClassification === "failed"
                   ? "failed"
-                  : threadClassification === "canceled"
-                    ? "canceled"
-                    : input.run.status;
+                  : input.run.status;
 
   return {
     status,

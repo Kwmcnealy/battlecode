@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   blockerIsTerminal,
+  buildContinuationPrompt,
   buildIssuePrompt,
   defaultSymphonyLocalModelSelection,
   makeRun,
@@ -122,6 +123,14 @@ describe("Symphony run model", () => {
     expect(prompt).toContain("Work on APP-1 from /repo/WORKFLOW.md in /tmp/symphony/APP-1.");
     expect(prompt).toContain("- Linear issue: APP-1 - Fix the dashboard");
     expect(prompt).toContain("- Branch: symphony/app-1");
+  });
+
+  it("renders continuation guidance without replaying the full issue prompt", () => {
+    const prompt = buildContinuationPrompt({ turnNumber: 2, maxTurns: 3 });
+
+    expect(prompt).toContain("Continuation guidance:");
+    expect(prompt).toContain("continuation turn #2 of 3");
+    expect(prompt).not.toContain("Symphony run context:");
   });
 
   it("updates only the latest attempt", () => {

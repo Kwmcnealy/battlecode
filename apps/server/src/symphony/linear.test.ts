@@ -193,6 +193,7 @@ describe("Symphony Linear helpers", () => {
             maxTurns: 20,
             maxRetryBackoffMs: 300_000,
           },
+          codex: { runtimeMode: "full-access" },
         },
       }),
     );
