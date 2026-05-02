@@ -1,12 +1,14 @@
 import type {
   SymphonyError,
   SymphonyIssueActionInput,
+  SymphonyLaunchIssueInput,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
   SymphonySettings,
   SymphonySnapshot,
   SymphonySubscribeEvent,
+  SymphonyUpdateExecutionDefaultInput,
   SymphonyUpdateWorkflowPathInput,
   ThreadId,
 } from "@t3tools/contracts";
@@ -54,6 +56,15 @@ export interface SymphonyServiceShape {
   readonly openLinkedThread: (
     input: SymphonyIssueActionInput,
   ) => Effect.Effect<{ readonly threadId: ThreadId | null }, SymphonyError>;
+  readonly launchIssue: (
+    input: SymphonyLaunchIssueInput,
+  ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
+  readonly updateExecutionDefault: (
+    input: SymphonyUpdateExecutionDefaultInput,
+  ) => Effect.Effect<SymphonySettings, SymphonyError>;
+  readonly refreshCloudStatus: (
+    input: SymphonyIssueActionInput,
+  ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
 }
 
 export class SymphonyService extends Context.Service<SymphonyService, SymphonyServiceShape>()(

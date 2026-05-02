@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   blockerIsTerminal,
   buildIssuePrompt,
+  defaultSymphonyLocalModelSelection,
   makeRun,
   queueRuns,
   replaceLatestAttempt,
@@ -47,21 +48,40 @@ function makeRunWithStatus(status: SymphonyRun["status"]): SymphonyRun {
 describe("Symphony run model", () => {
   it("groups runs into the dashboard queues", () => {
     const queues = queueRuns([
+      makeRunWithStatus("target-pending"),
       makeRunWithStatus("eligible"),
       makeRunWithStatus("running"),
       makeRunWithStatus("retry-queued"),
+      makeRunWithStatus("cloud-submitted"),
       makeRunWithStatus("completed"),
       makeRunWithStatus("released"),
       makeRunWithStatus("failed"),
       makeRunWithStatus("canceled"),
     ]);
 
+    expect(queues.pendingTarget).toHaveLength(1);
     expect(queues.eligible).toHaveLength(1);
-    expect(queues.running).toHaveLength(1);
+    expect(queues.running.map((run) => run.status)).toEqual(["running", "cloud-submitted"]);
     expect(queues.retrying).toHaveLength(1);
     expect(queues.completed.map((run) => run.status)).toEqual(["completed", "released"]);
     expect(queues.failed).toHaveLength(1);
     expect(queues.canceled).toHaveLength(1);
+  });
+
+  it("creates new runs awaiting an explicit execution target", () => {
+    const run = makeRun(PROJECT_ID, makeIssue(), CREATED_AT);
+
+    expect(run.status).toBe("target-pending");
+    expect(run.executionTarget).toBeNull();
+    expect(run.cloudTask).toBeNull();
+  });
+
+  it("uses GPT-5.5 high reasoning for local Symphony runs", () => {
+    expect(defaultSymphonyLocalModelSelection()).toEqual({
+      provider: "codex",
+      model: "gpt-5.5",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
   });
 
   it("evaluates polling and retry timers deterministically", () => {

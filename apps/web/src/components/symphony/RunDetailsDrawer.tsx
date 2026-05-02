@@ -1,4 +1,5 @@
 import {
+  CloudIcon,
   ExternalLinkIcon,
   GitBranchIcon,
   GitPullRequestIcon,
@@ -18,7 +19,12 @@ import {
   SheetPopup,
   SheetTitle,
 } from "../ui/sheet";
-import { STATUS_BADGE_CLASSNAME, formatDateTime, formatStatus } from "./symphonyDisplay";
+import {
+  STATUS_BADGE_CLASSNAME,
+  TARGET_LABEL,
+  formatDateTime,
+  formatStatus,
+} from "./symphonyDisplay";
 
 function DetailRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -113,6 +119,16 @@ export function RunDetailsDrawer({
                   Linear
                 </Button>
               ) : null}
+              {run.cloudTask?.taskUrl ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  render={<a href={run.cloudTask.taskUrl} target="_blank" rel="noreferrer" />}
+                >
+                  <CloudIcon className="size-4" />
+                  Codex task
+                </Button>
+              ) : null}
               {run.prUrl ? (
                 <Button
                   size="sm"
@@ -132,6 +148,12 @@ export function RunDetailsDrawer({
                 <DetailRow label="Branch" value={run.branchName} />
                 <DetailRow label="Thread" value={run.threadId} />
                 <DetailRow label="PR URL" value={run.prUrl} />
+                <DetailRow
+                  label="Target"
+                  value={run.executionTarget ? TARGET_LABEL[run.executionTarget] : null}
+                />
+                <DetailRow label="Cloud status" value={run.cloudTask?.status ?? null} />
+                <DetailRow label="Cloud task" value={run.cloudTask?.taskUrl ?? null} />
               </dl>
             </section>
 

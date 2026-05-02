@@ -61,6 +61,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       stopIssue: rpcClient.symphony.stopIssue,
       retryIssue: rpcClient.symphony.retryIssue,
       openLinkedThread: rpcClient.symphony.openLinkedThread,
+      launchIssue: rpcClient.symphony.launchIssue,
+      updateExecutionDefault: rpcClient.symphony.updateExecutionDefault,
+      refreshCloudStatus: rpcClient.symphony.refreshCloudStatus,
       subscribe: (input, callback, options) =>
         rpcClient.symphony.subscribe(input, callback, options),
     },

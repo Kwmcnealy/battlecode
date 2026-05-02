@@ -81,12 +81,14 @@ import {
   SYMPHONY_WS_METHODS,
   SymphonyError,
   SymphonyIssueActionInput,
+  SymphonyLaunchIssueInput,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
   SymphonySettings,
   SymphonySnapshot,
   SymphonySubscribeEvent,
+  SymphonyUpdateExecutionDefaultInput,
   SymphonyUpdateWorkflowPathInput,
 } from "./symphony.ts";
 
@@ -465,6 +467,27 @@ export const WsSymphonyRetryIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.retryIssue, 
   error: SymphonyError,
 });
 
+export const WsSymphonyLaunchIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.launchIssue, {
+  payload: SymphonyLaunchIssueInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
+export const WsSymphonyUpdateExecutionDefaultRpc = Rpc.make(
+  SYMPHONY_WS_METHODS.updateExecutionDefault,
+  {
+    payload: SymphonyUpdateExecutionDefaultInput,
+    success: SymphonySettings,
+    error: SymphonyError,
+  },
+);
+
+export const WsSymphonyRefreshCloudStatusRpc = Rpc.make(SYMPHONY_WS_METHODS.refreshCloudStatus, {
+  payload: SymphonyIssueActionInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
 export const WsSymphonyOpenLinkedThreadRpc = Rpc.make(SYMPHONY_WS_METHODS.openLinkedThread, {
   payload: SymphonyIssueActionInput,
   success: Schema.Struct({ threadId: Schema.NullOr(ThreadId) }),
@@ -524,5 +547,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSymphonyRefreshRpc,
   WsSymphonyStopIssueRpc,
   WsSymphonyRetryIssueRpc,
+  WsSymphonyLaunchIssueRpc,
+  WsSymphonyUpdateExecutionDefaultRpc,
+  WsSymphonyRefreshCloudStatusRpc,
   WsSymphonyOpenLinkedThreadRpc,
 );

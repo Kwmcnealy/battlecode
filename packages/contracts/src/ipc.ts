@@ -56,12 +56,14 @@ import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 import type {
   SymphonyIssueActionInput,
+  SymphonyLaunchIssueInput,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
   SymphonySettings,
   SymphonySnapshot,
   SymphonySubscribeEvent,
+  SymphonyUpdateExecutionDefaultInput,
   SymphonyUpdateWorkflowPathInput,
 } from "./symphony.ts";
 
@@ -315,6 +317,11 @@ export interface EnvironmentApi {
     stopIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     retryIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
+    launchIssue: (input: SymphonyLaunchIssueInput) => Promise<SymphonySnapshot>;
+    updateExecutionDefault: (
+      input: SymphonyUpdateExecutionDefaultInput,
+    ) => Promise<SymphonySettings>;
+    refreshCloudStatus: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     subscribe: (
       input: SymphonyProjectInput,
       callback: (event: SymphonySubscribeEvent) => void,

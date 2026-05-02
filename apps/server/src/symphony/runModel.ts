@@ -1,5 +1,4 @@
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   type ModelSelection,
   type ProjectId,
   type SymphonyIssue,
@@ -9,10 +8,11 @@ import {
 
 import { branchNameForIssue, runId } from "./identity.ts";
 
-export function defaultCodexModelSelection(): ModelSelection {
+export function defaultSymphonyLocalModelSelection(): ModelSelection {
   return {
     provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
+    model: "gpt-5.5",
+    options: [{ id: "reasoningEffort", value: "high" }],
   };
 }
 
@@ -122,8 +122,9 @@ export function blockerIsTerminal(
 
 export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queues"] {
   return {
+    pendingTarget: runs.filter((run) => run.status === "target-pending"),
     eligible: runs.filter((run) => run.status === "eligible"),
-    running: runs.filter((run) => run.status === "running"),
+    running: runs.filter((run) => run.status === "running" || run.status === "cloud-submitted"),
     retrying: runs.filter((run) => run.status === "retry-queued"),
     completed: runs.filter((run) => run.status === "completed" || run.status === "released"),
     failed: runs.filter((run) => run.status === "failed"),
@@ -133,6 +134,7 @@ export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queue
 
 export function buildTotals(queues: SymphonySnapshot["queues"]): SymphonySnapshot["totals"] {
   return {
+    pendingTarget: queues.pendingTarget.length,
     eligible: queues.eligible.length,
     running: queues.running.length,
     retrying: queues.retrying.length,
@@ -164,11 +166,13 @@ export function makeRun(
     runId: runId(projectId, issue.id),
     projectId,
     issue,
-    status: "eligible",
+    status: "target-pending",
     workspacePath: null,
     branchName: branchNameForIssue(issue.identifier),
     threadId: null,
     prUrl: null,
+    executionTarget: null,
+    cloudTask: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,
