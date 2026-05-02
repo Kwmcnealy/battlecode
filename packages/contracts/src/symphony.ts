@@ -27,6 +27,9 @@ export const SYMPHONY_WS_METHODS = {
   stopIssue: "symphony.stopIssue",
   retryIssue: "symphony.retryIssue",
   openLinkedThread: "symphony.openLinkedThread",
+  launchIssue: "symphony.launchIssue",
+  updateExecutionDefault: "symphony.updateExecutionDefault",
+  refreshCloudStatus: "symphony.refreshCloudStatus",
 } as const;
 
 export const SymphonyIssueId = TrimmedNonEmptyString.pipe(Schema.brand("SymphonyIssueId"));
@@ -50,15 +53,39 @@ export const SymphonySecretSource = Schema.Literals(["missing", "stored", "env"]
 export type SymphonySecretSource = typeof SymphonySecretSource.Type;
 
 export const SymphonyRunStatus = Schema.Literals([
+  "target-pending",
   "eligible",
   "running",
   "retry-queued",
+  "cloud-submitted",
   "completed",
   "failed",
   "canceled",
   "released",
 ]);
 export type SymphonyRunStatus = typeof SymphonyRunStatus.Type;
+
+export const SymphonyExecutionTarget = Schema.Literals(["local", "codex-cloud"]);
+export type SymphonyExecutionTarget = typeof SymphonyExecutionTarget.Type;
+
+export const SymphonyCloudTaskStatus = Schema.Literals([
+  "submitted",
+  "detected",
+  "completed",
+  "failed",
+  "unknown",
+]);
+export type SymphonyCloudTaskStatus = typeof SymphonyCloudTaskStatus.Type;
+
+export const SymphonyCloudTask = Schema.Struct({
+  provider: Schema.Literal("codex-cloud-linear"),
+  status: SymphonyCloudTaskStatus,
+  taskUrl: Schema.NullOr(Schema.String),
+  linearCommentId: Schema.NullOr(Schema.String),
+  delegatedAt: Schema.NullOr(IsoDateTime),
+  lastCheckedAt: Schema.NullOr(IsoDateTime),
+});
+export type SymphonyCloudTask = typeof SymphonyCloudTask.Type;
 
 export const SymphonyAttemptStatus = Schema.Literals([
   "launching-agent-process",
@@ -150,6 +177,9 @@ export const SymphonySettings = Schema.Struct({
   workflowPath: TrimmedString,
   workflowStatus: SymphonyWorkflowValidation,
   linearSecret: SymphonySecretStatus,
+  executionDefaultTarget: SymphonyExecutionTarget.pipe(
+    Schema.withDecodingDefault(Effect.succeed("local" as const)),
+  ),
   updatedAt: IsoDateTime,
 });
 export type SymphonySettings = typeof SymphonySettings.Type;
@@ -195,6 +225,12 @@ export const SymphonyRun = Schema.Struct({
   branchName: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
   prUrl: Schema.NullOr(Schema.String),
+  executionTarget: Schema.NullOr(SymphonyExecutionTarget).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  cloudTask: Schema.NullOr(SymphonyCloudTask).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   attempts: Schema.Array(SymphonyRunAttempt),
   nextRetryAt: Schema.NullOr(IsoDateTime),
   lastError: Schema.NullOr(Schema.String),
@@ -216,6 +252,7 @@ export const SymphonyEvent = Schema.Struct({
 export type SymphonyEvent = typeof SymphonyEvent.Type;
 
 export const SymphonyQueueSnapshot = Schema.Struct({
+  pendingTarget: Schema.Array(SymphonyRun),
   eligible: Schema.Array(SymphonyRun),
   running: Schema.Array(SymphonyRun),
   retrying: Schema.Array(SymphonyRun),
@@ -226,6 +263,7 @@ export const SymphonyQueueSnapshot = Schema.Struct({
 export type SymphonyQueueSnapshot = typeof SymphonyQueueSnapshot.Type;
 
 export const SymphonyTotals = Schema.Struct({
+  pendingTarget: NonNegativeInt,
   eligible: NonNegativeInt,
   running: NonNegativeInt,
   retrying: NonNegativeInt,
@@ -286,3 +324,16 @@ export const SymphonyIssueActionInput = Schema.Struct({
   issueId: SymphonyIssueId,
 });
 export type SymphonyIssueActionInput = typeof SymphonyIssueActionInput.Type;
+
+export const SymphonyLaunchIssueInput = Schema.Struct({
+  projectId: ProjectId,
+  issueId: SymphonyIssueId,
+  target: SymphonyExecutionTarget,
+});
+export type SymphonyLaunchIssueInput = typeof SymphonyLaunchIssueInput.Type;
+
+export const SymphonyUpdateExecutionDefaultInput = Schema.Struct({
+  projectId: ProjectId,
+  target: SymphonyExecutionTarget,
+});
+export type SymphonyUpdateExecutionDefaultInput = typeof SymphonyUpdateExecutionDefaultInput.Type;

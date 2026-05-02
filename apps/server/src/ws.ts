@@ -923,6 +923,42 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             { "rpc.aggregate": "symphony" },
           ),
+        [SYMPHONY_WS_METHODS.launchIssue]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.launchIssue,
+            symphony
+              .launchIssue(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to launch Symphony issue"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.updateExecutionDefault]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.updateExecutionDefault,
+            symphony
+              .updateExecutionDefault(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to update Symphony execution default"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_WS_METHODS.refreshCloudStatus]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.refreshCloudStatus,
+            symphony
+              .refreshCloudStatus(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to refresh Symphony cloud status"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
         [SYMPHONY_WS_METHODS.openLinkedThread]: (input) =>
           observeRpcEffect(
             SYMPHONY_WS_METHODS.openLinkedThread,

@@ -124,6 +124,45 @@ query SymphonyCandidateIssues($projectSlug: String!, $states: [String!], $after:
 
 const LINEAR_TEST_QUERY = `query SymphonyViewer { viewer { id name } }`;
 
+const LINEAR_CREATE_COMMENT_MUTATION = `
+mutation SymphonyCreateComment($issueId: String!, $body: String!) {
+  commentCreate(input: { issueId: $issueId, body: $body }) {
+    success
+    comment {
+      id
+      url
+      body
+      createdAt
+    }
+  }
+}
+`;
+
+const LINEAR_ISSUE_COMMENTS_QUERY = `
+query SymphonyIssueComments($issueId: String!) {
+  issue(id: $issueId) {
+    comments(first: 50) {
+      nodes {
+        id
+        url
+        body
+        createdAt
+      }
+    }
+  }
+}
+`;
+
+export interface LinearCommentResult {
+  readonly id: string;
+  readonly url: string | null;
+}
+
+export interface LinearCodexTaskDetection {
+  readonly taskUrl: string | null;
+  readonly linearCommentId: string | null;
+}
+
 function linearGraphql(input: {
   readonly endpoint: string;
   readonly apiKey: string;
@@ -172,6 +211,93 @@ export function testLinearConnection(input: {
     apiKey: input.apiKey,
     query: LINEAR_TEST_QUERY,
   });
+}
+
+export function createLinearComment(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly issueId: string;
+  readonly body: string;
+}): Effect.Effect<LinearCommentResult, SymphonyError> {
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_CREATE_COMMENT_MUTATION,
+    variables: {
+      issueId: input.issueId,
+      body: input.body,
+    },
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const commentCreate = data ? readNestedRecord(data, "commentCreate") : null;
+          if (commentCreate?.success !== true) {
+            throw new Error("Linear did not create the Symphony cloud delegation comment.");
+          }
+          const comment = readRecord(commentCreate.comment);
+          const id = comment ? readString(comment.id) : null;
+          if (!id) {
+            throw new Error("Linear comment response did not include a comment id.");
+          }
+          return {
+            id,
+            url: comment ? readString(comment.url) : null,
+          };
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message:
+              cause instanceof Error ? cause.message : "Failed to parse Linear comment response.",
+            cause,
+          }),
+      }),
+    ),
+  );
+}
+
+function detectCodexTaskUrl(text: string | null): string | null {
+  if (!text) return null;
+  const match = text.match(/https:\/\/codex\.openai\.com\/[^\s)]+/i);
+  return match?.[0] ?? null;
+}
+
+export function detectLinearCodexTask(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly issueId: string;
+}): Effect.Effect<LinearCodexTaskDetection, SymphonyError> {
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_ISSUE_COMMENTS_QUERY,
+    variables: {
+      issueId: input.issueId,
+    },
+  }).pipe(
+    Effect.map((body) => {
+      const data = readNestedRecord(body, "data");
+      const issue = data ? readNestedRecord(data, "issue") : null;
+      const comments = issue ? readNestedRecord(issue, "comments") : null;
+      const nodes = comments ? readArray(comments.nodes) : [];
+      for (const entry of nodes) {
+        const comment = readRecord(entry);
+        if (!comment) continue;
+        const taskUrl = detectCodexTaskUrl(readString(comment.body));
+        if (taskUrl) {
+          return {
+            taskUrl,
+            linearCommentId: readString(comment.id),
+          };
+        }
+      }
+      return {
+        taskUrl: null,
+        linearCommentId: null,
+      };
+    }),
+  );
 }
 
 export function fetchLinearCandidates(input: {

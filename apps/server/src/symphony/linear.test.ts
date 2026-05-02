@@ -1,7 +1,12 @@
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchLinearCandidates, normalizeLinearIssue } from "./linear.ts";
+import {
+  createLinearComment,
+  detectLinearCodexTask,
+  fetchLinearCandidates,
+  normalizeLinearIssue,
+} from "./linear.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -124,5 +129,85 @@ describe("Symphony Linear helpers", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(issues.map((issue) => issue.identifier)).toEqual(["APP-1", "APP-2"]);
+  });
+
+  it("creates Linear comments for Codex Cloud delegation", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              commentCreate: {
+                success: true,
+                comment: {
+                  id: "comment-1",
+                  url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comment = await Effect.runPromise(
+      createLinearComment({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+        body: "@Codex please work this issue.",
+      }),
+    );
+
+    expect(comment).toEqual({
+      id: "comment-1",
+      url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+    });
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly variables: { readonly issueId: string; readonly body: string };
+    };
+    expect(requestBody.variables).toEqual({
+      issueId: "linear-issue-1",
+      body: "@Codex please work this issue.",
+    });
+  });
+
+  it("detects Codex Cloud task links from Linear comments", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    { id: "comment-1", body: "No task here." },
+                    {
+                      id: "comment-2",
+                      body: "Codex task: https://codex.openai.com/tasks/task-123)",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const detected = await Effect.runPromise(
+      detectLinearCodexTask({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+      }),
+    );
+
+    expect(detected).toEqual({
+      taskUrl: "https://codex.openai.com/tasks/task-123",
+      linearCommentId: "comment-2",
+    });
   });
 });

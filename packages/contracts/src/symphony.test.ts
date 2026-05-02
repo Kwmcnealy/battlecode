@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import {
+  SymphonyCloudTask,
+  SymphonyRun,
   SymphonySnapshot,
   SymphonySettings,
+  SymphonyUpdateExecutionDefaultInput,
   SymphonyWorkflowConfig,
   SYMPHONY_WS_METHODS,
 } from "./symphony.ts";
@@ -82,6 +85,7 @@ describe("Symphony contracts", () => {
         updatedAt: "2026-04-30T12:00:00.000Z",
       },
       queues: {
+        pendingTarget: [],
         eligible: [],
         running: [],
         retrying: [],
@@ -90,6 +94,7 @@ describe("Symphony contracts", () => {
         canceled: [],
       },
       totals: {
+        pendingTarget: 0,
         eligible: 0,
         running: 0,
         retrying: 0,
@@ -104,10 +109,67 @@ describe("Symphony contracts", () => {
     expect(snapshot.status).toBe("setup-blocked");
   });
 
+  it("accepts Symphony execution target and Codex Cloud task metadata", () => {
+    const cloudTask = Schema.decodeUnknownSync(SymphonyCloudTask)({
+      provider: "codex-cloud-linear",
+      status: "submitted",
+      taskUrl: null,
+      linearCommentId: "comment-1",
+      delegatedAt: "2026-04-30T12:00:00.000Z",
+      lastCheckedAt: "2026-04-30T12:00:00.000Z",
+    });
+    const run = Schema.decodeUnknownSync(SymphonyRun)({
+      runId: "run-1",
+      projectId: ProjectId.make("project-symphony"),
+      issue: {
+        id: "issue-1",
+        identifier: "BC-123",
+        title: "Implement local and cloud routing",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+      },
+      status: "cloud-submitted",
+      workspacePath: null,
+      branchName: null,
+      threadId: null,
+      prUrl: null,
+      executionTarget: "codex-cloud",
+      cloudTask,
+      attempts: [],
+      nextRetryAt: null,
+      lastError: null,
+      createdAt: "2026-04-30T12:00:00.000Z",
+      updatedAt: "2026-04-30T12:00:00.000Z",
+    });
+
+    expect(run.executionTarget).toBe("codex-cloud");
+    expect(run.cloudTask?.provider).toBe("codex-cloud-linear");
+    expect(run.status).toBe("cloud-submitted");
+  });
+
+  it("accepts execution default updates", () => {
+    const input = Schema.decodeUnknownSync(SymphonyUpdateExecutionDefaultInput)({
+      projectId: ProjectId.make("project-symphony"),
+      target: "codex-cloud",
+    });
+
+    expect(input.target).toBe("codex-cloud");
+  });
+
   it("declares websocket method names under the symphony namespace", () => {
     expect(SYMPHONY_WS_METHODS.getSettings).toBe("symphony.getSettings");
     expect(SYMPHONY_WS_METHODS.setLinearApiKey).toBe("symphony.setLinearApiKey");
     expect(SYMPHONY_WS_METHODS.subscribe).toBe("symphony.subscribe");
+    expect(SYMPHONY_WS_METHODS.launchIssue).toBe("symphony.launchIssue");
+    expect(SYMPHONY_WS_METHODS.updateExecutionDefault).toBe("symphony.updateExecutionDefault");
+    expect(SYMPHONY_WS_METHODS.refreshCloudStatus).toBe("symphony.refreshCloudStatus");
     expect("applyLinearMutation" in SYMPHONY_WS_METHODS).toBe(false);
   });
 });

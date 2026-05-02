@@ -1,4 +1,4 @@
-import { RefreshCwIcon, WorkflowIcon } from "lucide-react";
+import { CheckCircle2Icon, CloudIcon, CpuIcon, RefreshCwIcon, WorkflowIcon } from "lucide-react";
 import type { SymphonySettings } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
@@ -116,6 +116,31 @@ export function WorkflowSettingsSection({
             </Button>
           </>
         }
+      />
+      <SettingsRow
+        title="Local Symphony runtime"
+        description="Local issue runs use the dedicated Symphony policy, independent of the global chat default."
+        status="GPT-5.5, high reasoning, full-access"
+        control={<CpuIcon className="size-4 text-primary" aria-hidden />}
+      />
+      <SettingsRow
+        title="Codex Cloud setup"
+        description="Cloud issue runs delegate through the official Codex for Linear flow, so the connected services must be configured outside this local app."
+        status={
+          <span className="flex flex-wrap gap-x-3 gap-y-1">
+            {[
+              "GitHub connected",
+              "Codex Cloud environment configured",
+              "Codex for Linear installed",
+            ].map((item) => (
+              <span key={item} className="inline-flex items-center gap-1">
+                <CheckCircle2Icon className="size-3 text-primary" aria-hidden />
+                {item}
+              </span>
+            ))}
+          </span>
+        }
+        control={<CloudIcon className="size-4 text-primary" aria-hidden />}
       />
     </SettingsSection>
   );

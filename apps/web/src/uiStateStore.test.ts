@@ -12,10 +12,12 @@ import {
   sanitizePersistedThreadActiveViewByKey,
   selectThreadActiveView,
   setProjectExpanded,
+  setSymphonyExpanded,
   setThreadActiveView,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
+  toggleSymphonyExpanded,
   type UiState,
 } from "./uiStateStore";
 
@@ -23,6 +25,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    symphonyExpandedByProjectKey: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     threadActiveViewByKey: {},
@@ -69,6 +72,19 @@ describe("uiStateStore pure functions", () => {
     const next = reorderProjects(initialState, [project1], [project3]);
 
     expect(next.projectOrder).toEqual([project2, project3, project1]);
+  });
+
+  it("tracks Symphony sidebar collapse independently from project collapse", () => {
+    const initialState = makeUiState({
+      projectExpandedById: { "project-1": true },
+    });
+
+    const collapsed = setSymphonyExpanded(initialState, "project-1", false);
+    const expanded = toggleSymphonyExpanded(collapsed, "project-1");
+
+    expect(collapsed.projectExpandedById["project-1"]).toBe(true);
+    expect(collapsed.symphonyExpandedByProjectKey["project-1"]).toBe(false);
+    expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
   });
 
   it("reorderProjects is a no-op when dragged key is not in projectOrder", () => {
