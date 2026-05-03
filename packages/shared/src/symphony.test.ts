@@ -49,7 +49,7 @@ describe("Symphony archive eligibility", () => {
         getSymphonyArchiveEligibility(
           runState({
             status,
-            lifecyclePhase: status.startsWith("cloud") ? "waiting-cloud" : "implementing",
+            lifecyclePhase: "done",
           }),
         ),
       ).toEqual({
