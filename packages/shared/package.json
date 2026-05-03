@@ -40,6 +40,10 @@
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
     },
+    "./symphony": {
+      "types": "./src/symphony.ts",
+      "import": "./src/symphony.ts"
+    },
     "./Struct": {
       "types": "./src/Struct.ts",
       "import": "./src/Struct.ts"
