@@ -13,16 +13,6 @@ import { GitHubCliLive } from "./GitHubCli.ts";
 const mockedRunProcess = vi.mocked(runProcess);
 const layer = it.layer(GitHubCliLive);
 
-const pullRequestViewOutput = {
-  number: 42,
-  title: "Add PR thread creation",
-  url: "https://github.com/pingdotgg/codething-mvp/pull/42",
-  baseRefName: "main",
-  headRefName: "feature/pr-threads",
-  state: "OPEN",
-  mergedAt: null,
-};
-
 function processResult(stdout: unknown) {
   return {
     stdout: `${typeof stdout === "string" ? stdout : (JSON.stringify(stdout) ?? "")}\n`,
@@ -31,50 +21,6 @@ function processResult(stdout: unknown) {
     signal: null,
     timedOut: false,
   };
-}
-
-function mockFeedbackSignalResponses(input: {
-  reviews?: readonly unknown[];
-  issueComments?: readonly unknown[];
-  reviewComments?: readonly unknown[];
-}) {
-  mockedRunProcess.mockImplementation((_command, args) => {
-    if (args[0] === "pr" && args[1] === "view") {
-      return Promise.resolve(processResult(pullRequestViewOutput));
-    }
-
-    if (args[0] === "api" && args[1] === "repos/pingdotgg/codething-mvp/pulls/42/reviews") {
-      return Promise.resolve(processResult(input.reviews ?? []));
-    }
-
-    if (args[0] === "api" && args[1] === "repos/pingdotgg/codething-mvp/issues/42/comments") {
-      return Promise.resolve(processResult(input.issueComments ?? []));
-    }
-
-    if (args[0] === "api" && args[1] === "repos/pingdotgg/codething-mvp/pulls/42/comments") {
-      return Promise.resolve(processResult(input.reviewComments ?? []));
-    }
-
-    return Promise.reject(new Error(`Unexpected gh args: ${args.join(" ")}`));
-  });
-}
-
-function expectFeedbackApiCalls() {
-  expect(mockedRunProcess).toHaveBeenCalledWith(
-    "gh",
-    ["api", "repos/pingdotgg/codething-mvp/pulls/42/reviews", "--paginate"],
-    expect.objectContaining({ cwd: "/repo" }),
-  );
-  expect(mockedRunProcess).toHaveBeenCalledWith(
-    "gh",
-    ["api", "repos/pingdotgg/codething-mvp/issues/42/comments", "--paginate"],
-    expect.objectContaining({ cwd: "/repo" }),
-  );
-  expect(mockedRunProcess).toHaveBeenCalledWith(
-    "gh",
-    ["api", "repos/pingdotgg/codething-mvp/pulls/42/comments", "--paginate"],
-    expect.objectContaining({ cwd: "/repo" }),
-  );
 }
 
 afterEach(() => {
@@ -444,139 +390,6 @@ layer("GitHubCliLive", (it) => {
         url: "https://github.com/octocat/codething-mvp",
         sshUrl: "git@github.com:octocat/codething-mvp.git",
       });
-    }),
-  );
-
-  it.effect("lists CHANGES_REQUESTED reviews as pull request feedback signals", () =>
-    Effect.gen(function* () {
-      mockFeedbackSignalResponses({
-        reviews: [
-          {
-            id: 9001,
-            state: "CHANGES_REQUESTED",
-            body: "Please tighten the validation path.",
-            user: {
-              login: "reviewer",
-            },
-            submitted_at: "2026-05-01T10:00:00Z",
-            html_url: "https://github.com/pingdotgg/codething-mvp/pull/42#pullrequestreview-9001",
-          },
-        ],
-      });
-
-      const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
-        return yield* gh.listPullRequestFeedbackSignals({
-          cwd: "/repo",
-          reference: "#42",
-        });
-      });
-
-      assert.deepStrictEqual(result, [
-        {
-          kind: "review",
-          id: "9001",
-          state: "CHANGES_REQUESTED",
-          body: "Please tighten the validation path.",
-          authorLogin: "reviewer",
-          createdAt: "2026-05-01T10:00:00Z",
-          updatedAt: "2026-05-01T10:00:00Z",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/42#pullrequestreview-9001",
-        },
-      ]);
-      expectFeedbackApiCalls();
-    }),
-  );
-
-  it.effect("lists PR issue comments as pull request feedback signals", () =>
-    Effect.gen(function* () {
-      mockFeedbackSignalResponses({
-        issueComments: [
-          {
-            id: 8101,
-            body: "Can we cover the failure mode here?",
-            user: {
-              login: "commenter",
-            },
-            created_at: "2026-05-01T09:00:00Z",
-            updated_at: "2026-05-01T11:00:00Z",
-            html_url: "https://github.com/pingdotgg/codething-mvp/pull/42#issuecomment-8101",
-          },
-          {
-            id: 8102,
-            body: "   ",
-            user: {
-              login: "commenter",
-            },
-          },
-          {
-            body: "Missing IDs are ignored.",
-          },
-        ],
-      });
-
-      const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
-        return yield* gh.listPullRequestFeedbackSignals({
-          cwd: "/repo",
-          reference: "#42",
-        });
-      });
-
-      assert.deepStrictEqual(result, [
-        {
-          kind: "issue-comment",
-          id: "8101",
-          state: null,
-          body: "Can we cover the failure mode here?",
-          authorLogin: "commenter",
-          createdAt: "2026-05-01T09:00:00Z",
-          updatedAt: "2026-05-01T11:00:00Z",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/42#issuecomment-8101",
-        },
-      ]);
-      expectFeedbackApiCalls();
-    }),
-  );
-
-  it.effect("lists inline review comments as pull request feedback signals", () =>
-    Effect.gen(function* () {
-      mockFeedbackSignalResponses({
-        reviewComments: [
-          {
-            id: "7201",
-            body: "This branch should be configurable.",
-            user: {
-              login: "inline-reviewer",
-            },
-            created_at: "2026-05-01T08:00:00Z",
-            updated_at: "2026-05-01T08:30:00Z",
-            html_url: "https://github.com/pingdotgg/codething-mvp/pull/42#discussion_r7201",
-          },
-        ],
-      });
-
-      const result = yield* Effect.gen(function* () {
-        const gh = yield* GitHubCli;
-        return yield* gh.listPullRequestFeedbackSignals({
-          cwd: "/repo",
-          reference: "#42",
-        });
-      });
-
-      assert.deepStrictEqual(result, [
-        {
-          kind: "review-comment",
-          id: "7201",
-          state: null,
-          body: "This branch should be configurable.",
-          authorLogin: "inline-reviewer",
-          createdAt: "2026-05-01T08:00:00Z",
-          updatedAt: "2026-05-01T08:30:00Z",
-          url: "https://github.com/pingdotgg/codething-mvp/pull/42#discussion_r7201",
-        },
-      ]);
-      expectFeedbackApiCalls();
     }),
   );
 

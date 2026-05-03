@@ -6,7 +6,6 @@ import { runProcess } from "../../processRunner.ts";
 import { GitHubCliError } from "@t3tools/contracts";
 import {
   GitHubCli,
-  type GitHubPullRequestFeedbackSignal,
   type GitHubPullRequestSummary,
   type GitHubRepositoryCloneUrls,
   type GitHubCliShape,
@@ -76,24 +75,6 @@ const RawGitHubRepositoryCloneUrlsSchema = Schema.Struct({
   sshUrl: TrimmedNonEmptyString,
 });
 
-const RawGitHubPullRequestFeedbackRecordSchema = Schema.Struct({
-  id: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
-  state: Schema.optional(Schema.NullOr(Schema.String)),
-  body: Schema.optional(Schema.NullOr(Schema.String)),
-  user: Schema.optional(
-    Schema.NullOr(
-      Schema.Struct({
-        login: Schema.optional(Schema.NullOr(Schema.String)),
-      }),
-    ),
-  ),
-  created_at: Schema.optional(Schema.NullOr(Schema.String)),
-  updated_at: Schema.optional(Schema.NullOr(Schema.String)),
-  submitted_at: Schema.optional(Schema.NullOr(Schema.String)),
-  html_url: Schema.optional(Schema.NullOr(Schema.String)),
-  url: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
 const RawGitHubRestPullRequestSchema = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyString,
@@ -125,10 +106,6 @@ const RawGitHubRestPullRequestSchema = Schema.Struct({
 
 type RawGitHubRestPullRequest = Schema.Schema.Type<typeof RawGitHubRestPullRequestSchema>;
 
-type RawGitHubPullRequestFeedbackRecord = Schema.Schema.Type<
-  typeof RawGitHubPullRequestFeedbackRecordSchema
->;
-
 interface GitHubPullRequestUrlParts {
   readonly owner: string;
   readonly repository: string;
@@ -148,13 +125,6 @@ function normalizeRepositoryCloneUrls(
 function trimOptionalString(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeFeedbackId(id: string | number | undefined): string | null {
-  if (typeof id === "number") {
-    return Number.isFinite(id) ? String(id) : null;
-  }
-  return trimOptionalString(id);
 }
 
 function parsePullRequestUrl(url: string): GitHubPullRequestUrlParts | null {
@@ -222,52 +192,10 @@ function parseNameWithOwner(value: string): {
   return { owner, repository };
 }
 
-function normalizeFeedbackSignal(
-  kind: GitHubPullRequestFeedbackSignal["kind"],
-  raw: RawGitHubPullRequestFeedbackRecord,
-): GitHubPullRequestFeedbackSignal | null {
-  const id = normalizeFeedbackId(raw.id);
-  const body = trimOptionalString(raw.body);
-  if (!id || !body) {
-    return null;
-  }
-
-  const submittedAt = kind === "review" ? trimOptionalString(raw.submitted_at) : null;
-  const createdAt = trimOptionalString(raw.created_at) ?? submittedAt;
-  const updatedAt = trimOptionalString(raw.updated_at) ?? submittedAt ?? createdAt;
-
-  return {
-    kind,
-    id,
-    state: trimOptionalString(raw.state),
-    body,
-    authorLogin: trimOptionalString(raw.user?.login),
-    createdAt,
-    updatedAt,
-    url: trimOptionalString(raw.html_url) ?? trimOptionalString(raw.url),
-  };
-}
-
-function compareFeedbackSignals(
-  left: GitHubPullRequestFeedbackSignal,
-  right: GitHubPullRequestFeedbackSignal,
-): number {
-  const leftTimestamp = Date.parse(left.updatedAt ?? left.createdAt ?? "");
-  const rightTimestamp = Date.parse(right.updatedAt ?? right.createdAt ?? "");
-  const leftSortValue = Number.isFinite(leftTimestamp) ? leftTimestamp : 0;
-  const rightSortValue = Number.isFinite(rightTimestamp) ? rightTimestamp : 0;
-  if (leftSortValue !== rightSortValue) {
-    return leftSortValue - rightSortValue;
-  }
-
-  return left.id.localeCompare(right.id);
-}
-
 type GitHubJsonDecodeOperation =
   | "listOpenPullRequests"
   | "getPullRequest"
-  | "getRepositoryCloneUrls"
-  | "listPullRequestFeedbackSignals";
+  | "getRepositoryCloneUrls";
 
 function decodeGitHubJson<S extends Schema.Top>(
   raw: string,
@@ -401,26 +329,6 @@ const makeGitHubCli = Effect.sync(() => {
     );
   };
 
-  const withRestFallback = <A>(
-    operation: "getPullRequest" | "listOpenPullRequests",
-    primary: Effect.Effect<A, GitHubCliError>,
-    fallback: Effect.Effect<A, GitHubCliError>,
-  ) =>
-    primary.pipe(
-      Effect.catch((primaryError) =>
-        fallback.pipe(
-          Effect.mapError(
-            (fallbackError) =>
-              new GitHubCliError({
-                operation,
-                detail: `${primaryError.message}; REST fallback failed: ${fallbackError.message}`,
-                cause: fallbackError,
-              }),
-          ),
-        ),
-      ),
-    );
-
   const getPullRequestFromGh: GitHubCliShape["getPullRequest"] = (input) =>
     execute({
       cwd: input.cwd,
@@ -453,72 +361,19 @@ const makeGitHubCli = Effect.sync(() => {
     );
 
   const getPullRequest: GitHubCliShape["getPullRequest"] = (input) =>
-    withRestFallback("getPullRequest", getPullRequestFromGh(input), getPullRequestViaRest(input));
-
-  const decodeFeedbackSignals = (raw: string, kind: GitHubPullRequestFeedbackSignal["kind"]) => {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) {
-      return Effect.succeed([]);
-    }
-
-    return decodeGitHubJson(
-      trimmed,
-      Schema.Array(RawGitHubPullRequestFeedbackRecordSchema),
-      "listPullRequestFeedbackSignals",
-      "GitHub CLI returned invalid pull request feedback JSON.",
-    ).pipe(
-      Effect.map((records) =>
-        records
-          .map((record) => normalizeFeedbackSignal(kind, record))
-          .filter((signal): signal is GitHubPullRequestFeedbackSignal => signal !== null),
-      ),
-    );
-  };
-
-  const listPullRequestFeedbackSignals: GitHubCliShape["listPullRequestFeedbackSignals"] = (
-    input,
-  ) =>
-    getPullRequest(input).pipe(
-      Effect.flatMap((summary) => {
-        const pullRequest = parsePullRequestUrl(summary.url);
-        if (!pullRequest) {
-          return Effect.fail(
-            new GitHubCliError({
-              operation: "listPullRequestFeedbackSignals",
-              detail: `Could not parse GitHub pull request URL: ${summary.url}`,
-            }),
-          );
-        }
-
-        const pullRequestApiBase = `repos/${pullRequest.owner}/${pullRequest.repository}`;
-        const fetchSignals = (kind: GitHubPullRequestFeedbackSignal["kind"], path: string) =>
-          execute({
-            cwd: input.cwd,
-            args: ["api", path, "--paginate"],
-          }).pipe(
-            Effect.map((result) => result.stdout),
-            Effect.flatMap((raw) => decodeFeedbackSignals(raw, kind)),
-          );
-
-        return Effect.all(
-          [
-            fetchSignals("review", `${pullRequestApiBase}/pulls/${pullRequest.number}/reviews`),
-            fetchSignals(
-              "issue-comment",
-              `${pullRequestApiBase}/issues/${pullRequest.number}/comments`,
-            ),
-            fetchSignals(
-              "review-comment",
-              `${pullRequestApiBase}/pulls/${pullRequest.number}/comments`,
-            ),
-          ],
-          { concurrency: "unbounded" },
-        ).pipe(
-          Effect.map(([reviews, issueComments, reviewComments]) =>
-            [...reviews, ...issueComments, ...reviewComments].toSorted(compareFeedbackSignals),
+    getPullRequestFromGh(input).pipe(
+      Effect.catch((primaryError) =>
+        getPullRequestViaRest(input).pipe(
+          Effect.mapError(
+            (fallbackError) =>
+              new GitHubCliError({
+                operation: "getPullRequest",
+                detail: `${primaryError.message}; REST fallback failed: ${fallbackError.message}`,
+                cause: fallbackError,
+              }),
           ),
-        );
-      }),
+        ),
+      ),
     );
 
   const listOpenPullRequestsFromGh: GitHubCliShape["listOpenPullRequests"] = (input) =>
@@ -580,13 +435,21 @@ const makeGitHubCli = Effect.sync(() => {
   const service = {
     execute,
     listOpenPullRequests: (input) =>
-      withRestFallback(
-        "listOpenPullRequests",
-        listOpenPullRequestsFromGh(input),
-        listOpenPullRequestsViaRest(input),
+      listOpenPullRequestsFromGh(input).pipe(
+        Effect.catch((primaryError) =>
+          listOpenPullRequestsViaRest(input).pipe(
+            Effect.mapError(
+              (fallbackError) =>
+                new GitHubCliError({
+                  operation: "listOpenPullRequests",
+                  detail: `${primaryError.message}; REST fallback failed: ${fallbackError.message}`,
+                  cause: fallbackError,
+                }),
+            ),
+          ),
+        ),
       ),
     getPullRequest,
-    listPullRequestFeedbackSignals,
     getRepositoryCloneUrls: (input) =>
       execute({
         cwd: input.cwd,

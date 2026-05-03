@@ -1,7 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
-  GitHubCliError,
   ProjectId,
   SymphonyError,
   SymphonyIssueId,
@@ -21,7 +20,6 @@ import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitManager } from "../../git/Services/GitManager.ts";
-import { GitHubCli } from "../../git/Services/GitHubCli.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
@@ -110,12 +108,6 @@ agent:
 
 Run {{ issue.identifier }}.
 `;
-
-const githubMocks = {
-  getPullRequest: vi.fn(),
-  listPullRequestFeedbackSignals: vi.fn(),
-  listOpenPullRequests: vi.fn(),
-};
 
 const gitManagerMocks = {
   runStackedAction: vi.fn(),
@@ -363,11 +355,6 @@ const makeLayer = (
           },
         }),
     }),
-    Layer.mock(GitHubCli)({
-      getPullRequest: (input) => githubMocks.getPullRequest(input),
-      listPullRequestFeedbackSignals: (input) => githubMocks.listPullRequestFeedbackSignals(input),
-      listOpenPullRequests: (input) => githubMocks.listOpenPullRequests(input),
-    }),
     Layer.mock(GitManager)({
       status: () =>
         Effect.succeed({
@@ -511,16 +498,6 @@ beforeEach(() => {
       },
     }),
   );
-  githubMocks.getPullRequest.mockReturnValue(
-    Effect.fail(
-      new GitHubCliError({
-        operation: "pr view",
-        detail: "unused test mock",
-      }),
-    ),
-  );
-  githubMocks.listPullRequestFeedbackSignals.mockReturnValue(Effect.succeed([]));
-  githubMocks.listOpenPullRequests.mockReturnValue(Effect.succeed([]));
 });
 
 const projectRootRef = { current: "" };
@@ -1280,174 +1257,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       assert.strictEqual(run?.status, "review-ready");
       assert.strictEqual(run?.lifecyclePhase, "in-review");
       assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
-    }),
-  );
-
-  it.effect("collects PR feedback and starts a fix turn while in review", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-      const thread = makeThread({ worktreePath: projectRoot });
-      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
-      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
-        Effect.succeed([makeLinearContext("Human Review")]),
-      );
-      githubMocks.getPullRequest.mockReturnValue(
-        Effect.succeed({
-          number: 42,
-          title: "Fix cloud lifecycle",
-          url: "https://github.com/t3/battlecode/pull/42",
-          baseRefName: "development",
-          headRefName: "symphony/bc-1",
-          state: "open",
-          updatedAt: "2026-05-02T12:30:00.000Z",
-        }),
-      );
-      githubMocks.listPullRequestFeedbackSignals.mockReturnValue(
-        Effect.succeed([
-          {
-            kind: "review",
-            id: "review-1",
-            state: "CHANGES_REQUESTED",
-            body: "Please add missing validation.",
-            authorLogin: "reviewer",
-            createdAt: "2026-05-02T12:31:00.000Z",
-            updatedAt: "2026-05-02T12:31:00.000Z",
-            url: "https://github.com/t3/battlecode/pull/42#pullrequestreview-1",
-          },
-        ]),
-      );
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "review-ready",
-          lifecyclePhase: "in-review",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          threadId: thread.id,
-          prUrl: "https://github.com/t3/battlecode/pull/42",
-          pullRequest: {
-            number: 42,
-            title: "Fix cloud lifecycle",
-            url: "https://github.com/t3/battlecode/pull/42",
-            baseBranch: "development",
-            headBranch: "symphony/bc-1",
-            state: "open",
-            updatedAt: "2026-05-02T12:30:00.000Z",
-          },
-          linearProgress: {
-            commentId: "comment-1",
-            commentUrl: "https://linear.app/t3/issue/BC-1#comment-comment-1",
-            ownedCommentIds: ["comment-1"],
-            lastRenderedHash: "hash-1",
-            lastUpdatedAt: "2026-05-02T12:20:00.000Z",
-            lastMilestoneAt: "2026-05-02T12:20:00.000Z",
-            lastFeedbackAt: null,
-          },
-        }),
-      );
-
-      yield* service.refresh({ projectId: PROJECT_ID });
-
-      const fixTurn = orchestrationState.dispatchedCommands.findLast(
-        (command) => command.type === "thread.turn.start",
-      );
-      assert.ok(fixTurn);
-      if (fixTurn.type !== "thread.turn.start") {
-        throw new Error(`Expected turn start command, received ${fixTurn.type}.`);
-      }
-      assert.match(fixTurn.message.text, /Symphony fix phase/);
-      assert.match(fixTurn.message.text, /GitHub review requested changes/);
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "running");
-      assert.strictEqual(run?.lifecyclePhase, "fixing");
-      assert.strictEqual(run?.linearProgress.lastFeedbackAt, "2026-05-02T12:31:00.000Z");
-    }),
-  );
-
-  it.effect("ignores Symphony-owned Linear comments when checking review feedback", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-      const thread = makeThread({ worktreePath: projectRoot });
-      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
-      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
-        Effect.succeed([makeLinearContext("Human Review")]),
-      );
-      githubMocks.getPullRequest.mockReturnValue(
-        Effect.succeed({
-          number: 42,
-          title: "Fix cloud lifecycle",
-          url: "https://github.com/t3/battlecode/pull/42",
-          baseRefName: "development",
-          headRefName: "symphony/bc-1",
-          state: "open",
-          updatedAt: "2026-05-02T12:30:00.000Z",
-        }),
-      );
-      linearMocks.fetchLinearIssueComments.mockReturnValue(
-        Effect.succeed([
-          {
-            id: "comment-1",
-            url: "https://linear.app/t3/issue/BC-1#comment-comment-1",
-            body: "<!-- symphony-managed-progress v1 -->\n# Symphony Progress",
-            createdAt: "2026-05-02T12:32:00.000Z",
-            updatedAt: "2026-05-02T12:32:00.000Z",
-            userName: "Symphony",
-          },
-          {
-            id: "comment-2",
-            url: "https://linear.app/t3/issue/BC-1#comment-comment-2",
-            body: "Symphony milestone for BC-1: PR opened",
-            createdAt: "2026-05-02T12:33:00.000Z",
-            updatedAt: "2026-05-02T12:33:00.000Z",
-            userName: "Symphony",
-          },
-        ]),
-      );
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "review-ready",
-          lifecyclePhase: "in-review",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          threadId: thread.id,
-          prUrl: "https://github.com/t3/battlecode/pull/42",
-          linearProgress: {
-            commentId: "comment-1",
-            commentUrl: "https://linear.app/t3/issue/BC-1#comment-comment-1",
-            ownedCommentIds: ["comment-1", "comment-2"],
-            lastRenderedHash: "hash-1",
-            lastUpdatedAt: "2026-05-02T12:20:00.000Z",
-            lastMilestoneAt: "2026-05-02T12:20:00.000Z",
-            lastFeedbackAt: null,
-          },
-        }),
-      );
-
-      yield* service.refresh({ projectId: PROJECT_ID });
-
-      expect(orchestrationState.dispatchedCommands).toHaveLength(0);
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "review-ready");
-      assert.strictEqual(run?.linearProgress.lastFeedbackAt, null);
     }),
   );
 

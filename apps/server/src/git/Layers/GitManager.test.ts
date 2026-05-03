@@ -567,7 +567,6 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           ),
           Effect.asVoid,
         ),
-      listPullRequestFeedbackSignals: () => Effect.succeed([]),
       getDefaultBranch: (input) =>
         execute({
           cwd: input.cwd,

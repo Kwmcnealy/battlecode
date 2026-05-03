@@ -25,11 +25,6 @@ import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitManager } from "../../git/Services/GitManager.ts";
-import {
-  GitHubCli,
-  type GitHubPullRequestFeedbackSignal,
-  type GitHubPullRequestSummary,
-} from "../../git/Services/GitHubCli.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { runProcess } from "../../processRunner.ts";
 import { SymphonyRepository } from "../Services/SymphonyRepository.ts";
@@ -47,10 +42,8 @@ import {
 import {
   DEFAULT_LINEAR_ENDPOINT,
   fetchLinearCandidates,
-  fetchLinearIssueComments,
   fetchLinearIssuesByIds,
   testLinearConnection as testLinearApiKey,
-  type LinearIssueComment,
   type LinearIssueWorkflowContext,
 } from "../linear.ts";
 import {
@@ -72,7 +65,6 @@ import {
   extractReviewOutcome,
 } from "../phaseOutput.ts";
 import {
-  MANAGED_COMMENT_MARKER,
   transitionLinearState,
   upsertManagedComment,
 } from "../linearWriter.ts";
@@ -114,12 +106,10 @@ import {
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 const DASHBOARD_EVENT_LIMIT = 80;
-const SIGNAL_WARNING_PREFIX = "GitHub PR lookup failed: ";
 const SIGNAL_WARNING_COOLDOWN_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const NON_INTERACTIVE_USER_INPUT_RESPONSE =
   "Continue if possible. If this cannot be answered non-interactively, record the blocker clearly in the thread.";
-const SYMPHONY_MILESTONE_COMMENT_PREFIX = "Symphony milestone for ";
 
 type ReconcileReason =
   | "scheduler"
@@ -128,11 +118,6 @@ type ReconcileReason =
   | "thread-event"
   | "candidate-refresh";
 
-interface PullRequestLookupResult {
-  readonly pullRequest: SymphonyPullRequestSummary | null;
-  readonly warning: string | null;
-}
-
 interface ReconciledRunResult {
   readonly run: SymphonyRun;
   readonly changed: boolean;
@@ -140,7 +125,6 @@ interface ReconciledRunResult {
   readonly prChanged: boolean;
   readonly currentStepChanged: boolean;
   readonly archivedChanged: boolean;
-  readonly warningChanged: boolean;
 }
 
 interface WarningEmissionState {
@@ -160,17 +144,6 @@ function nowIso(): string {
 function toSymphonyError(message: string) {
   return (cause: unknown): SymphonyError =>
     Schema.is(SymphonyError)(cause) ? cause : new SymphonyError({ message, cause });
-}
-
-function errorDetail(cause: unknown): string {
-  if (cause instanceof Error && cause.message.trim().length > 0) {
-    return cause.message.trim();
-  }
-  return String(cause);
-}
-
-function warningFromLastError(lastError: string | null): string | null {
-  return lastError?.startsWith(SIGNAL_WARNING_PREFIX) === true ? lastError : null;
 }
 
 function runProgressChanged(
@@ -229,30 +202,6 @@ function monitoredLinearStateNames(tracker: SymphonyWorkflowConfig["tracker"]): 
     ...tracker.activeStates,
     ...tracker.reviewStates,
   ]);
-}
-
-function isSymphonyOwnedLinearComment(
-  comment: LinearIssueComment,
-  progress: SymphonyRun["linearProgress"],
-): boolean {
-  if (comment.id === progress.commentId) return true;
-  if (progress.ownedCommentIds.includes(comment.id)) return true;
-  const body = comment.body?.trim() ?? "";
-  return (
-    body.includes(MANAGED_COMMENT_MARKER) || body.startsWith(SYMPHONY_MILESTONE_COMMENT_PREFIX)
-  );
-}
-
-function feedbackFingerprint(
-  feedback: readonly { readonly message: string; readonly at: string | null }[],
-): string {
-  return hashWorkflow(
-    feedback
-      .map((item) => `${item.at ?? ""}:${item.message.trim()}`)
-      .filter(Boolean)
-      .toSorted()
-      .join("\n"),
-  );
 }
 
 function hasReachedTurnLimit(
@@ -330,26 +279,6 @@ function runPlanMarkdown(run: SymphonyRun): string | null {
   const detail = run.currentStep?.detail?.trim();
   if (detail?.includes("- [")) return detail;
   return null;
-}
-
-function feedbackTimestamp(value: {
-  readonly updatedAt: string | null;
-  readonly createdAt: string | null;
-}) {
-  return value.updatedAt ?? value.createdAt;
-}
-
-function feedbackIsNewerThanRun(run: SymphonyRun, timestamp: string | null): boolean {
-  if (!timestamp) return false;
-  const candidate = Date.parse(timestamp);
-  if (!Number.isFinite(candidate)) return false;
-  const lastMilestone = run.linearProgress.lastMilestoneAt
-    ? Date.parse(run.linearProgress.lastMilestoneAt)
-    : 0;
-  const lastFeedback = run.linearProgress.lastFeedbackAt
-    ? Date.parse(run.linearProgress.lastFeedbackAt)
-    : 0;
-  return candidate > Math.max(lastMilestone, lastFeedback);
 }
 
 function continuationDelayIso(now = Date.now()): string {
@@ -505,28 +434,12 @@ function issueChanged(left: SymphonyRun["issue"], right: SymphonyRun["issue"]): 
   });
 }
 
-function toSymphonyPullRequestSummary(
-  pullRequest: GitHubPullRequestSummary,
-  fallbackUpdatedAt: string,
-): SymphonyPullRequestSummary {
-  return {
-    number: pullRequest.number,
-    title: pullRequest.title,
-    url: pullRequest.url,
-    baseBranch: pullRequest.baseRefName,
-    headBranch: pullRequest.headRefName,
-    state: pullRequest.state ?? "open",
-    updatedAt: pullRequest.updatedAt ?? fallbackUpdatedAt,
-  };
-}
-
 const makeSymphonyService = Effect.gen(function* () {
   const repository = yield* SymphonyRepository;
   const secretStore = yield* ServerSecretStore;
   const serverConfig = yield* ServerConfig;
   const git = yield* GitCore;
   const gitManager = yield* GitManager;
-  const github = yield* GitHubCli;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -813,68 +726,6 @@ const makeSymphonyService = Effect.gen(function* () {
       }),
       Effect.catch(() => Effect.succeed(null)),
     );
-
-  const resolvePullRequestSummary = (input: {
-    readonly run: SymphonyRun;
-    readonly projectRoot: string;
-  }): Effect.Effect<PullRequestLookupResult, never> => {
-    const cwd = input.run.workspacePath ?? input.projectRoot;
-    const checkedAt = nowIso();
-    const knownReference = input.run.pullRequest?.url ?? input.run.prUrl;
-    if (knownReference) {
-      return github
-        .getPullRequest({
-          cwd,
-          reference: knownReference,
-        })
-        .pipe(
-          Effect.map((pullRequest) => ({
-            pullRequest: toSymphonyPullRequestSummary(pullRequest, checkedAt),
-            warning: null,
-          })),
-          Effect.catch((cause) =>
-            Effect.succeed({
-              pullRequest: input.run.pullRequest ?? null,
-              warning: `${SIGNAL_WARNING_PREFIX}${errorDetail(cause)}`,
-            }),
-          ),
-        );
-    }
-    if (!input.run.branchName) {
-      return Effect.succeed({ pullRequest: input.run.pullRequest ?? null, warning: null });
-    }
-    return github
-      .listOpenPullRequests({
-        cwd,
-        headSelector: input.run.branchName,
-        state: "all",
-        limit: 20,
-      })
-      .pipe(
-        Effect.map((pullRequests) => {
-          const sortedPullRequests = pullRequests.toSorted((left, right) => {
-            const leftUpdatedAt = left.updatedAt ? Date.parse(left.updatedAt) : 0;
-            const rightUpdatedAt = right.updatedAt ? Date.parse(right.updatedAt) : 0;
-            return rightUpdatedAt - leftUpdatedAt;
-          });
-          const preferred =
-            sortedPullRequests.find((pullRequest) => pullRequest.state === "open") ??
-            sortedPullRequests.find((pullRequest) => pullRequest.state === "merged") ??
-            sortedPullRequests[0] ??
-            null;
-          return {
-            pullRequest: preferred ? toSymphonyPullRequestSummary(preferred, checkedAt) : null,
-            warning: null,
-          };
-        }),
-        Effect.catch((cause) =>
-          Effect.succeed({
-            pullRequest: input.run.pullRequest ?? null,
-            warning: `${SIGNAL_WARNING_PREFIX}${errorDetail(cause)}`,
-          }),
-        ),
-      );
-  };
 
   function buildSnapshot(projectId: ProjectId): Effect.Effect<SymphonySnapshot, SymphonyError> {
     return Effect.gen(function* () {
@@ -1397,10 +1248,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const branchName = input.run.branchName ?? null;
       const runWithBranch: SymphonyRun =
         branchName === input.run.branchName ? input.run : { ...input.run, branchName };
-      const pullRequestLookup = yield* resolvePullRequestSummary({
-        run: runWithBranch,
-        projectRoot: input.projectRoot,
-      });
+      const storedPullRequest = runWithBranch.pullRequest ?? null;
       const lifecycle = resolveRunLifecycle({
         run: input.linearIssue
           ? {
@@ -1415,7 +1263,7 @@ const makeSymphonyService = Effect.gen(function* () {
               updatedAt: input.linearIssue.issue.updatedAt,
             }
           : null,
-        pullRequest: pullRequestLookup.pullRequest,
+        pullRequest: storedPullRequest,
         thread: input.thread ?? null,
         now: reconciledAt,
       });
@@ -1427,15 +1275,7 @@ const makeSymphonyService = Effect.gen(function* () {
         lifecycle.status !== "failed";
       const nextStatus = preserveActiveLocalPhase ? runWithBranch.status : lifecycle.status;
       const nextPrUrl = lifecycle.pullRequest?.url ?? runWithBranch.prUrl;
-      const warning = pullRequestLookup.warning;
-      const nextCurrentStep =
-        warning && lifecycle.pullRequest === null
-          ? {
-              ...lifecycle.currentStep,
-              detail: warning,
-              updatedAt: reconciledAt,
-            }
-          : lifecycle.currentStep;
+      const nextCurrentStep = lifecycle.currentStep;
       // TODO(phase-5): switch to Linear-state-driven inputs.
       // We currently feed the post-classified `nextStatus` as `linearState`,
       // and SymphonyRunStatus literals as the state lists, to preserve
@@ -1466,14 +1306,8 @@ const makeSymphonyService = Effect.gen(function* () {
             : nextStatus === "review-ready"
               ? "in-review"
               : phaseFromPullRequestState(lifecycle.pullRequest, runWithBranch.lifecyclePhase);
-      const previousWarning = warningFromLastError(input.run.lastError);
       const nextLastError =
-        warning ??
-        (nextStatus === "failed"
-          ? runWithBranch.lastError
-          : previousWarning !== null
-            ? null
-            : runWithBranch.lastError);
+        nextStatus === "failed" ? runWithBranch.lastError : runWithBranch.lastError;
       const nextRun: SymphonyRun = {
         ...runWithBranch,
         issue: input.linearIssue?.issue ?? runWithBranch.issue,
@@ -1495,7 +1329,6 @@ const makeSymphonyService = Effect.gen(function* () {
         input.run.currentStep ?? null,
       );
       const archivedChanged = nextRun.archivedAt !== input.run.archivedAt;
-      const warningChanged = previousWarning !== warning;
       const lifecyclePhaseChanged = nextRun.lifecyclePhase !== input.run.lifecyclePhase;
       const changed =
         statusChanged ||
@@ -1535,51 +1368,6 @@ const makeSymphonyService = Effect.gen(function* () {
             reason: input.reason,
           },
         });
-      }
-
-      if (persistedRun.lifecyclePhase === "in-review" && persistedRun.status === "review-ready") {
-        const stateFeedback =
-          input.linearIssue &&
-          stateMatches(input.workflow.config.tracker.activeStates, input.linearIssue.state.name)
-            ? [
-                {
-                  message: `Linear moved back to ${input.linearIssue.state.name}`,
-                  at: input.linearIssue.issue.updatedAt,
-                },
-              ]
-            : [];
-        const [linearFeedback, githubFeedback] = yield* Effect.all(
-          [
-            collectLinearCommentFeedback({
-              projectId: input.run.projectId,
-              workflow: input.workflow,
-              run: persistedRun,
-            }),
-            collectGitHubFeedback({
-              projectRoot: input.projectRoot,
-              run: persistedRun,
-            }),
-          ],
-          { concurrency: "unbounded" },
-        );
-        const feedback = [...stateFeedback, ...linearFeedback, ...githubFeedback];
-        if (feedback.length > 0) {
-          const reworkRun = yield* requestRework({
-            projectId: input.run.projectId,
-            workflow: input.workflow,
-            run: persistedRun,
-            feedback,
-          });
-          return {
-            run: reworkRun,
-            changed: true,
-            statusChanged: reworkRun.status !== input.run.status,
-            prChanged,
-            currentStepChanged: true,
-            archivedChanged,
-            warningChanged,
-          };
-        }
       }
 
       if (statusChanged) {
@@ -1638,19 +1426,6 @@ const makeSymphonyService = Effect.gen(function* () {
         });
       }
 
-      if (warningChanged && warning) {
-        yield* emitCoalescedWarningEvent({
-          projectId: input.run.projectId,
-          issueId: input.run.issue.id,
-          runId: input.run.runId,
-          type: "run.signal-warning",
-          message: warning,
-          payload: {
-            reason: input.reason,
-          },
-        });
-      }
-
       if (
         persistedRun.status === "canceled" &&
         input.run.status !== "canceled" &&
@@ -1677,7 +1452,6 @@ const makeSymphonyService = Effect.gen(function* () {
         prChanged,
         currentStepChanged,
         archivedChanged,
-        warningChanged,
       };
     });
 
@@ -2292,155 +2066,6 @@ const makeSymphonyService = Effect.gen(function* () {
         payload: { prUrl },
       });
       return withProgress;
-    });
-
-  const collectLinearCommentFeedback = (input: {
-    readonly projectId: ProjectId;
-    readonly workflow: { readonly config: SymphonyWorkflowConfig };
-    readonly run: SymphonyRun;
-  }): Effect.Effect<readonly { readonly message: string; readonly at: string | null }[], never> =>
-    Effect.gen(function* () {
-      const apiKey = yield* readLinearApiKey(input.projectId);
-      if (!apiKey) return [];
-      const comments = yield* fetchLinearIssueComments({
-        endpoint: input.workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT,
-        apiKey,
-        issueId: input.run.issue.id,
-      });
-      return comments.flatMap((comment: LinearIssueComment) => {
-        if (isSymphonyOwnedLinearComment(comment, input.run.linearProgress)) return [];
-        const body = comment.body?.trim();
-        if (!body) return [];
-        const at = feedbackTimestamp(comment);
-        if (!feedbackIsNewerThanRun(input.run, at)) return [];
-        return [{ message: `Linear feedback: ${body}`, at }];
-      });
-    }).pipe(
-      Effect.catch((error) =>
-        emitCoalescedWarningEvent({
-          projectId: input.projectId,
-          issueId: input.run.issue.id,
-          runId: input.run.runId,
-          type: "run.signal-warning",
-          message: `Linear feedback lookup failed: ${error.message}`,
-          payload: { reason: "linear-feedback" },
-        }).pipe(
-          Effect.as([]),
-          Effect.catch(() => Effect.succeed([])),
-        ),
-      ),
-    );
-
-  const collectGitHubFeedback = (input: {
-    readonly projectRoot: string;
-    readonly run: SymphonyRun;
-  }): Effect.Effect<readonly { readonly message: string; readonly at: string | null }[], never> => {
-    const reference = input.run.pullRequest?.url ?? input.run.prUrl;
-    if (!reference) return Effect.succeed([]);
-    const cwd = input.run.workspacePath ?? input.projectRoot;
-    return github.listPullRequestFeedbackSignals({ cwd, reference }).pipe(
-      Effect.map((signals) =>
-        signals.flatMap((signal: GitHubPullRequestFeedbackSignal) => {
-          const at = feedbackTimestamp(signal);
-          if (!feedbackIsNewerThanRun(input.run, at)) return [];
-          if (signal.kind === "review" && signal.state?.toUpperCase() !== "CHANGES_REQUESTED") {
-            return [];
-          }
-          const prefix =
-            signal.kind === "review"
-              ? "GitHub review requested changes"
-              : signal.kind === "review-comment"
-                ? "GitHub review comment"
-                : "GitHub PR comment";
-          return [{ message: `${prefix}: ${signal.body}`, at }];
-        }),
-      ),
-      Effect.catch((error) =>
-        emitCoalescedWarningEvent({
-          projectId: input.run.projectId,
-          issueId: input.run.issue.id,
-          runId: input.run.runId,
-          type: "run.signal-warning",
-          message: `GitHub feedback lookup failed: ${error.message}`,
-          payload: { reason: "github-feedback" },
-        }).pipe(
-          Effect.as([]),
-          Effect.catch(() => Effect.succeed([])),
-        ),
-      ),
-    );
-  };
-
-  const requestRework = (input: {
-    readonly projectId: ProjectId;
-    readonly workflow: {
-      readonly config: SymphonyWorkflowConfig;
-      readonly promptTemplate: string;
-    };
-    readonly run: SymphonyRun;
-    readonly feedback: readonly { readonly message: string; readonly at: string | null }[];
-  }): Effect.Effect<SymphonyRun, SymphonyError> =>
-    Effect.gen(function* () {
-      if (!input.run.threadId || !input.run.workspacePath || !input.run.branchName) {
-        return input.run;
-      }
-      const requestedAt = nowIso();
-      const lastFeedbackAt =
-        input.feedback
-          .map((item) => item.at)
-          .filter((value): value is string => value !== null)
-          .toSorted((left, right) => Date.parse(right) - Date.parse(left))[0] ?? requestedAt;
-      const findings = input.feedback.map((item) => item.message);
-      const fingerprint = feedbackFingerprint(input.feedback);
-      if (fingerprint === input.run.qualityGate.lastFeedbackFingerprint) {
-        return input.run;
-      }
-      const reworkRun: SymphonyRun = {
-        ...input.run,
-        lifecyclePhase: "fixing",
-        status: "running",
-        linearProgress: {
-          ...input.run.linearProgress,
-          lastFeedbackAt,
-        },
-        qualityGate: {
-          ...input.run.qualityGate,
-          lastFeedbackFingerprint: fingerprint,
-        },
-        currentStep: {
-          source: "symphony",
-          label: "Rework requested",
-          detail: findings.join("\n"),
-          updatedAt: requestedAt,
-        },
-        updatedAt: requestedAt,
-      };
-      yield* repository
-        .upsertRun(reworkRun)
-        .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run for rework.")));
-      const withProgress = yield* updateManagedProgressComment({
-        projectId: input.projectId,
-        workflow: input.workflow,
-        run: reworkRun,
-        planMarkdown: runPlanMarkdown(input.run),
-        statusLine: "Rework requested",
-        milestone: "Rework requested",
-        milestoneDetail: findings.join("\n"),
-      });
-      return yield* startPhaseTurn({
-        projectId: input.projectId,
-        workflow: input.workflow,
-        run: withProgress,
-        phase: "fixing",
-        prompt: buildFixPrompt({
-          issue: issuePromptInput(input.run),
-          workflowPrompt: input.workflow.promptTemplate,
-          findings,
-          pullRequestUrl: input.run.prUrl ?? input.run.pullRequest?.url ?? null,
-        }),
-        currentStepLabel: "Fixing review feedback",
-        currentStepDetail: findings.join("\n"),
-      });
     });
 
   const launchLocalRun = (input: {
