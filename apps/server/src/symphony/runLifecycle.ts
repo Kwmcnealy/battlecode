@@ -10,7 +10,6 @@ import type {
 export type LinearStateClassification = "active" | "review" | "done" | "canceled" | "released";
 export type PullRequestClassification = "review" | "done" | "closed" | "none";
 export type LocalThreadClassification = "running" | "completed" | "failed" | "idle";
-export type CloudTaskClassification = "submitted" | "running" | "failed" | "unknown";
 
 export interface LinearLifecycleSignal {
   readonly stateName: string | null;
@@ -105,22 +104,6 @@ export function classifyLocalThreadState(
   return "failed";
 }
 
-export function classifyCloudTaskState(run: SymphonyRun): CloudTaskClassification {
-  if (run.executionTarget !== "codex-cloud") {
-    return "unknown";
-  }
-  if (run.cloudTask?.status === "failed") {
-    return "failed";
-  }
-  if (run.cloudTask?.status === "detected" || run.cloudTask?.taskUrl) {
-    return "running";
-  }
-  if (run.status === "cloud-submitted" || run.cloudTask?.status === "submitted") {
-    return "submitted";
-  }
-  return "unknown";
-}
-
 function latestThreadActivity(
   thread: Pick<OrchestrationThread, "activities"> | null | undefined,
 ): OrchestrationThread["activities"][number] | null {
@@ -192,32 +175,6 @@ export function deriveRunProgress(
     });
   }
 
-  if (input.run.executionTarget === "codex-cloud") {
-    const cloudTask = input.run.cloudTask;
-    if (input.status === "failed") {
-      return progress({
-        source: "codex-cloud",
-        label: "Codex Cloud failed",
-        detail: cloudTask?.lastMessage ?? input.run.lastError,
-        updatedAt: cloudTask?.lastCheckedAt ?? now,
-      });
-    }
-    if (classifyCloudTaskState(input.run) === "running") {
-      return progress({
-        source: "codex-cloud",
-        label: "Codex task detected",
-        detail: cloudTask?.taskUrl ?? null,
-        updatedAt: cloudTask?.lastCheckedAt ?? now,
-      });
-    }
-    return progress({
-      source: "codex-cloud",
-      label: "Waiting for Codex Cloud task",
-      detail: cloudTask?.linearCommentUrl ?? input.run.issue.url,
-      updatedAt: cloudTask?.lastCheckedAt ?? now,
-    });
-  }
-
   const threadState = classifyLocalThreadState(input.thread);
   const activity = latestThreadActivity(input.thread);
   if (threadState === "running") {
@@ -259,7 +216,6 @@ export function resolveRunLifecycle(input: RunLifecycleInput): RunLifecycleResul
     input.linear?.stateName ?? input.run.issue.state,
     input.config.tracker,
   );
-  const cloudClassification = classifyCloudTaskState(input.run);
   const threadClassification = classifyLocalThreadState(input.thread);
 
   const status: SymphonyRunStatus =
@@ -269,15 +225,9 @@ export function resolveRunLifecycle(input: RunLifecycleInput): RunLifecycleResul
         ? "canceled"
         : prClassification === "review" || linearClassification === "review"
           ? "review-ready"
-          : cloudClassification === "failed"
+          : threadClassification === "failed"
             ? "failed"
-            : input.run.executionTarget === "codex-cloud" && cloudClassification === "running"
-              ? "cloud-running"
-              : input.run.executionTarget === "codex-cloud" && cloudClassification === "submitted"
-                ? "cloud-submitted"
-                : threadClassification === "failed"
-                  ? "failed"
-                  : input.run.status;
+            : input.run.status;
 
   return {
     status,

@@ -65,7 +65,6 @@ function makeLifecycleRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
   return {
     ...makeRun(PROJECT_ID, makeIssue(), CREATED_AT),
     status: "running",
-    executionTarget: "local",
     ...overrides,
   };
 }
@@ -149,68 +148,6 @@ describe("Symphony run lifecycle", () => {
 
     expect(result.status).toBe("canceled");
     expect(result.currentStep.label).toBe("Pull request closed");
-  });
-
-  it("keeps submitted cloud runs in cloud-submitted", () => {
-    const result = resolveRunLifecycle({
-      run: makeLifecycleRun({
-        status: "cloud-submitted",
-        executionTarget: "codex-cloud",
-        cloudTask: {
-          provider: "codex-cloud-linear",
-          status: "submitted",
-          taskUrl: null,
-          linearCommentId: "comment-1",
-          linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-1",
-          repository: "t3/battlecode",
-          repositoryUrl: "https://github.com/t3/battlecode",
-          lastMessage: null,
-          delegatedAt: CREATED_AT,
-          lastCheckedAt: CREATED_AT,
-        },
-      }),
-      config: CONFIG,
-    });
-
-    expect(result.status).toBe("cloud-submitted");
-    expect(result.currentStep.label).toBe("Waiting for Codex Cloud task");
-  });
-
-  it("moves cloud runs to cloud-running when a Codex task is detected", () => {
-    const result = resolveRunLifecycle({
-      run: makeLifecycleRun({
-        status: "cloud-submitted",
-        executionTarget: "codex-cloud",
-        cloudTask: {
-          provider: "codex-cloud-linear",
-          status: "detected",
-          taskUrl: "https://codex.openai.com/tasks/task-1",
-          linearCommentId: "comment-1",
-          linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-1",
-          repository: "t3/battlecode",
-          repositoryUrl: "https://github.com/t3/battlecode",
-          lastMessage: null,
-          delegatedAt: CREATED_AT,
-          lastCheckedAt: "2026-05-02T12:05:00.000Z",
-        },
-      }),
-      config: CONFIG,
-    });
-
-    expect(result.status).toBe("cloud-running");
-  });
-
-  it("marks cloud runs review-ready when their PR opens", () => {
-    const result = resolveRunLifecycle({
-      run: makeLifecycleRun({
-        status: "cloud-running",
-        executionTarget: "codex-cloud",
-      }),
-      config: CONFIG,
-      pullRequest: makePullRequest("open"),
-    });
-
-    expect(result.status).toBe("review-ready");
   });
 
   it("marks runs canceled from configured Linear canceled states", () => {
