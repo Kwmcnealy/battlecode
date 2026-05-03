@@ -58,7 +58,7 @@ import {
   buildPlanningPrompt,
   buildReviewPrompt,
   buildSimplificationPrompt,
-} from "../phasePrompts.ts";
+} from "../prompts.ts";
 import {
   extractLatestAssistantText,
   extractLatestPlanMarkdown,
