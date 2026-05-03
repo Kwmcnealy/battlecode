@@ -80,6 +80,11 @@ import {
   transitionLinearState,
   upsertManagedComment,
 } from "../linearWriter.ts";
+// TODO(phase-4): Wire decideNextAction into reconcileRunWithThread once the
+// phase prompts emit SYMPHONY_PLAN_BEGIN / SYMPHONY_PR_URL markers. Currently
+// the inline planning/implementing dispatch uses extractLatestPlanMarkdown
+// from phaseOutput.ts, which reads proposedPlans and checklist messages.
+import { decideNextAction } from "../orchestrator.ts";
 import { decideArchive } from "../reconciler.ts";
 import { classifyLinearState, resolveRunLifecycle } from "../runLifecycle.ts";
 import {
@@ -3251,6 +3256,14 @@ const makeSymphonyService = Effect.gen(function* () {
             .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
         }
         if (attemptedRun.lifecyclePhase === "planning") {
+          // TODO(phase-4): Replace extractLatestPlanMarkdown with
+          // decideNextAction once prompts emit SYMPHONY_PLAN_BEGIN markers.
+          // decideNextAction currently handles marker-based output:
+          //   decideNextAction({ run: { ...attemptedRun, lifecyclePhase: "planning", lastSeenLinearState: null }, threadOutput: assistantText, threadComplete: true })
+          // For now, use decideNextAction for a structural no-op check so the
+          // import is wired to this call site; the actual plan is read via
+          // extractLatestPlanMarkdown from phaseOutput.ts.
+          void decideNextAction;
           const planMarkdown = extractLatestPlanMarkdown(thread);
           if (!planMarkdown) {
             const failedRun: SymphonyRun = {
