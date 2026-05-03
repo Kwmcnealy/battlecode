@@ -1527,6 +1527,12 @@ const makeSymphonyService = Effect.gen(function* () {
               updatedAt: reconciledAt,
             }
           : lifecycle.currentStep;
+      // TODO(phase-5): switch to Linear-state-driven inputs.
+      // We currently feed the post-classified `nextStatus` as `linearState`,
+      // and SymphonyRunStatus literals as the state lists, to preserve
+      // behavior of the pre-extraction inline ternary. Phase 5's reconciler
+      // tick will introduce a separate caller that uses linearIssue.state.name
+      // and workflow.config.tracker.doneStates/canceledStates.
       const archiveDecision = decideArchive({
         run: {
           runId: runWithBranch.runId,

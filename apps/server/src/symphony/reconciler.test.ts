@@ -61,4 +61,38 @@ describe("reconciler.decideArchive", () => {
     });
     expect(result).toEqual({ archive: false, reason: "not_terminal" });
   });
+
+  it("classifies as completed when state appears in both done and canceled lists (done wins)", () => {
+    const result = decideArchive({
+      run: makeRun({}),
+      linearState: "Both",
+      doneStates: ["Both"],
+      canceledStates: ["Both"],
+    });
+    expect(result).toEqual({
+      archive: true,
+      newStatus: "completed",
+      reason: "linear_done",
+    });
+  });
+
+  it("returns not_terminal when linearState is empty string", () => {
+    const result = decideArchive({
+      run: makeRun({}),
+      linearState: "",
+      doneStates: ["Done"],
+      canceledStates: ["Canceled"],
+    });
+    expect(result).toEqual({ archive: false, reason: "not_terminal" });
+  });
+
+  it("returns not_terminal when state lists are empty", () => {
+    const result = decideArchive({
+      run: makeRun({}),
+      linearState: "Done",
+      doneStates: [],
+      canceledStates: [],
+    });
+    expect(result).toEqual({ archive: false, reason: "not_terminal" });
+  });
 });
