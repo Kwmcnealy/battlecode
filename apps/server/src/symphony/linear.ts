@@ -140,6 +140,20 @@ mutation SymphonyCreateComment($issueId: String!, $body: String!) {
 }
 `;
 
+const LINEAR_UPDATE_COMMENT_MUTATION = `
+mutation SymphonyUpdateComment($commentId: String!, $body: String!) {
+  commentUpdate(id: $commentId, input: { body: $body }) {
+    success
+    comment {
+      id
+      url
+      body
+      updatedAt
+    }
+  }
+}
+`;
+
 const LINEAR_ISSUE_COMMENTS_QUERY = `
 query SymphonyIssueComments($issueId: String!) {
   issue(id: $issueId) {
@@ -149,6 +163,7 @@ query SymphonyIssueComments($issueId: String!) {
         url
         body
         createdAt
+        updatedAt
         user { id name displayName }
       }
     }
@@ -206,6 +221,15 @@ mutation SymphonyUpdateIssueState($issueId: String!, $stateId: String!) {
 export interface LinearCommentResult {
   readonly id: string;
   readonly url: string | null;
+}
+
+export interface LinearIssueComment {
+  readonly id: string;
+  readonly url: string | null;
+  readonly body: string | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly userName: string | null;
 }
 
 export interface LinearWorkflowTeam {
@@ -368,6 +392,96 @@ export function createLinearComment(input: {
           }),
       }),
     ),
+  );
+}
+
+export function updateLinearComment(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly commentId: string;
+  readonly body: string;
+}): Effect.Effect<LinearCommentResult, SymphonyError> {
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_UPDATE_COMMENT_MUTATION,
+    variables: {
+      commentId: input.commentId,
+      body: input.body,
+    },
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const commentUpdate = data ? readNestedRecord(data, "commentUpdate") : null;
+          if (commentUpdate?.success !== true) {
+            throw new Error("Linear did not update the Symphony managed progress comment.");
+          }
+          const comment = readRecord(commentUpdate.comment);
+          const id = comment ? readString(comment.id) : null;
+          if (!id) {
+            throw new Error("Linear comment update response did not include a comment id.");
+          }
+          return {
+            id,
+            url: comment ? readString(comment.url) : null,
+          };
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Failed to parse Linear comment update response.",
+            cause,
+          }),
+      }),
+    ),
+  );
+}
+
+function normalizeLinearIssueComment(value: unknown): LinearIssueComment | null {
+  const comment = readRecord(value);
+  const id = comment ? readString(comment.id) : null;
+  if (!comment || !id) {
+    return null;
+  }
+  const user = readRecord(comment.user);
+  const userName = user ? (readString(user.displayName) ?? readString(user.name)) : null;
+  return {
+    id,
+    url: readString(comment.url),
+    body: readString(comment.body),
+    createdAt: readString(comment.createdAt),
+    updatedAt: readString(comment.updatedAt),
+    userName,
+  };
+}
+
+export function fetchLinearIssueComments(input: {
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly issueId: string;
+}): Effect.Effect<readonly LinearIssueComment[], SymphonyError> {
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    query: LINEAR_ISSUE_COMMENTS_QUERY,
+    variables: {
+      issueId: input.issueId,
+    },
+  }).pipe(
+    Effect.map((body) => {
+      const data = readNestedRecord(body, "data");
+      const issue = data ? readNestedRecord(data, "issue") : null;
+      const comments = issue ? readNestedRecord(issue, "comments") : null;
+      const nodes = comments ? readArray(comments.nodes) : [];
+      return nodes.flatMap((node) => {
+        const normalized = normalizeLinearIssueComment(node);
+        return normalized ? [normalized] : [];
+      });
+    }),
   );
 }
 

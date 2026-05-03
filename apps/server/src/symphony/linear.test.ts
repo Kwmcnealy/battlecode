@@ -4,10 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createLinearComment,
   detectLinearCodexTask,
+  fetchLinearIssueComments,
   fetchLinearCandidates,
   fetchLinearIssuesByIds,
   normalizeLinearIssue,
   resolveLinearWorkflowStateId,
+  updateLinearComment,
   updateLinearIssueState,
   type LinearIssueWorkflowContext,
 } from "./linear.ts";
@@ -433,6 +435,123 @@ describe("Symphony Linear helpers", () => {
       issueId: "linear-issue-1",
       body: "@Codex please work this issue.",
     });
+  });
+
+  it("updates managed Linear comments with commentUpdate", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              commentUpdate: {
+                success: true,
+                comment: {
+                  id: "comment-1",
+                  url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comment = await Effect.runPromise(
+      updateLinearComment({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        commentId: "comment-1",
+        body: "<!-- symphony-managed-progress v1 -->",
+      }),
+    );
+
+    expect(comment).toEqual({
+      id: "comment-1",
+      url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+    });
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: { readonly commentId: string; readonly body: string };
+    };
+    expect(requestBody.query).toContain("commentUpdate");
+    expect(requestBody.variables).toEqual({
+      commentId: "comment-1",
+      body: "<!-- symphony-managed-progress v1 -->",
+    });
+  });
+
+  it("fetches Linear issue comments with update timestamps and user names", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-1",
+                      url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+                      body: "<!-- symphony-managed-progress v1 -->",
+                      createdAt: "2026-05-02T12:00:00.000Z",
+                      updatedAt: "2026-05-02T12:05:00.000Z",
+                      user: { id: "user-1", name: "Jordan", displayName: "Jordan S." },
+                    },
+                    {
+                      id: "comment-2",
+                      url: null,
+                      body: "A teammate reply",
+                      createdAt: "2026-05-02T12:10:00.000Z",
+                      updatedAt: "2026-05-02T12:10:00.000Z",
+                      user: { id: "user-2", name: "Riley", displayName: null },
+                    },
+                    {
+                      id: null,
+                      body: "Malformed comment is skipped",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comments = await Effect.runPromise(
+      fetchLinearIssueComments({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+      }),
+    );
+
+    expect(comments).toEqual([
+      {
+        id: "comment-1",
+        url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+        body: "<!-- symphony-managed-progress v1 -->",
+        createdAt: "2026-05-02T12:00:00.000Z",
+        updatedAt: "2026-05-02T12:05:00.000Z",
+        userName: "Jordan S.",
+      },
+      {
+        id: "comment-2",
+        url: null,
+        body: "A teammate reply",
+        createdAt: "2026-05-02T12:10:00.000Z",
+        updatedAt: "2026-05-02T12:10:00.000Z",
+        userName: "Riley",
+      },
+    ]);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: { readonly issueId: string };
+    };
+    expect(requestBody.query).toContain("updatedAt");
+    expect(requestBody.variables).toEqual({ issueId: "linear-issue-1" });
   });
 
   it("detects Codex Cloud task links from Linear comments", async () => {
