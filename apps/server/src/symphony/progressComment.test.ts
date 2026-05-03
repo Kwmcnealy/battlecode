@@ -11,7 +11,6 @@ describe("Symphony progress comments", () => {
     const comment = renderManagedProgressComment({
       phase: "in-review",
       lastUpdate: "2026-05-02T12:00:00.000Z",
-      executionTarget: "codex-cloud",
       currentStep: "Reviewing the pull request",
       pullRequestUrl: "https://github.com/example/repo/pull/12",
       planMarkdown: "- [x] Implement helper slice\n- [ ] Wire service integration",
@@ -22,25 +21,23 @@ describe("Symphony progress comments", () => {
     expect(comment).toContain("# Symphony Progress");
     expect(comment).toContain("- Status: In Review");
     expect(comment).toContain("- Last update: 2026-05-02T12:00:00.000Z");
-    expect(comment).toContain("- Execution: Codex Cloud");
+    expect(comment).not.toContain("- Execution:");
     expect(comment).toContain("- Current step: Reviewing the pull request");
     expect(comment).toContain("- PR: https://github.com/example/repo/pull/12");
     expect(comment).toContain("## Plan\n\n- [x] Implement helper slice");
     expect(comment).toContain("## Review Findings\n\n- Missing Linear update test");
   });
 
-  it("renders missing execution and progress fields explicitly", () => {
+  it("renders missing progress fields explicitly", () => {
     const comment = renderManagedProgressComment({
-      phase: "waiting-cloud",
+      phase: "implementing",
       lastUpdate: "2026-05-02T12:00:00.000Z",
-      executionTarget: null,
       currentStep: null,
       pullRequestUrl: null,
       planMarkdown: null,
     });
 
-    expect(comment).toContain("- Status: Waiting for cloud signal");
-    expect(comment).toContain("- Execution: Not selected");
+    expect(comment).toContain("- Status: Implementing");
     expect(comment).toContain("- Current step: Not started");
     expect(comment).toContain("- PR: Not available");
     expect(comment).toContain("## Plan\n\nNo plan captured yet.");

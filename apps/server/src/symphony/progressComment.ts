@@ -1,4 +1,4 @@
-import type { SymphonyExecutionTarget, SymphonyLifecyclePhase } from "@t3tools/contracts";
+import type { SymphonyLifecyclePhase } from "@t3tools/contracts";
 
 import { lifecyclePhaseLabel } from "./lifecyclePhase.ts";
 
@@ -7,7 +7,6 @@ export const SYMPHONY_MANAGED_PROGRESS_MARKER = "<!-- symphony-managed-progress 
 export interface ManagedProgressCommentInput {
   readonly phase: SymphonyLifecyclePhase;
   readonly lastUpdate: string;
-  readonly executionTarget: SymphonyExecutionTarget | null;
   readonly currentStep: string | null;
   readonly pullRequestUrl: string | null;
   readonly planMarkdown: string | null;
@@ -18,15 +17,6 @@ export interface MilestoneCommentInput {
   readonly issueIdentifier: string;
   readonly milestone: string;
   readonly detail?: string | null;
-}
-
-const EXECUTION_TARGET_LABELS: Record<SymphonyExecutionTarget, string> = {
-  local: "Local",
-  "codex-cloud": "Codex Cloud",
-};
-
-function formatExecutionTarget(target: SymphonyExecutionTarget | null): string {
-  return target ? EXECUTION_TARGET_LABELS[target] : "Not selected";
 }
 
 function renderReviewFindings(findings: readonly string[] | undefined): string | null {
@@ -46,7 +36,6 @@ export function renderManagedProgressComment(input: ManagedProgressCommentInput)
     [
       `- Status: ${lifecyclePhaseLabel(input.phase)}`,
       `- Last update: ${input.lastUpdate}`,
-      `- Execution: ${formatExecutionTarget(input.executionTarget)}`,
       `- Current step: ${input.currentStep?.trim() || "Not started"}`,
       `- PR: ${input.pullRequestUrl?.trim() || "Not available"}`,
     ].join("\n"),
