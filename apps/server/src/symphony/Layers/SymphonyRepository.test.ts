@@ -57,6 +57,44 @@ function makeRepositoryRun(
 }
 
 layer("SymphonyRepositoryLive", (it) => {
+  it.effect("round-trips lifecycle control-plane metadata on Symphony runs", () =>
+    Effect.gen(function* () {
+      const repository = yield* SymphonyRepository;
+      yield* runMigrations();
+      const lifecycleProjectId = ProjectId.make("project-symphony-lifecycle-metadata");
+
+      const run = makeRepositoryRun(lifecycleProjectId, makeIssue("issue-lifecycle", "BC-0"), {
+        status: "running",
+        lifecyclePhase: "reviewing",
+        linearProgress: {
+          commentId: "comment-1",
+          commentUrl: "https://linear.app/t3/issue/BC-0#comment-comment-1",
+          lastRenderedHash: "hash-1",
+          lastUpdatedAt: "2026-05-02T12:03:00.000Z",
+          lastMilestoneAt: "2026-05-02T12:02:00.000Z",
+          lastFeedbackAt: "2026-05-02T12:04:00.000Z",
+        },
+        qualityGate: {
+          reviewFixLoops: 1,
+          lastReviewPassedAt: null,
+          lastReviewSummary: "Review failed with one concrete finding.",
+          lastReviewFindings: ["Missing migration coverage"],
+        },
+      });
+
+      yield* repository.upsertRun(run);
+
+      const persisted = (yield* repository.getRunByIssue({
+        projectId: lifecycleProjectId,
+        issueId: run.issue.id,
+      })) as SymphonyRun | null;
+      assert.notStrictEqual(persisted, null);
+      assert.strictEqual(persisted?.lifecyclePhase, "reviewing");
+      assert.deepStrictEqual(persisted?.linearProgress, run.linearProgress);
+      assert.deepStrictEqual(persisted?.qualityGate, run.qualityGate);
+    }),
+  );
+
   it.effect("persists archivedAt on Symphony runs", () =>
     Effect.gen(function* () {
       const repository = yield* SymphonyRepository;

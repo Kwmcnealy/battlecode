@@ -68,6 +68,22 @@ export const SymphonyRunStatus = Schema.Literals([
 ]);
 export type SymphonyRunStatus = typeof SymphonyRunStatus.Type;
 
+export const SymphonyLifecyclePhase = Schema.Literals([
+  "intake",
+  "planning",
+  "implementing",
+  "waiting-cloud",
+  "simplifying",
+  "reviewing",
+  "fixing",
+  "pr-ready",
+  "in-review",
+  "done",
+  "canceled",
+  "failed",
+]);
+export type SymphonyLifecyclePhase = typeof SymphonyLifecyclePhase.Type;
+
 export const SymphonyExecutionTarget = Schema.Literals(["local", "codex-cloud"]);
 export type SymphonyExecutionTarget = typeof SymphonyExecutionTarget.Type;
 
@@ -130,8 +146,12 @@ export const SymphonyTrackerConfig = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("https://api.linear.app/graphql")),
   ),
   projectSlug: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  intakeStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(["To Do", "Todo"])),
+  ),
   activeStates: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed(["Todo", "In Progress"])),
+    Schema.withDecodingDefault(Effect.succeed(["In Progress"])),
   ),
   terminalStates: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(
@@ -149,16 +169,16 @@ export const SymphonyTrackerConfig = Schema.Struct({
   ),
   transitionStates: Schema.Struct({
     started: Schema.NullOr(TrimmedNonEmptyString).pipe(
-      Schema.withDecodingDefault(Effect.succeed(null)),
+      Schema.withDecodingDefault(Effect.succeed("In Progress")),
     ),
     review: Schema.NullOr(TrimmedNonEmptyString).pipe(
-      Schema.withDecodingDefault(Effect.succeed(null)),
+      Schema.withDecodingDefault(Effect.succeed("In Review")),
     ),
     done: Schema.NullOr(TrimmedNonEmptyString).pipe(
-      Schema.withDecodingDefault(Effect.succeed(null)),
+      Schema.withDecodingDefault(Effect.succeed("Done")),
     ),
     canceled: Schema.NullOr(TrimmedNonEmptyString).pipe(
-      Schema.withDecodingDefault(Effect.succeed(null)),
+      Schema.withDecodingDefault(Effect.succeed("Canceled")),
     ),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
@@ -194,6 +214,29 @@ export const SymphonyCodexConfig = Schema.Struct({
 });
 export type SymphonyCodexConfig = typeof SymphonyCodexConfig.Type;
 
+export const SymphonyPullRequestConfig = Schema.Struct({
+  baseBranch: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyPullRequestConfig = typeof SymphonyPullRequestConfig.Type;
+
+export const DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT =
+  "Simplify only the code changed for this issue. Preserve behavior and UI unless a fix is required.";
+export const DEFAULT_SYMPHONY_REVIEW_PROMPT =
+  "Review the current branch for correctness, regressions, and missing validation. Return REVIEW_PASS or REVIEW_FAIL with concrete findings.";
+
+export const SymphonyQualityConfig = Schema.Struct({
+  maxReviewFixLoops: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
+  simplificationPrompt: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT)),
+  ),
+  reviewPrompt: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SYMPHONY_REVIEW_PROMPT)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyQualityConfig = typeof SymphonyQualityConfig.Type;
+
 export const SymphonyWorkflowConfig = Schema.Struct({
   tracker: SymphonyTrackerConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   polling: SymphonyPollingConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -201,6 +244,14 @@ export const SymphonyWorkflowConfig = Schema.Struct({
   hooks: SymphonyHooksConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agent: SymphonyAgentConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   codex: SymphonyCodexConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  pullRequest: SymphonyPullRequestConfig.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  quality: SymphonyQualityConfig.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type SymphonyWorkflowConfig = typeof SymphonyWorkflowConfig.Type;
 
@@ -283,11 +334,42 @@ export const SymphonyRunProgress = Schema.Struct({
 });
 export type SymphonyRunProgress = typeof SymphonyRunProgress.Type;
 
+export const SymphonyLinearProgressComment = Schema.Struct({
+  commentId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  commentUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastRenderedHash: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastUpdatedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastMilestoneAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFeedbackAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyLinearProgressComment = typeof SymphonyLinearProgressComment.Type;
+
+export const SymphonyQualityGateState = Schema.Struct({
+  reviewFixLoops: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  lastReviewPassedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastReviewSummary: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastReviewFindings: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyQualityGateState = typeof SymphonyQualityGateState.Type;
+
 export const SymphonyRun = Schema.Struct({
   runId: SymphonyRunId,
   projectId: ProjectId,
   issue: SymphonyIssue,
   status: SymphonyRunStatus,
+  lifecyclePhase: SymphonyLifecyclePhase.pipe(
+    Schema.withDecodingDefault(Effect.succeed("intake" as const)),
+  ),
   workspacePath: Schema.NullOr(Schema.String),
   branchName: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
@@ -306,6 +388,10 @@ export const SymphonyRun = Schema.Struct({
     Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  linearProgress: SymphonyLinearProgressComment.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  qualityGate: SymphonyQualityGateState.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   attempts: Schema.Array(SymphonyRunAttempt),
   nextRetryAt: Schema.NullOr(IsoDateTime),

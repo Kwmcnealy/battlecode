@@ -43,6 +43,7 @@ import Migration0027 from "./Migrations/027_Symphony.ts";
 import Migration0028 from "./Migrations/028_SymphonyExecutionTargets.ts";
 import Migration0029 from "./Migrations/029_SymphonyRunProgress.ts";
 import Migration0030 from "./Migrations/030_SymphonyRunArchive.ts";
+import Migration0031 from "./Migrations/031_SymphonyLifecycleControlPlane.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -85,6 +86,7 @@ export const migrationEntries = [
   [28, "SymphonyExecutionTargets", Migration0028],
   [29, "SymphonyRunProgress", Migration0029],
   [30, "SymphonyRunArchive", Migration0030],
+  [31, "SymphonyLifecycleControlPlane", Migration0031],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

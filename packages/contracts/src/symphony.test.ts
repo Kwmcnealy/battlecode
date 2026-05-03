@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import {
+  DEFAULT_SYMPHONY_REVIEW_PROMPT,
+  DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
   SymphonyCloudTask,
+  SymphonyLifecyclePhase,
+  SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
+  SymphonyQualityGateState,
   SymphonyRun,
   SymphonyRunProgress,
   SymphonySnapshot,
@@ -24,7 +29,8 @@ describe("Symphony contracts", () => {
     });
 
     expect(config.tracker.endpoint).toBe("https://api.linear.app/graphql");
-    expect(config.tracker.activeStates).toEqual(["Todo", "In Progress"]);
+    expect(config.tracker.intakeStates).toEqual(["To Do", "Todo"]);
+    expect(config.tracker.activeStates).toEqual(["In Progress"]);
     expect(config.tracker.terminalStates).toEqual([
       "Closed",
       "Cancelled",
@@ -36,10 +42,16 @@ describe("Symphony contracts", () => {
     expect(config.tracker.doneStates).toEqual(["Done", "Closed"]);
     expect(config.tracker.canceledStates).toEqual(["Canceled", "Cancelled"]);
     expect(config.tracker.transitionStates).toEqual({
-      started: null,
-      review: null,
-      done: null,
-      canceled: null,
+      started: "In Progress",
+      review: "In Review",
+      done: "Done",
+      canceled: "Canceled",
+    });
+    expect(config.pullRequest).toEqual({ baseBranch: null });
+    expect(config.quality).toEqual({
+      maxReviewFixLoops: 1,
+      simplificationPrompt: DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
+      reviewPrompt: DEFAULT_SYMPHONY_REVIEW_PROMPT,
     });
     expect(config.polling.intervalMs).toBe(30_000);
     expect(config.agent.maxConcurrentAgents).toBe(10);
@@ -53,6 +65,7 @@ describe("Symphony contracts", () => {
       tracker: {
         kind: "linear",
         projectSlug: "battlecode",
+        intakeStates: ["Queued", "Ready"],
         activeStates: ["Todo", "In Progress", "Rework", "Merging"],
         reviewStates: ["Human Review"],
         doneStates: ["Done", "Closed"],
@@ -67,8 +80,17 @@ describe("Symphony contracts", () => {
       codex: {
         runtimeMode: "full-access",
       },
+      pullRequest: {
+        baseBranch: "development",
+      },
+      quality: {
+        maxReviewFixLoops: 2,
+        simplificationPrompt: "Simplify only this branch.",
+        reviewPrompt: "Return REVIEW_PASS or REVIEW_FAIL.",
+      },
     });
 
+    expect(config.tracker.intakeStates).toEqual(["Queued", "Ready"]);
     expect(config.tracker.reviewStates).toEqual(["Human Review"]);
     expect(config.tracker.doneStates).toEqual(["Done", "Closed"]);
     expect(config.tracker.canceledStates).toEqual(["Canceled", "Cancelled"]);
@@ -79,6 +101,31 @@ describe("Symphony contracts", () => {
       canceled: "Canceled",
     });
     expect(config.codex.runtimeMode).toBe("full-access");
+    expect(config.pullRequest).toEqual({ baseBranch: "development" });
+    expect(config.quality).toEqual({
+      maxReviewFixLoops: 2,
+      simplificationPrompt: "Simplify only this branch.",
+      reviewPrompt: "Return REVIEW_PASS or REVIEW_FAIL.",
+    });
+  });
+
+  it("decodes lifecycle metadata with empty-object defaults", () => {
+    expect(Schema.is(SymphonyLifecyclePhase)("waiting-cloud")).toBe(true);
+    expect(Schema.is(SymphonyLifecyclePhase)("unknown")).toBe(false);
+    expect(Schema.decodeUnknownSync(SymphonyLinearProgressComment)({})).toEqual({
+      commentId: null,
+      commentUrl: null,
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+    });
+    expect(Schema.decodeUnknownSync(SymphonyQualityGateState)({})).toEqual({
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+    });
   });
 
   it("creates project-scoped settings without exposing secret material", () => {
@@ -212,6 +259,21 @@ describe("Symphony contracts", () => {
     expect(run.executionTarget).toBe("codex-cloud");
     expect(run.cloudTask?.provider).toBe("codex-cloud-linear");
     expect(run.status).toBe("cloud-submitted");
+    expect(run.lifecyclePhase).toBe("intake");
+    expect(run.linearProgress).toEqual({
+      commentId: null,
+      commentUrl: null,
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+    });
+    expect(run.qualityGate).toEqual({
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+    });
     expect(run.pullRequest).toBeNull();
     expect(run.currentStep).toBeNull();
     expect(run.archivedAt).toBeNull();

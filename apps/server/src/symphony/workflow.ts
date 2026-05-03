@@ -1,6 +1,8 @@
 import path from "node:path";
 
 import {
+  DEFAULT_SYMPHONY_REVIEW_PROMPT,
+  DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
   SymphonyWorkflowConfig,
   type SymphonyWorkflowConfig as WorkflowConfig,
 } from "@t3tools/contracts";
@@ -100,25 +102,36 @@ export const STARTER_WORKFLOW_TEMPLATE = `---
 tracker:
   kind: linear
   project_slug: ""
-  active_states:
+  intake_states:
+    - To Do
     - Todo
+  active_states:
     - In Progress
   terminal_states:
     - Done
     - Closed
     - Canceled
+    - Cancelled
   review_states:
     - In Review
+    - Review
   done_states:
     - Done
     - Closed
   canceled_states:
     - Canceled
+    - Cancelled
   transition_states:
     started: In Progress
     review: In Review
     done: Done
     canceled: Canceled
+pull_request:
+  base_branch: development
+quality:
+  max_review_fix_loops: 1
+  simplification_prompt: "${DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT}"
+  review_prompt: "${DEFAULT_SYMPHONY_REVIEW_PROMPT}"
 polling:
   interval_ms: 30000
 agent:
@@ -133,6 +146,8 @@ You are working on Linear ticket {{ issue.identifier }}.
 Issue title: {{ issue.title }}
 Issue state: {{ issue.state }}
 Issue URL: {{ issue.url }}
+
+Symphony owns Linear status updates and the issue progress comment for this run.
 
 Work only inside the provided issue workspace. Keep changes focused, validate them, commit them,
 push the branch, and open or update a pull request when the work is ready for review.

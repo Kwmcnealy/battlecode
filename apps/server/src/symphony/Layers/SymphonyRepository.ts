@@ -6,7 +6,10 @@ import {
   SymphonyExecutionTarget,
   SymphonyIssue,
   SymphonyIssueId,
+  SymphonyLifecyclePhase,
+  SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
+  SymphonyQualityGateState,
   SymphonyRun,
   SymphonyRunAttempt,
   SymphonyRunProgress,
@@ -44,6 +47,7 @@ interface RunRow {
   readonly projectId: string;
   readonly issue: string;
   readonly status: string;
+  readonly lifecyclePhase: string | null;
   readonly workspacePath: string | null;
   readonly branchName: string | null;
   readonly threadId: string | null;
@@ -52,6 +56,8 @@ interface RunRow {
   readonly cloudTask: string | null;
   readonly pullRequest: string | null;
   readonly currentStep: string | null;
+  readonly linearProgress: string | null;
+  readonly qualityGate: string | null;
   readonly archivedAt: string | null;
   readonly attempts: string;
   readonly nextRetryAt: string | null;
@@ -91,7 +97,10 @@ const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValida
 const decodeSecretStatus = Schema.decodeUnknownSync(SymphonySecretStatus);
 const decodeExecutionTarget = Schema.decodeUnknownSync(SymphonyExecutionTarget);
 const decodeCloudTask = Schema.decodeUnknownSync(SymphonyCloudTask);
+const decodeLifecyclePhase = Schema.decodeUnknownSync(SymphonyLifecyclePhase);
+const decodeLinearProgress = Schema.decodeUnknownSync(SymphonyLinearProgressComment);
 const decodePullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary);
+const decodeQualityGate = Schema.decodeUnknownSync(SymphonyQualityGateState);
 const decodeRunProgress = Schema.decodeUnknownSync(SymphonyRunProgress);
 const decodeIssue = Schema.decodeUnknownSync(SymphonyIssue);
 const decodeRunAttemptArray = Schema.decodeUnknownSync(Schema.Array(SymphonyRunAttempt));
@@ -194,11 +203,24 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       row.currentStep === null
         ? null
         : yield* decodeJson("SymphonyRepository.run.currentStep", row.currentStep);
+    const linearProgressJson =
+      row.linearProgress === null
+        ? {}
+        : yield* decodeJson("SymphonyRepository.run.linearProgress", row.linearProgress);
+    const qualityGateJson =
+      row.qualityGate === null
+        ? {}
+        : yield* decodeJson("SymphonyRepository.run.qualityGate", row.qualityGate);
     const issue = yield* decodeWith("SymphonyRepository.run.issue.decode", decodeIssue, issueJson);
     const attempts = yield* decodeWith(
       "SymphonyRepository.run.attempts.decode",
       decodeRunAttemptArray,
       attemptsJson,
+    );
+    const lifecyclePhase = yield* decodeWith(
+      "SymphonyRepository.run.lifecyclePhase.decode",
+      decodeLifecyclePhase,
+      row.lifecyclePhase ?? "intake",
     );
     const executionTarget =
       row.executionTarget === null
@@ -232,11 +254,22 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
             decodeRunProgress,
             currentStepJson,
           );
+    const linearProgress = yield* decodeWith(
+      "SymphonyRepository.run.linearProgress.decode",
+      decodeLinearProgress,
+      linearProgressJson,
+    );
+    const qualityGate = yield* decodeWith(
+      "SymphonyRepository.run.qualityGate.decode",
+      decodeQualityGate,
+      qualityGateJson,
+    );
     return yield* decodeWith("SymphonyRepository.decodeRunRow", decodeRun, {
       runId: yield* decodeRunId(row.runId),
       projectId: yield* decodeProjectId(row.projectId),
       issue,
       status: row.status,
+      lifecyclePhase,
       workspacePath: row.workspacePath,
       branchName: row.branchName,
       threadId: row.threadId,
@@ -245,6 +278,8 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       cloudTask,
       pullRequest,
       currentStep,
+      linearProgress,
+      qualityGate,
       archivedAt: row.archivedAt,
       attempts,
       nextRetryAt: row.nextRetryAt,
@@ -372,6 +407,7 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
+        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -380,6 +416,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
         archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
@@ -431,6 +469,7 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
+        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -439,6 +478,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
         archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
@@ -465,6 +506,7 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
+        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -473,6 +515,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
         archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
@@ -497,6 +541,7 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
+        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -505,6 +550,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
         archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
@@ -531,6 +578,7 @@ const makeRepository = Effect.gen(function* () {
         issue_identifier,
         issue_json,
         status,
+        lifecycle_phase,
         workspace_path,
         branch_name,
         thread_id,
@@ -539,6 +587,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json,
         pull_request_json,
         current_step_json,
+        linear_progress_json,
+        quality_gate_json,
         archived_at,
         attempts_json,
         next_retry_at,
@@ -553,6 +603,7 @@ const makeRepository = Effect.gen(function* () {
         ${run.issue.identifier},
         ${JSON.stringify(run.issue)},
         ${run.status},
+        ${run.lifecyclePhase ?? "intake"},
         ${run.workspacePath},
         ${run.branchName},
         ${run.threadId},
@@ -561,6 +612,8 @@ const makeRepository = Effect.gen(function* () {
         ${run.cloudTask ? JSON.stringify(run.cloudTask) : null},
         ${run.pullRequest ? JSON.stringify(run.pullRequest) : null},
         ${run.currentStep ? JSON.stringify(run.currentStep) : null},
+        ${JSON.stringify(run.linearProgress ?? {})},
+        ${JSON.stringify(run.qualityGate ?? {})},
         ${run.archivedAt},
         ${JSON.stringify(run.attempts)},
         ${run.nextRetryAt},
@@ -572,6 +625,7 @@ const makeRepository = Effect.gen(function* () {
         issue_identifier = excluded.issue_identifier,
         issue_json = excluded.issue_json,
         status = excluded.status,
+        lifecycle_phase = excluded.lifecycle_phase,
         workspace_path = excluded.workspace_path,
         branch_name = excluded.branch_name,
         thread_id = excluded.thread_id,
@@ -580,6 +634,8 @@ const makeRepository = Effect.gen(function* () {
         cloud_task_json = excluded.cloud_task_json,
         pull_request_json = excluded.pull_request_json,
         current_step_json = excluded.current_step_json,
+        linear_progress_json = excluded.linear_progress_json,
+        quality_gate_json = excluded.quality_gate_json,
         archived_at = excluded.archived_at,
         attempts_json = excluded.attempts_json,
         next_retry_at = excluded.next_retry_at,

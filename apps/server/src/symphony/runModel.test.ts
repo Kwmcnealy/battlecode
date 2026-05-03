@@ -88,8 +88,23 @@ describe("Symphony run model", () => {
     const run = makeRun(PROJECT_ID, makeIssue(), CREATED_AT);
 
     expect(run.status).toBe("target-pending");
+    expect(run.lifecyclePhase).toBe("intake");
     expect(run.executionTarget).toBeNull();
     expect(run.cloudTask).toBeNull();
+    expect(run.linearProgress).toEqual({
+      commentId: null,
+      commentUrl: null,
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+    });
+    expect(run.qualityGate).toEqual({
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+    });
     expect(run.archivedAt).toBeNull();
   });
 
