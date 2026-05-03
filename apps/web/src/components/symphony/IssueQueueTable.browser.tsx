@@ -30,6 +30,7 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
       updatedAt: CREATED_AT,
     },
     status: "target-pending",
+    lifecyclePhase: "intake",
     workspacePath: null,
     branchName: null,
     threadId: null,
@@ -38,6 +39,20 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
     cloudTask: null,
     pullRequest: null,
     currentStep: null,
+    linearProgress: {
+      commentId: null,
+      commentUrl: null,
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+    },
+    qualityGate: {
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+    },
     archivedAt: null,
     attempts: [],
     nextRetryAt: null,
@@ -94,6 +109,8 @@ describe("IssueQueueTable", () => {
     );
 
     try {
+      await expect.element(page.getByText("Intake")).toBeInTheDocument();
+      await expect.element(page.getByText("Target Pending")).toBeInTheDocument();
       await userEvent.click(page.getByRole("button", { name: "Run Local", exact: true }));
       await userEvent.click(page.getByRole("button", { name: "Send to Cloud", exact: true }));
 
@@ -136,6 +153,7 @@ describe("IssueQueueTable", () => {
         runs={[
           makeRun({
             status: "cloud-submitted",
+            lifecyclePhase: "waiting-cloud",
             executionTarget: "codex-cloud",
             cloudTask: makeCloudTask({
               status: "detected",
@@ -168,6 +186,7 @@ describe("IssueQueueTable", () => {
         runs={[
           makeRun({
             status: "cloud-submitted",
+            lifecyclePhase: "waiting-cloud",
             executionTarget: "codex-cloud",
             issue: {
               id: SymphonyIssueId.make("issue-app-1"),
@@ -225,6 +244,7 @@ describe("IssueQueueTable", () => {
         runs={[
           makeRun({
             status: "failed",
+            lifecyclePhase: "failed",
             executionTarget: "codex-cloud",
             issue: {
               id: SymphonyIssueId.make("issue-app-2"),

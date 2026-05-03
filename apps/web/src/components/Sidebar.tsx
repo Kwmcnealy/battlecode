@@ -192,7 +192,10 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { STATUS_BADGE_CLASSNAME, TARGET_LABEL, formatStatus } from "./symphony/symphonyDisplay";
+import {
+  PHASE_BADGE_CLASSNAME,
+  formatLifecyclePhase,
+} from "./symphony/symphonyDisplay";
 const THREAD_PREVIEW_LIMIT = 6;
 const SYMPHONY_THREAD_ID_PREFIX = "symphony-thread-";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
@@ -488,15 +491,14 @@ function SidebarSymphonySection({
                     className="max-w-28 shrink truncate font-mono text-[9px] uppercase text-muted-foreground/65"
                     title={run.currentStep?.label ?? undefined}
                   >
-                    {run.currentStep?.label ??
-                      (run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose")}
+                    {run.currentStep?.label ?? formatLifecyclePhase(run.lifecyclePhase)}
                   </span>
                   <span
                     className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9px] uppercase ${
-                      STATUS_BADGE_CLASSNAME[run.status]
+                      PHASE_BADGE_CLASSNAME[run.lifecyclePhase]
                     }`}
                   >
-                    {formatStatus(run.status)}
+                    {formatLifecyclePhase(run.lifecyclePhase)}
                   </span>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>

@@ -405,15 +405,66 @@ describe("resolveAdjacentThreadId", () => {
 
 describe("Symphony sidebar routing", () => {
   it("treats only live execution states as active", () => {
-    expect(symphonyRunIsSidebarActive({ status: "running", archivedAt: null })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "cloud-submitted", archivedAt: null })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "cloud-running", archivedAt: null })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "retry-queued", archivedAt: null })).toBe(true);
-    expect(symphonyRunIsSidebarActive({ status: "target-pending", archivedAt: null })).toBe(false);
-    expect(symphonyRunIsSidebarActive({ status: "review-ready", archivedAt: null })).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "review-ready",
+        lifecyclePhase: "in-review",
+        archivedAt: null,
+      }),
+    ).toBe(false);
     expect(
       symphonyRunIsSidebarActive({
         status: "running",
+        lifecyclePhase: "simplifying",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "failed",
+        lifecyclePhase: "failed",
+        archivedAt: null,
+      }),
+    ).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "target-pending",
+        lifecyclePhase: "planning",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "cloud-submitted",
+        lifecyclePhase: "waiting-cloud",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "cloud-running",
+        lifecyclePhase: "waiting-cloud",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "retry-queued",
+        lifecyclePhase: "fixing",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "target-pending",
+        lifecyclePhase: "intake",
+        archivedAt: null,
+      }),
+    ).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "running",
+        lifecyclePhase: "simplifying",
         archivedAt: "2026-05-02T12:00:00.000Z",
       }),
     ).toBe(false);

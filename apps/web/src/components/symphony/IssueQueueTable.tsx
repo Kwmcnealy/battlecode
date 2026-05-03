@@ -14,8 +14,9 @@ import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
-  STATUS_BADGE_CLASSNAME,
+  PHASE_BADGE_CLASSNAME,
   TARGET_LABEL,
+  formatLifecyclePhase,
   formatStatus,
   type SymphonyAction,
 } from "./symphonyDisplay";
@@ -133,10 +134,16 @@ export function IssueQueueTable({
                 <td className="px-3 py-3">
                   <Badge
                     variant="outline"
-                    className={cn("whitespace-nowrap", STATUS_BADGE_CLASSNAME[run.status])}
+                    className={cn(
+                      "whitespace-nowrap",
+                      PHASE_BADGE_CLASSNAME[run.lifecyclePhase],
+                    )}
                   >
-                    {formatStatus(run.status)}
+                    {formatLifecyclePhase(run.lifecyclePhase)}
                   </Badge>
+                  <div className="mt-1 font-mono text-[10px] uppercase text-muted-foreground/70">
+                    {formatStatus(run.status)}
+                  </div>
                   {cloudMessage ? (
                     <div
                       title={cloudMessage}

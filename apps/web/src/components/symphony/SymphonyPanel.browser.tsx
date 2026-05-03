@@ -48,6 +48,7 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
       updatedAt: CREATED_AT,
     },
     status: "review-ready",
+    lifecyclePhase: "in-review",
     workspacePath: null,
     branchName: `symphony/bc-${id}`,
     threadId: null,
@@ -68,6 +69,20 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
       label: "Pull request open",
       detail: null,
       updatedAt: CREATED_AT,
+    },
+    linearProgress: {
+      commentId: `comment-${id}`,
+      commentUrl: `https://linear.app/t3/issue/BC-${id}#comment-comment-${id}`,
+      lastRenderedHash: null,
+      lastUpdatedAt: CREATED_AT,
+      lastMilestoneAt: CREATED_AT,
+      lastFeedbackAt: null,
+    },
+    qualityGate: {
+      reviewFixLoops: 0,
+      lastReviewPassedAt: CREATED_AT,
+      lastReviewSummary: "Ready for PR review",
+      lastReviewFindings: [],
     },
     archivedAt: null,
     attempts: [],
@@ -191,6 +206,7 @@ describe("SymphonyPanel", () => {
     const activeRun = makeRun("1", "Active cloud run");
     const archivedRun = makeRun("2", "Archived cloud run", {
       status: "completed",
+      lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 2,
@@ -247,6 +263,7 @@ describe("SymphonyPanel", () => {
     const activeRun = makeRun("3", "Selected cloud run");
     const archivedRun = makeRun("3", "Selected cloud run", {
       status: "completed",
+      lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 3,

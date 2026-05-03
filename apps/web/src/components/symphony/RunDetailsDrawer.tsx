@@ -20,10 +20,10 @@ import {
   SheetTitle,
 } from "../ui/sheet";
 import {
-  STATUS_BADGE_CLASSNAME,
+  PHASE_BADGE_CLASSNAME,
   TARGET_LABEL,
   formatDateTime,
-  formatStatus,
+  formatLifecyclePhase,
 } from "./symphonyDisplay";
 
 function DetailRow({ label, value }: { label: string; value: string | null }) {
@@ -88,8 +88,8 @@ export function RunDetailsDrawer({
               </SheetDescription>
             </div>
             {run ? (
-              <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[run.status]}>
-                {formatStatus(run.status)}
+              <Badge variant="outline" className={PHASE_BADGE_CLASSNAME[run.lifecyclePhase]}>
+                {formatLifecyclePhase(run.lifecyclePhase)}
               </Badge>
             ) : null}
           </div>
@@ -156,6 +156,13 @@ export function RunDetailsDrawer({
                 <DetailRow label="PR URL" value={run.pullRequest?.url ?? run.prUrl} />
                 <DetailRow label="PR state" value={run.pullRequest?.state ?? null} />
                 <DetailRow label="Linear state" value={run.issue.state} />
+                <DetailRow
+                  label="Lifecycle phase"
+                  value={formatLifecyclePhase(run.lifecyclePhase)}
+                />
+                <DetailRow label="Progress comment" value={run.linearProgress.commentUrl} />
+                <DetailRow label="Review summary" value={run.qualityGate.lastReviewSummary} />
+                <DetailRow label="Review fixes" value={String(run.qualityGate.reviewFixLoops)} />
                 <DetailRow label="Current step" value={run.currentStep?.label ?? null} />
                 <DetailRow label="Step detail" value={run.currentStep?.detail ?? null} />
                 <DetailRow label="Archived at" value={formatDateTime(run.archivedAt)} />

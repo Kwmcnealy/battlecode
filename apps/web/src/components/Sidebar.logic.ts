@@ -225,10 +225,17 @@ export function resolveSidebarNewThreadSeedContext(input: {
 }
 
 export function symphonyRunIsSidebarActive(
-  run: Pick<SymphonyRun, "status" | "archivedAt">,
+  run: Pick<SymphonyRun, "status" | "lifecyclePhase" | "archivedAt">,
 ): boolean {
   if (run.archivedAt !== null) return false;
   return (
+    run.lifecyclePhase === "planning" ||
+    run.lifecyclePhase === "implementing" ||
+    run.lifecyclePhase === "waiting-cloud" ||
+    run.lifecyclePhase === "simplifying" ||
+    run.lifecyclePhase === "reviewing" ||
+    run.lifecyclePhase === "fixing" ||
+    run.lifecyclePhase === "pr-ready" ||
     run.status === "running" ||
     run.status === "cloud-submitted" ||
     run.status === "cloud-running" ||
