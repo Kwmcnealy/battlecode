@@ -14,7 +14,7 @@
  * NOTE(phase-4): The marker-based plan/PR-URL protocol (SYMPHONY_PLAN_BEGIN,
  * SYMPHONY_PR_URL) is the target format for Phase 4's prompt redesign.
  * Today's `reconcileRunWithThread` in Layers/SymphonyService.ts uses
- * `extractLatestPlanMarkdown` / `extractReviewOutcome` from phaseOutput.ts
+ * `extractLatestPlanMarkdown` / `extractReviewOutcome` from threadOutputParser.ts
  * instead. This module is the pure decision layer that Phase 4 will wire up
  * once the prompts emit these markers consistently.
  */
@@ -58,7 +58,7 @@ export type OrchestratorAction =
  *
  * TODO(phase-4): Wire this into reconcileRunWithThread once Phase 4 updates
  * the phase prompts to emit SYMPHONY_PLAN_BEGIN/SYMPHONY_PR_URL markers.
- * Currently, reconcileRunWithThread calls phaseOutput.ts helpers directly.
+ * Currently, reconcileRunWithThread calls threadOutputParser.ts helpers directly.
  */
 export function decideNextAction(input: OrchestratorInput): OrchestratorAction {
   if (!input.threadComplete) {

@@ -63,12 +63,12 @@ import {
   extractLatestAssistantText,
   extractLatestPlanMarkdown,
   extractReviewOutcome,
-} from "../phaseOutput.ts";
+} from "../threadOutputParser.ts";
 import { transitionLinearState, upsertManagedComment } from "../linearWriter.ts";
 // TODO(phase-4): Wire decideNextAction into reconcileRunWithThread once the
 // phase prompts emit SYMPHONY_PLAN_BEGIN / SYMPHONY_PR_URL markers. Currently
 // the inline planning/implementing dispatch uses extractLatestPlanMarkdown
-// from phaseOutput.ts, which reads proposedPlans and checklist messages.
+// from threadOutputParser.ts, which reads proposedPlans and checklist messages.
 import { decideNextAction } from "../orchestrator.ts";
 import { decideArchive } from "../reconciler.ts";
 import { decideSchedulerActions } from "../scheduler.ts";
@@ -2624,7 +2624,7 @@ const makeSymphonyService = Effect.gen(function* () {
           //   decideNextAction({ run: { ...attemptedRun, lifecyclePhase: "planning", lastSeenLinearState: null }, threadOutput: assistantText, threadComplete: true })
           // For now, use decideNextAction for a structural no-op check so the
           // import is wired to this call site; the actual plan is read via
-          // extractLatestPlanMarkdown from phaseOutput.ts.
+          // extractLatestPlanMarkdown from threadOutputParser.ts.
           void decideNextAction;
           const planMarkdown = extractLatestPlanMarkdown(thread);
           if (!planMarkdown) {
