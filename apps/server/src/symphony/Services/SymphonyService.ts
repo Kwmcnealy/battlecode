@@ -53,6 +53,9 @@ export interface SymphonyServiceShape {
   readonly retryIssue: (
     input: SymphonyIssueActionInput,
   ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
+  readonly archiveIssue: (
+    input: SymphonyIssueActionInput,
+  ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
   readonly openLinkedThread: (
     input: SymphonyIssueActionInput,
   ) => Effect.Effect<{ readonly threadId: ThreadId | null }, SymphonyError>;

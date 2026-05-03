@@ -20,6 +20,7 @@ import {
   type SymphonyWorkflowConfig,
   type OrchestrationThread,
 } from "@t3tools/contracts";
+import { getSymphonyArchiveEligibility } from "@t3tools/shared/symphony";
 import { Effect, FileSystem, Layer, Path, PubSub, Ref, Schema, Stream } from "effect";
 
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
@@ -3876,6 +3877,47 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.flatMap(() => buildSnapshot(projectId)),
     );
 
+  const archiveIssue: SymphonyServiceShape["archiveIssue"] = ({ projectId, issueId }) =>
+    Effect.gen(function* () {
+      const run = yield* repository
+        .getRunByIssue({ projectId, issueId })
+        .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run.")));
+      if (!run) {
+        return yield* buildSnapshot(projectId);
+      }
+      const eligibility = getSymphonyArchiveEligibility(run);
+      if (!eligibility.canArchive) {
+        return yield* new SymphonyError({
+          message: eligibility.reason ?? "Symphony run cannot be archived right now.",
+        });
+      }
+      if (run.archivedAt !== null) {
+        return yield* buildSnapshot(projectId);
+      }
+
+      const archivedAt = nowIso();
+      const nextRun: SymphonyRun = {
+        ...run,
+        archivedAt,
+        updatedAt: archivedAt,
+      };
+      yield* repository
+        .upsertRun(nextRun)
+        .pipe(Effect.mapError(toSymphonyError("Failed to archive Symphony issue.")));
+      yield* emitProjectEvent({
+        projectId,
+        issueId,
+        runId: run.runId,
+        type: "run.archived",
+        message: `${run.issue.identifier} archived`,
+        payload: {
+          archivedAt,
+          reason: "manual",
+        },
+      });
+      return yield* buildSnapshot(projectId);
+    });
+
   const openLinkedThread: SymphonyServiceShape["openLinkedThread"] = ({ projectId, issueId }) =>
     repository.getRunByIssue({ projectId, issueId }).pipe(
       Effect.mapError(toSymphonyError("Failed to read linked Symphony thread.")),
@@ -3924,6 +3966,7 @@ const makeSymphonyService = Effect.gen(function* () {
     launchIssue,
     stopIssue,
     retryIssue,
+    archiveIssue,
     refreshCloudStatus,
     openLinkedThread,
   } satisfies SymphonyServiceShape;

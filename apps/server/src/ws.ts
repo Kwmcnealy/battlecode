@@ -923,6 +923,18 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             { "rpc.aggregate": "symphony" },
           ),
+        [SYMPHONY_WS_METHODS.archiveIssue]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_WS_METHODS.archiveIssue,
+            symphony
+              .archiveIssue(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to archive Symphony issue"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
         [SYMPHONY_WS_METHODS.launchIssue]: (input) =>
           observeRpcEffect(
             SYMPHONY_WS_METHODS.launchIssue,

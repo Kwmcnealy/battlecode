@@ -27,6 +27,7 @@ export const SYMPHONY_WS_METHODS = {
   refresh: "symphony.refresh",
   stopIssue: "symphony.stopIssue",
   retryIssue: "symphony.retryIssue",
+  archiveIssue: "symphony.archiveIssue",
   openLinkedThread: "symphony.openLinkedThread",
   launchIssue: "symphony.launchIssue",
   updateExecutionDefault: "symphony.updateExecutionDefault",

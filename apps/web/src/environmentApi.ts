@@ -60,6 +60,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       refresh: rpcClient.symphony.refresh,
       stopIssue: rpcClient.symphony.stopIssue,
       retryIssue: rpcClient.symphony.retryIssue,
+      archiveIssue: rpcClient.symphony.archiveIssue,
       openLinkedThread: rpcClient.symphony.openLinkedThread,
       launchIssue: rpcClient.symphony.launchIssue,
       updateExecutionDefault: rpcClient.symphony.updateExecutionDefault,

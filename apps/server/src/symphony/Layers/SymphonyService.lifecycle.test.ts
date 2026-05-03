@@ -521,6 +521,140 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
     }),
   );
 
+  it.effect("archives an inactive run locally without changing Linear", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "failed",
+          lifecyclePhase: "failed",
+          executionTarget: "local",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          currentStep: {
+            source: "local-thread",
+            label: "Codex turn failed",
+            detail: "lint failed",
+            updatedAt: CREATED_AT,
+          },
+          attempts: [
+            {
+              attempt: 1,
+              status: "failed",
+              startedAt: CREATED_AT,
+              completedAt: "2026-05-02T12:05:00.000Z",
+              error: "lint failed",
+            },
+          ],
+          lastError: "lint failed",
+        }),
+      );
+
+      const snapshot = yield* service.archiveIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "failed");
+      assert.strictEqual(run?.lifecyclePhase, "failed");
+      assert.strictEqual(run?.currentStep?.label, "Codex turn failed");
+      assert.strictEqual(run?.attempts.length, 1);
+      assert.strictEqual(run?.lastError, "lint failed");
+      assert.notStrictEqual(run?.archivedAt, null);
+      assert.strictEqual(snapshot.totals.archived, 1);
+      assert.strictEqual(snapshot.queues.failed.length, 0);
+      expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("rejects archiving an actively running implementation", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "running",
+          lifecyclePhase: "implementing",
+          executionTarget: "local",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+        }),
+      );
+
+      const error = yield* service
+        .archiveIssue({
+          projectId: PROJECT_ID,
+          issueId: ISSUE_ID,
+        })
+        .pipe(Effect.flip);
+
+      assert.match(
+        error.message,
+        /Cannot archive a run while Symphony is actively working on it\. Stop it first\./,
+      );
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.archivedAt, null);
+      expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("returns the snapshot for an already archived run without changing Linear", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const archivedAt = "2026-05-02T12:10:00.000Z";
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "failed",
+          lifecyclePhase: "failed",
+          executionTarget: "local",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          archivedAt,
+        }),
+      );
+
+      const snapshot = yield* service.archiveIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.archivedAt, archivedAt);
+      assert.strictEqual(snapshot.totals.archived, 1);
+      expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+    }),
+  );
+
   it.effect("sets existing local Symphony threads to full-access before starting a turn", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;

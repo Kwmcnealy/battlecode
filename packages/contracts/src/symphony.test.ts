@@ -9,6 +9,7 @@ import {
   SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
   SymphonyQualityGateState,
+  SymphonyIssueActionInput,
   SymphonyRun,
   SymphonyRunProgress,
   SymphonySnapshot,
@@ -442,6 +443,15 @@ describe("Symphony contracts", () => {
     expect(input.target).toBe("codex-cloud");
   });
 
+  it("accepts archive issue action input", () => {
+    const input = Schema.decodeUnknownSync(SymphonyIssueActionInput)({
+      projectId: ProjectId.make("project-symphony"),
+      issueId: "issue-archive",
+    });
+
+    expect(input.issueId).toBe("issue-archive");
+  });
+
   it("declares websocket method names under the symphony namespace", () => {
     expect(SYMPHONY_WS_METHODS.getSettings).toBe("symphony.getSettings");
     expect(SYMPHONY_WS_METHODS.setLinearApiKey).toBe("symphony.setLinearApiKey");
@@ -449,6 +459,7 @@ describe("Symphony contracts", () => {
     expect(SYMPHONY_WS_METHODS.launchIssue).toBe("symphony.launchIssue");
     expect(SYMPHONY_WS_METHODS.updateExecutionDefault).toBe("symphony.updateExecutionDefault");
     expect(SYMPHONY_WS_METHODS.refreshCloudStatus).toBe("symphony.refreshCloudStatus");
+    expect(SYMPHONY_WS_METHODS.archiveIssue).toBe("symphony.archiveIssue");
     expect("applyLinearMutation" in SYMPHONY_WS_METHODS).toBe(false);
   });
 });

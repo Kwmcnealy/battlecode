@@ -467,6 +467,12 @@ export const WsSymphonyRetryIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.retryIssue, 
   error: SymphonyError,
 });
 
+export const WsSymphonyArchiveIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.archiveIssue, {
+  payload: SymphonyIssueActionInput,
+  success: SymphonySnapshot,
+  error: SymphonyError,
+});
+
 export const WsSymphonyLaunchIssueRpc = Rpc.make(SYMPHONY_WS_METHODS.launchIssue, {
   payload: SymphonyLaunchIssueInput,
   success: SymphonySnapshot,
@@ -547,6 +553,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSymphonyRefreshRpc,
   WsSymphonyStopIssueRpc,
   WsSymphonyRetryIssueRpc,
+  WsSymphonyArchiveIssueRpc,
   WsSymphonyLaunchIssueRpc,
   WsSymphonyUpdateExecutionDefaultRpc,
   WsSymphonyRefreshCloudStatusRpc,

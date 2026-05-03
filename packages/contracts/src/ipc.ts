@@ -316,6 +316,7 @@ export interface EnvironmentApi {
     refresh: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
     stopIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     retryIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    archiveIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
     launchIssue: (input: SymphonyLaunchIssueInput) => Promise<SymphonySnapshot>;
     updateExecutionDefault: (
