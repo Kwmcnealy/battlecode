@@ -3,10 +3,7 @@ import type { SymphonyLifecyclePhase, SymphonyRun, SymphonyRunStatus } from "@t3
 export const SYMPHONY_ACTIVE_ARCHIVE_ERROR_MESSAGE =
   "Cannot archive a run while Symphony is actively working on it. Stop it first.";
 
-const ARCHIVE_BLOCKED_STATUSES = new Set<SymphonyRunStatus>([
-  "running",
-  "retry-queued",
-]);
+const ARCHIVE_BLOCKED_STATUSES = new Set<SymphonyRunStatus>(["running", "retry-queued"]);
 
 const ARCHIVE_BLOCKED_PHASES = new Set<SymphonyLifecyclePhase>([
   "planning",

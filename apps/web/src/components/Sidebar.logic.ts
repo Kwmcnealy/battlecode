@@ -231,22 +231,19 @@ export function symphonyRunIsSidebarActive(
   return (
     run.lifecyclePhase === "planning" ||
     run.lifecyclePhase === "implementing" ||
-    run.lifecyclePhase === "waiting-cloud" ||
     run.lifecyclePhase === "simplifying" ||
     run.lifecyclePhase === "reviewing" ||
     run.lifecyclePhase === "fixing" ||
     run.lifecyclePhase === "pr-ready" ||
     run.status === "running" ||
-    run.status === "cloud-submitted" ||
-    run.status === "cloud-running" ||
     run.status === "retry-queued"
   );
 }
 
 export function resolveSymphonySidebarRunClickTarget(
-  run: Pick<SymphonyRun, "executionTarget" | "runId" | "threadId">,
+  run: Pick<SymphonyRun, "runId" | "threadId">,
 ): SymphonySidebarRunClickTarget {
-  if (run.executionTarget === "local" && run.threadId) {
+  if (run.threadId) {
     return {
       kind: "thread",
       threadId: run.threadId,
@@ -260,7 +257,7 @@ export function resolveSymphonySidebarRunClickTarget(
 
 export type SymphonySidebarRunDigestInput = Pick<
   SymphonyRun,
-  "archivedAt" | "executionTarget" | "lifecyclePhase" | "runId" | "status" | "threadId"
+  "archivedAt" | "lifecyclePhase" | "runId" | "status" | "threadId"
 > & {
   issue: Pick<SymphonyRun["issue"], "id" | "identifier" | "title">;
 };
@@ -271,7 +268,6 @@ export function buildSymphonySidebarRunsDigest(
   return JSON.stringify(
     runs.map((run) => ({
       archivedAt: run.archivedAt,
-      executionTarget: run.executionTarget,
       issueId: run.issue.id,
       issueIdentifier: run.issue.identifier,
       issueTitle: run.issue.title,

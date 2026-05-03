@@ -63,7 +63,6 @@ import type {
   SymphonySettings,
   SymphonySnapshot,
   SymphonySubscribeEvent,
-  SymphonyUpdateExecutionDefaultInput,
   SymphonyUpdateWorkflowPathInput,
 } from "./symphony.ts";
 
@@ -319,10 +318,6 @@ export interface EnvironmentApi {
     archiveIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
     launchIssue: (input: SymphonyLaunchIssueInput) => Promise<SymphonySnapshot>;
-    updateExecutionDefault: (
-      input: SymphonyUpdateExecutionDefaultInput,
-    ) => Promise<SymphonySettings>;
-    refreshCloudStatus: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     subscribe: (
       input: SymphonyProjectInput,
       callback: (event: SymphonySubscribeEvent) => void,

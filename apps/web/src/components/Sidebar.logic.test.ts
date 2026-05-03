@@ -437,20 +437,6 @@ describe("Symphony sidebar routing", () => {
     ).toBe(true);
     expect(
       symphonyRunIsSidebarActive({
-        status: "cloud-submitted",
-        lifecyclePhase: "waiting-cloud",
-        archivedAt: null,
-      }),
-    ).toBe(true);
-    expect(
-      symphonyRunIsSidebarActive({
-        status: "cloud-running",
-        lifecyclePhase: "waiting-cloud",
-        archivedAt: null,
-      }),
-    ).toBe(true);
-    expect(
-      symphonyRunIsSidebarActive({
         status: "retry-queued",
         lifecyclePhase: "fixing",
         archivedAt: null,
@@ -472,10 +458,9 @@ describe("Symphony sidebar routing", () => {
     ).toBe(false);
   });
 
-  it("routes local Symphony runs with threads to chat", () => {
+  it("routes Symphony runs with threads to chat", () => {
     expect(
       resolveSymphonySidebarRunClickTarget({
-        executionTarget: "local",
         runId: SymphonyRunId.make("run-local"),
         threadId: ThreadId.make("thread-local"),
       }),
@@ -485,16 +470,15 @@ describe("Symphony sidebar routing", () => {
     });
   });
 
-  it("routes cloud Symphony runs to details", () => {
+  it("routes Symphony runs without threads to details", () => {
     expect(
       resolveSymphonySidebarRunClickTarget({
-        executionTarget: "codex-cloud",
-        runId: SymphonyRunId.make("run-cloud"),
+        runId: SymphonyRunId.make("run-no-thread"),
         threadId: null,
       }),
     ).toEqual({
       kind: "details",
-      runId: SymphonyRunId.make("run-cloud"),
+      runId: SymphonyRunId.make("run-no-thread"),
     });
   });
 });
@@ -502,7 +486,6 @@ describe("Symphony sidebar routing", () => {
 describe("Symphony sidebar update digest", () => {
   const baseRun = {
     archivedAt: null,
-    executionTarget: "local",
     issue: {
       id: SymphonyIssueId.make("issue-bc-1"),
       identifier: "BC-1",

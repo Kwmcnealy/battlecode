@@ -19,7 +19,7 @@ const CONFIG: SymphonyWorkflowConfig = {
   tracker: {
     kind: "linear",
     endpoint: "https://linear.example/graphql",
-    projectSlug: "battlecode",
+    projectSlugId: "battlecode",
     activeStates: ["Todo", "In Progress"],
     terminalStates: ["Done", "Closed", "Canceled"],
     reviewStates: ["In Review"],
@@ -32,7 +32,9 @@ const CONFIG: SymphonyWorkflowConfig = {
       canceled: "Canceled",
     },
   },
-  polling: { intervalMs: 30_000 },
+  polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+  concurrency: { max: 3 },
+  stall: { timeoutMs: 300_000 },
   workspace: { root: "" },
   hooks: { timeoutMs: 60_000 },
   agent: {

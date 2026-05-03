@@ -75,7 +75,7 @@ function countLinearLookupWarnings(events: readonly SymphonyEvent[]): number {
 const WORKFLOW_MD = `---
 tracker:
   kind: linear
-  project_slug: battlecode
+  project_slug_id: battlecode
   intake_states:
     - To Do
     - Todo
@@ -270,7 +270,6 @@ const configureWorkflowSettings = Effect.gen(function* () {
       lastTestedAt: null,
       lastError: null,
     },
-    executionDefaultTarget: "local",
     updatedAt: CREATED_AT,
   });
 });
@@ -532,7 +531,7 @@ const orchestrationState: OrchestrationMockState = {
 const layer = it.layer(makeLayer(projectRootRef, orchestrationState));
 
 layer("SymphonyService lifecycle reconciliation", (it) => {
-  it.effect("fails a Codex Cloud run immediately (cloud no longer supported)", () =>
+  it.effect("launches a pending issue as a local running run", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
       projectRootRef.current = projectRoot;
@@ -547,16 +546,13 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* service.launchIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
-        target: "codex-cloud",
       });
 
       const run = yield* repository.getRunByIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.executionTarget, "codex-cloud");
-      assert.strictEqual(run?.status, "failed");
-      assert.ok(run?.lastError?.includes("local-only"));
+      assert.strictEqual(run?.status, "running");
     }),
   );
 
@@ -574,7 +570,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "failed",
           lifecyclePhase: "failed",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           currentStep: {
@@ -631,7 +626,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "running",
           lifecyclePhase: "implementing",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
         }),
@@ -672,7 +666,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "failed",
           lifecyclePhase: "failed",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           archivedAt,
@@ -718,19 +711,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "released",
           lifecyclePhase: "intake",
-          executionTarget: "codex-cloud",
-          cloudTask: {
-            provider: "codex-cloud-linear",
-            status: "failed",
-            taskUrl: null,
-            linearCommentId: null,
-            linearCommentUrl: null,
-            repository: null,
-            repositoryUrl: null,
-            lastMessage: "previous run",
-            delegatedAt: CREATED_AT,
-            lastCheckedAt: CREATED_AT,
-          },
           pullRequest: {
             number: 7,
             title: "Old PR",
@@ -755,8 +735,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       assert.strictEqual(run?.archivedAt, null);
       assert.strictEqual(run?.status, "target-pending");
       assert.strictEqual(run?.lifecyclePhase, "intake");
-      assert.strictEqual(run?.executionTarget, null);
-      assert.strictEqual(run?.cloudTask, null);
       assert.strictEqual(run?.pullRequest, null);
       assert.strictEqual(run?.prUrl, null);
       assert.strictEqual(run?.lastError, null);
@@ -784,7 +762,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "target-pending",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -794,7 +771,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* service.launchIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
-        target: "local",
       });
 
       const runtimeCommandIndex = orchestrationState.dispatchedCommands.findIndex(
@@ -848,7 +824,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "target-pending",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -858,7 +833,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* service.launchIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
-        target: "local",
       });
 
       const approvalCommand = orchestrationState.dispatchedCommands.find(
@@ -870,161 +844,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       }
       assert.strictEqual(approvalCommand.decision, "acceptForSession");
       assert.strictEqual(approvalCommand.requestId, "approval-1");
-    }),
-  );
-
-  it.effect("refreshes a known PR URL to merged, completes the run, and archives it", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "review-ready",
-          executionTarget: "codex-cloud",
-          branchName: "symphony/bc-1",
-          prUrl: "https://github.com/t3/battlecode/pull/42",
-          pullRequest: {
-            number: 42,
-            title: "Fix cloud lifecycle",
-            url: "https://github.com/t3/battlecode/pull/42",
-            baseBranch: "development",
-            headBranch: "symphony/bc-1",
-            state: "open",
-            updatedAt: CREATED_AT,
-          },
-        }),
-      );
-      githubMocks.getPullRequest.mockReturnValueOnce(
-        Effect.succeed({
-          number: 42,
-          title: "Fix cloud lifecycle",
-          url: "https://github.com/t3/battlecode/pull/42",
-          baseRefName: "development",
-          headRefName: "symphony/bc-1",
-          state: "merged",
-          updatedAt: "2026-05-02T12:30:00.000Z",
-        }),
-      );
-
-      yield* service.refreshCloudStatus({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "completed");
-      assert.strictEqual(run?.pullRequest?.state, "merged");
-      assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
-      assert.notStrictEqual(run?.archivedAt, null);
-    }),
-  );
-
-  it.effect("refreshes a known PR URL to closed, cancels the run, and archives it", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "review-ready",
-          executionTarget: "codex-cloud",
-          branchName: "symphony/bc-1",
-          prUrl: "https://github.com/t3/battlecode/pull/43",
-          pullRequest: {
-            number: 43,
-            title: "Cancel cloud lifecycle",
-            url: "https://github.com/t3/battlecode/pull/43",
-            baseBranch: "development",
-            headBranch: "symphony/bc-1",
-            state: "open",
-            updatedAt: CREATED_AT,
-          },
-        }),
-      );
-      githubMocks.getPullRequest.mockReturnValueOnce(
-        Effect.succeed({
-          number: 43,
-          title: "Cancel cloud lifecycle",
-          url: "https://github.com/t3/battlecode/pull/43",
-          baseRefName: "development",
-          headRefName: "symphony/bc-1",
-          state: "closed",
-          updatedAt: "2026-05-02T12:35:00.000Z",
-        }),
-      );
-
-      yield* service.refreshCloudStatus({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "canceled");
-      assert.strictEqual(run?.pullRequest?.state, "closed");
-      assert.notStrictEqual(run?.archivedAt, null);
-    }),
-  );
-
-  it.effect("keeps lifecycle status unchanged and surfaces PR lookup warnings", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
-          branchName: "symphony/bc-1",
-          prUrl: "https://github.com/t3/battlecode/pull/42",
-        }),
-      );
-      githubMocks.getPullRequest.mockReturnValueOnce(
-        Effect.fail(
-          new GitHubCliError({
-            operation: "pr view",
-            detail: "network unavailable",
-          }),
-        ),
-      );
-
-      yield* service.refreshCloudStatus({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "cloud-running");
-      assert.strictEqual(run?.archivedAt, null);
-      assert.match(
-        run?.currentStep?.detail ?? "",
-        /GitHub PR lookup failed: .*network unavailable/,
-      );
-      assert.match(run?.lastError ?? "", /GitHub PR lookup failed: .*network unavailable/);
     }),
   );
 
@@ -1056,7 +875,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "running",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1109,21 +927,8 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "canceled",
-          executionTarget: "codex-cloud",
           branchName: "symphony/bc-1",
           lastError: LINEAR_INELIGIBLE_LEGACY_ERROR,
-          cloudTask: {
-            provider: "codex-cloud-linear",
-            status: "submitted",
-            taskUrl: null,
-            linearCommentId: "comment-1",
-            linearCommentUrl: "https://linear.app/t3/issue/BC-1#comment-comment-1",
-            repository: "t3/battlecode",
-            repositoryUrl: "https://github.com/t3/battlecode",
-            lastMessage: null,
-            delegatedAt: CREATED_AT,
-            lastCheckedAt: CREATED_AT,
-          },
         }),
       );
 
@@ -1133,17 +938,19 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "cloud-submitted");
+      assert.strictEqual(run?.status, "eligible");
       assert.strictEqual(run?.lastError, null);
     }),
   );
 
-  it.effect("keeps cloud runs active when missing from candidates but active by Linear id", () =>
+  it.effect("keeps running runs active when missing from candidates but active by Linear id", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
       projectRootRef.current = projectRoot;
       const repository = yield* SymphonyRepository;
       const service = yield* SymphonyService;
+      const thread = makeThread({ worktreePath: projectRoot });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
       linearMocks.fetchLinearCandidates.mockReturnValue(Effect.succeed([]));
       linearMocks.fetchLinearIssuesByIds.mockReturnValue(
         Effect.succeed([makeLinearContext("In Progress")]),
@@ -1154,9 +961,10 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+          status: "running",
           branchName: "symphony/bc-1",
+          threadId: thread.id,
+          workspacePath: projectRoot,
         }),
       );
 
@@ -1166,7 +974,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "cloud-running");
+      assert.strictEqual(run?.status, "running");
       assert.strictEqual(run?.archivedAt, null);
     }),
   );
@@ -1210,7 +1018,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       });
       assert.strictEqual(run?.status, "running");
       assert.strictEqual(run?.lifecyclePhase, "planning");
-      assert.strictEqual(run?.executionTarget, "local");
     }),
   );
 
@@ -1255,7 +1062,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "running",
           lifecyclePhase: "planning",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1341,7 +1147,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "running",
           lifecyclePhase: "reviewing",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1428,7 +1233,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "running",
           lifecyclePhase: "reviewing",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1523,7 +1327,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "review-ready",
           lifecyclePhase: "in-review",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1620,7 +1423,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         makeServiceRun({
           status: "review-ready",
           lifecyclePhase: "in-review",
-          executionTarget: "local",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1680,7 +1482,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         ...baseRun,
         status: "running",
         lifecyclePhase: "fixing",
-        executionTarget: "local",
         workspacePath: projectRoot,
         branchName: "symphony/bc-1",
         threadId: thread.id,
@@ -1759,7 +1560,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         ...baseRun,
         status: "running",
         lifecyclePhase: "reviewing",
-        executionTarget: "local",
         workspacePath: projectRoot,
         branchName: "symphony/bc-1",
         threadId: thread.id,
@@ -1803,8 +1603,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+          status: "review-ready",
           branchName: "symphony/bc-1",
         }),
       );
@@ -1820,8 +1619,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+          status: "review-ready",
           branchName: "symphony/bc-1",
         }),
       );
@@ -1838,8 +1636,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+          status: "review-ready",
           branchName: "symphony/bc-1",
           archivedAt: null,
         }),
@@ -1872,8 +1669,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+          status: "running",
           branchName: "symphony/bc-1",
         }),
       );

@@ -174,7 +174,7 @@ describe("Symphony Linear helpers", () => {
           tracker: {
             kind: "linear",
             endpoint: "https://linear.example/graphql",
-            projectSlug: "battlecode",
+            projectSlugId: "battlecode",
             intakeStates: ["Todo", "todo", "Done", "Canceled"],
             activeStates: ["In Progress", "done"],
             terminalStates: ["Done"],
@@ -188,7 +188,9 @@ describe("Symphony Linear helpers", () => {
               canceled: null,
             },
           },
-          polling: { intervalMs: 30_000 },
+          polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+          concurrency: { max: 3 },
+          stall: { timeoutMs: 300_000 },
           workspace: { root: "" },
           hooks: { timeoutMs: 60_000 },
           agent: {
@@ -236,7 +238,7 @@ describe("Symphony Linear helpers", () => {
           tracker: {
             kind: "linear",
             endpoint: "https://linear.example/graphql",
-            projectSlug: "battlecode",
+            projectSlugId: "battlecode",
             activeStates: [],
             terminalStates: [],
             reviewStates: [],
@@ -249,7 +251,9 @@ describe("Symphony Linear helpers", () => {
               canceled: null,
             },
           },
-          polling: { intervalMs: 30_000 },
+          polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+          concurrency: { max: 3 },
+          stall: { timeoutMs: 300_000 },
           workspace: { root: "" },
           hooks: { timeoutMs: 60_000 },
           agent: {

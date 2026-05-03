@@ -8,16 +8,15 @@ import {
 
 describe("Symphony lifecycle phases", () => {
   it("labels workflow phases for operator-facing comments", () => {
-    expect(lifecyclePhaseLabel("waiting-cloud")).toBe("Waiting for cloud signal");
     expect(lifecyclePhaseLabel("in-review")).toBe("In Review");
     expect(lifecyclePhaseLabel("pr-ready")).toBe("PR Ready");
+    expect(lifecyclePhaseLabel("implementing")).toBe("Implementing");
   });
 
   it("identifies active workflow phases", () => {
     expect(lifecyclePhaseIsActive("intake")).toBe(true);
     expect(lifecyclePhaseIsActive("planning")).toBe(true);
     expect(lifecyclePhaseIsActive("implementing")).toBe(true);
-    expect(lifecyclePhaseIsActive("waiting-cloud")).toBe(true);
     expect(lifecyclePhaseIsActive("simplifying")).toBe(true);
     expect(lifecyclePhaseIsActive("reviewing")).toBe(true);
     expect(lifecyclePhaseIsActive("fixing")).toBe(true);

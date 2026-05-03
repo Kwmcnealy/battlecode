@@ -55,8 +55,6 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
     branchName: `symphony/bc-${id}`,
     threadId: null,
     prUrl: `https://github.com/t3/battlecode/pull/${id}`,
-    executionTarget: "codex-cloud",
-    cloudTask: null,
     pullRequest: {
       number: Number(id),
       title,
@@ -124,7 +122,6 @@ function makeSettings(): SymphonySettings {
       lastTestedAt: CREATED_AT,
       lastError: null,
     },
-    executionDefaultTarget: "local",
     updatedAt: CREATED_AT,
   };
 }
@@ -187,8 +184,6 @@ function makeEnvironmentApi(input: {
       retryIssue: vi.fn(async () => input.snapshotRef.current),
       openLinkedThread: vi.fn(async () => ({ threadId: null })),
       launchIssue: vi.fn(async () => input.snapshotRef.current),
-      updateExecutionDefault: vi.fn(async () => input.snapshotRef.current.settings),
-      refreshCloudStatus: vi.fn(async () => input.snapshotRef.current),
     },
   } as unknown as EnvironmentApi;
 }
@@ -214,14 +209,14 @@ describe("SymphonyPanel", () => {
   });
 
   it("hides archived runs by default and shows them in the archived view", async () => {
-    const activeRun = makeRun("1", "Active cloud run");
-    const archivedRun = makeRun("2", "Archived cloud run", {
+    const activeRun = makeRun("1", "Active run");
+    const archivedRun = makeRun("2", "Archived run", {
       status: "completed",
       lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 2,
-        title: "Archived cloud run",
+        title: "Archived run",
         url: "https://github.com/t3/battlecode/pull/2",
         baseBranch: "development",
         headBranch: "symphony/bc-2",
@@ -254,15 +249,15 @@ describe("SymphonyPanel", () => {
     );
 
     try {
-      await expect.element(page.getByText("Active cloud run")).toBeInTheDocument();
-      expect(document.body.textContent).not.toContain("Archived cloud run");
+      await expect.element(page.getByText("Active run")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("Archived run");
 
       await userEvent.click(page.getByRole("button", { name: /Archived/ }));
 
-      await expect.element(page.getByText("Archived cloud run")).toBeInTheDocument();
-      expect(document.body.textContent).not.toContain("Active cloud run");
+      await expect.element(page.getByText("Archived run")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("Active run");
 
-      await userEvent.click(page.getByText("Archived cloud run"));
+      await userEvent.click(page.getByText("Archived run"));
       await expect.element(page.getByText("Archived at")).toBeInTheDocument();
       await expect.element(page.getByText("Merged")).toBeInTheDocument();
     } finally {
@@ -271,14 +266,14 @@ describe("SymphonyPanel", () => {
   });
 
   it("keeps the drawer open when a selected run becomes archived by snapshot update", async () => {
-    const activeRun = makeRun("3", "Selected cloud run");
-    const archivedRun = makeRun("3", "Selected cloud run", {
+    const activeRun = makeRun("3", "Selected run");
+    const archivedRun = makeRun("3", "Selected run", {
       status: "completed",
       lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 3,
-        title: "Selected cloud run",
+        title: "Selected run",
         url: "https://github.com/t3/battlecode/pull/3",
         baseBranch: "development",
         headBranch: "symphony/bc-3",
@@ -317,8 +312,8 @@ describe("SymphonyPanel", () => {
     );
 
     try {
-      await expect.element(page.getByText("Selected cloud run")).toBeInTheDocument();
-      await userEvent.click(page.getByText("Selected cloud run"));
+      await expect.element(page.getByText("Selected run")).toBeInTheDocument();
+      await userEvent.click(page.getByText("Selected run"));
       expect(document.body.textContent).toContain("Pull request open");
 
       snapshotRef.current = makeSnapshot({ archivedRuns: [archivedRun] });
@@ -328,7 +323,7 @@ describe("SymphonyPanel", () => {
 
       await expect.element(page.getByText("Archived at")).toBeInTheDocument();
       await expect.element(page.getByText("Pull request merged")).toBeInTheDocument();
-      await expect.element(page.getByText("Selected cloud run")).toBeInTheDocument();
+      await expect.element(page.getByText("Selected run")).toBeInTheDocument();
     } finally {
       await screen.unmount();
     }
@@ -338,7 +333,6 @@ describe("SymphonyPanel", () => {
     const activeRun = makeRun("4", "Failed run to archive", {
       status: "failed",
       lifecyclePhase: "failed",
-      executionTarget: "local",
       pullRequest: null,
       prUrl: null,
     });
@@ -387,7 +381,7 @@ describe("SymphonyPanel", () => {
   });
 
   it("shows compact diagnostics and keeps rows visible across warning-only snapshots", async () => {
-    const activeRun = makeRun("5", "Stable cloud run");
+    const activeRun = makeRun("5", "Stable run");
     const snapshotRef = {
       current: makeSnapshot({
         activeRuns: [activeRun],
@@ -428,7 +422,7 @@ describe("SymphonyPanel", () => {
     );
 
     try {
-      await expect.element(page.getByText("Stable cloud run")).toBeInTheDocument();
+      await expect.element(page.getByText("Stable run")).toBeInTheDocument();
       await expect.element(page.getByText("States Todo, In Progress")).toBeInTheDocument();
       await expect.element(page.getByText("3 candidates")).toBeInTheDocument();
 
@@ -463,7 +457,7 @@ describe("SymphonyPanel", () => {
         subscriptionCallback?.({ kind: "snapshot", snapshot: snapshotRef.current });
       });
 
-      await expect.element(page.getByText("Stable cloud run")).toBeInTheDocument();
+      await expect.element(page.getByText("Stable run")).toBeInTheDocument();
       await expect.element(page.getByText("1 warnings")).toBeInTheDocument();
     } finally {
       await screen.unmount();

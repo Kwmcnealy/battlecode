@@ -1,12 +1,10 @@
 import {
   ArchiveIcon,
-  CloudIcon,
   ExternalLinkIcon,
   EyeIcon,
   GitPullRequestIcon,
   MessageSquareIcon,
   PlayIcon,
-  RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
 import { memo } from "react";
@@ -18,7 +16,6 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
   PHASE_BADGE_CLASSNAME,
-  TARGET_LABEL,
   formatLifecyclePhase,
   formatStatus,
   type SymphonyAction,
@@ -26,13 +23,7 @@ import {
 import { SymphonyEmptyState } from "./SymphonyEmptyState";
 
 const RETRYABLE_STATUSES = new Set<SymphonyRun["status"]>(["failed", "canceled", "released"]);
-const STOPPABLE_STATUSES = new Set<SymphonyRun["status"]>([
-  "eligible",
-  "running",
-  "retry-queued",
-  "cloud-submitted",
-  "cloud-running",
-]);
+const STOPPABLE_STATUSES = new Set<SymphonyRun["status"]>(["eligible", "running", "retry-queued"]);
 const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>([
   "target-pending",
   "eligible",
@@ -42,19 +33,11 @@ const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>([
 ]);
 
 function getIssueQueueRowState(run: SymphonyRun) {
-  const isCloud = run.executionTarget === "codex-cloud";
-  const taskHref = isCloud ? (run.cloudTask?.taskUrl ?? run.issue.url) : null;
-
   return {
     canRetry: RETRYABLE_STATUSES.has(run.status),
     canArchive: run.archivedAt === null && canArchiveSymphonyRun(run),
     canLaunch: LAUNCHABLE_STATUSES.has(run.status),
     canStop: STOPPABLE_STATUSES.has(run.status),
-    targetLabel: run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose",
-    taskHref,
-    canRefreshCloudStatus:
-      isCloud && (run.status === "cloud-submitted" || run.status === "cloud-running"),
-    cloudMessage: isCloud ? (run.cloudTask?.lastMessage ?? run.lastError) : null,
   };
 }
 
@@ -62,12 +45,8 @@ function buildIssueQueueRowDigest(run: SymphonyRun): string {
   return JSON.stringify({
     branchName: run.branchName,
     archivedAt: run.archivedAt,
-    cloudLastMessage: run.cloudTask?.lastMessage ?? null,
-    cloudStatus: run.cloudTask?.status ?? null,
-    cloudTaskUrl: run.cloudTask?.taskUrl ?? null,
     currentStepDetail: run.currentStep?.detail ?? null,
     currentStepLabel: run.currentStep?.label ?? null,
-    executionTarget: run.executionTarget,
     issueIdentifier: run.issue.identifier,
     issueState: run.issue.state,
     issueTitle: run.issue.title,
@@ -85,10 +64,7 @@ interface IssueQueueRowProps {
   busyAction: SymphonyAction | null;
   isSelected: boolean;
   onIssueAction: (
-    action: Extract<
-      SymphonyAction,
-      "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
-    >,
+    action: Extract<SymphonyAction, "archive" | "stop" | "launch">,
     run: SymphonyRun,
   ) => void;
   onOpenLinkedThread: (run: SymphonyRun) => void;
@@ -105,16 +81,7 @@ const IssueQueueRow = memo(
     onSelectRun,
     run,
   }: IssueQueueRowProps) {
-    const {
-      canRetry,
-      canArchive,
-      canLaunch,
-      canStop,
-      targetLabel,
-      taskHref,
-      canRefreshCloudStatus,
-      cloudMessage,
-    } = getIssueQueueRowState(run);
+    const { canRetry, canArchive, canLaunch, canStop } = getIssueQueueRowState(run);
 
     return (
       <tr
@@ -150,37 +117,17 @@ const IssueQueueRow = memo(
           <div className="mt-1 font-mono text-[10px] uppercase text-muted-foreground/70">
             {formatStatus(run.status)}
           </div>
-          {cloudMessage ? (
-            <div
-              title={cloudMessage}
-              className={cn(
-                "mt-1 line-clamp-2 max-w-[14rem] break-words text-[11px] leading-snug",
-                run.cloudTask?.status === "failed" || run.status === "failed"
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-              )}
-            >
-              {cloudMessage}
-            </div>
-          ) : null}
         </td>
         <td className="max-w-[15rem] px-3 py-3 text-xs text-muted-foreground">
           <div className="line-clamp-2" title={run.currentStep?.detail ?? undefined}>
             {run.currentStep?.label ?? "-"}
           </div>
         </td>
-        <td className="px-3 py-3">
-          <Badge variant="outline" className="whitespace-nowrap">
-            {targetLabel}
-          </Badge>
-        </td>
         <td className="max-w-[12rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
           {run.branchName ?? "-"}
         </td>
         <td className="max-w-[10rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
-          {run.executionTarget === "codex-cloud"
-            ? (run.cloudTask?.taskUrl ?? run.issue.url ?? "-")
-            : (run.threadId ?? "-")}
+          {run.threadId ?? "-"}
         </td>
         <td className="px-4 py-3">
           <div className="flex flex-wrap justify-end gap-2">
@@ -195,7 +142,7 @@ const IssueQueueRow = memo(
               <EyeIcon className="size-3" />
               Details
             </Button>
-            {run.executionTarget === "local" && run.threadId ? (
+            {run.threadId ? (
               <Button
                 size="xs"
                 variant="outline"
@@ -209,59 +156,7 @@ const IssueQueueRow = memo(
                 Open Thread
               </Button>
             ) : null}
-            {run.executionTarget === "codex-cloud" ? (
-              <>
-                {(run.pullRequest?.url ?? run.prUrl) ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    render={
-                      <a
-                        href={run.pullRequest?.url ?? run.prUrl ?? undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    }
-                  >
-                    <GitPullRequestIcon className="size-3" />
-                    Open PR
-                  </Button>
-                ) : null}
-                {taskHref ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    render={
-                      <a
-                        href={taskHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    }
-                  >
-                    <ExternalLinkIcon className="size-3" />
-                    {run.cloudTask?.taskUrl ? "Open Codex Task" : "Open Linear Issue"}
-                  </Button>
-                ) : null}
-                {canRefreshCloudStatus ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={busyAction !== null}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onIssueAction("refresh-cloud", run);
-                    }}
-                  >
-                    <RefreshCwIcon className="size-3" />
-                    Refresh Cloud Status
-                  </Button>
-                ) : null}
-              </>
-            ) : null}
-            {run.executionTarget !== "codex-cloud" && (run.pullRequest?.url ?? run.prUrl) ? (
+            {(run.pullRequest?.url ?? run.prUrl) ? (
               <Button
                 size="xs"
                 variant="outline"
@@ -278,33 +173,36 @@ const IssueQueueRow = memo(
                 Open PR
               </Button>
             ) : null}
+            {run.issue.url ? (
+              <Button
+                size="xs"
+                variant="outline"
+                render={
+                  <a
+                    href={run.issue.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                }
+              >
+                <ExternalLinkIcon className="size-3" />
+                Linear
+              </Button>
+            ) : null}
             {canLaunch ? (
-              <>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={busyAction !== null}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onIssueAction("launch-local", run);
-                  }}
-                >
-                  <PlayIcon className="size-3" />
-                  {canRetry ? "Retry Local" : "Run Local"}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={busyAction !== null}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onIssueAction("launch-cloud", run);
-                  }}
-                >
-                  <CloudIcon className="size-3" />
-                  {canRetry ? "Retry Cloud" : "Send to Cloud"}
-                </Button>
-              </>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busyAction !== null}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onIssueAction("launch", run);
+                }}
+              >
+                <PlayIcon className="size-3" />
+                {canRetry ? "Retry" : "Run"}
+              </Button>
             ) : null}
             {canArchive ? (
               <Button
@@ -359,10 +257,7 @@ export function IssueQueueTable({
   selectedRunId: string | null;
   onSelectRun: (run: SymphonyRun) => void;
   onIssueAction: (
-    action: Extract<
-      SymphonyAction,
-      "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
-    >,
+    action: Extract<SymphonyAction, "archive" | "stop" | "launch">,
     run: SymphonyRun,
   ) => void;
   onOpenLinkedThread: (run: SymphonyRun) => void;
@@ -377,16 +272,15 @@ export function IssueQueueTable({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto border-b border-border/70">
-      <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+      <table className="w-full min-w-[800px] border-collapse text-left text-sm">
         <thead className="bg-muted/30 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
           <tr>
             <th className="px-4 py-2 font-medium">Issue</th>
             <th className="px-3 py-2 font-medium">State</th>
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2 font-medium">Current Step</th>
-            <th className="px-3 py-2 font-medium">Target</th>
             <th className="px-3 py-2 font-medium">Branch</th>
-            <th className="px-3 py-2 font-medium">Thread / Task</th>
+            <th className="px-3 py-2 font-medium">Thread</th>
             <th className="px-4 py-2 text-right font-medium">Actions</th>
           </tr>
         </thead>

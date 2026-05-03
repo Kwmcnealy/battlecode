@@ -76,8 +76,6 @@ export interface SchedulerDecisions {
 const ACTIVE_STATUSES: ReadonlySet<SymphonyRunStatus> = new Set<SymphonyRunStatus>([
   "running",
   "retry-queued",
-  "cloud-submitted",
-  "cloud-running",
   "review-ready",
 ]);
 

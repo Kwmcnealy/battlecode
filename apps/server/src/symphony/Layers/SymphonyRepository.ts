@@ -1,9 +1,7 @@
 import {
   ProjectId,
   type ProjectId as ProjectIdType,
-  SymphonyCloudTask,
   SymphonyEvent,
-  SymphonyExecutionTarget,
   SymphonyIssue,
   SymphonyIssueId,
   SymphonyLifecyclePhase,
@@ -38,7 +36,6 @@ interface SettingsRow {
   readonly workflowPath: string;
   readonly workflowStatus: string;
   readonly linearSecretStatus: string;
-  readonly executionDefaultTarget: string;
   readonly updatedAt: string;
 }
 
@@ -52,8 +49,6 @@ interface RunRow {
   readonly branchName: string | null;
   readonly threadId: string | null;
   readonly prUrl: string | null;
-  readonly executionTarget: string | null;
-  readonly cloudTask: string | null;
   readonly pullRequest: string | null;
   readonly currentStep: string | null;
   readonly linearProgress: string | null;
@@ -95,8 +90,6 @@ interface ProjectIdRow {
 
 const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValidation);
 const decodeSecretStatus = Schema.decodeUnknownSync(SymphonySecretStatus);
-const decodeExecutionTarget = Schema.decodeUnknownSync(SymphonyExecutionTarget);
-const decodeCloudTask = Schema.decodeUnknownSync(SymphonyCloudTask);
 const decodeLifecyclePhase = Schema.decodeUnknownSync(SymphonyLifecyclePhase);
 const decodeLinearProgress = Schema.decodeUnknownSync(SymphonyLinearProgressComment);
 const decodePullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary);
@@ -171,17 +164,11 @@ function decodeSettingsRow(
       decodeSecretStatus,
       linearSecretJson,
     );
-    const executionDefaultTarget = yield* decodeWith(
-      "SymphonyRepository.settings.executionDefaultTarget.decode",
-      decodeExecutionTarget,
-      row.executionDefaultTarget,
-    );
     return {
       projectId: yield* decodeProjectId(row.projectId),
       workflowPath: row.workflowPath,
       workflowStatus,
       linearSecret,
-      executionDefaultTarget,
       updatedAt: row.updatedAt,
     };
   });
@@ -191,10 +178,6 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
   return Effect.gen(function* () {
     const issueJson = yield* decodeJson("SymphonyRepository.run.issue", row.issue);
     const attemptsJson = yield* decodeJson("SymphonyRepository.run.attempts", row.attempts);
-    const cloudTaskJson =
-      row.cloudTask === null
-        ? null
-        : yield* decodeJson("SymphonyRepository.run.cloudTask", row.cloudTask);
     const pullRequestJson =
       row.pullRequest === null
         ? null
@@ -222,22 +205,6 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       decodeLifecyclePhase,
       row.lifecyclePhase ?? "intake",
     );
-    const executionTarget =
-      row.executionTarget === null
-        ? null
-        : yield* decodeWith(
-            "SymphonyRepository.run.executionTarget.decode",
-            decodeExecutionTarget,
-            row.executionTarget,
-          );
-    const cloudTask =
-      cloudTaskJson === null
-        ? null
-        : yield* decodeWith(
-            "SymphonyRepository.run.cloudTask.decode",
-            decodeCloudTask,
-            cloudTaskJson,
-          );
     const pullRequest =
       pullRequestJson === null
         ? null
@@ -274,8 +241,6 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       branchName: row.branchName,
       threadId: row.threadId,
       prUrl: row.prUrl,
-      executionTarget,
-      cloudTask,
       pullRequest,
       currentStep,
       linearProgress,
@@ -358,7 +323,6 @@ const makeRepository = Effect.gen(function* () {
         workflow_path AS "workflowPath",
         workflow_status_json AS "workflowStatus",
         linear_secret_status_json AS "linearSecretStatus",
-        execution_default_target AS "executionDefaultTarget",
         updated_at AS "updatedAt"
       FROM symphony_settings
       WHERE project_id = ${projectId}
@@ -378,7 +342,6 @@ const makeRepository = Effect.gen(function* () {
         workflow_path,
         workflow_status_json,
         linear_secret_status_json,
-        execution_default_target,
         updated_at
       )
       VALUES (
@@ -386,14 +349,12 @@ const makeRepository = Effect.gen(function* () {
         ${settings.workflowPath},
         ${JSON.stringify(settings.workflowStatus)},
         ${JSON.stringify(settings.linearSecret)},
-        ${settings.executionDefaultTarget},
         ${settings.updatedAt}
       )
       ON CONFLICT(project_id) DO UPDATE SET
         workflow_path = excluded.workflow_path,
         workflow_status_json = excluded.workflow_status_json,
         linear_secret_status_json = excluded.linear_secret_status_json,
-        execution_default_target = excluded.execution_default_target,
         updated_at = excluded.updated_at
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertSettings")),
@@ -412,8 +373,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
         linear_progress_json AS "linearProgress",
@@ -474,8 +433,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
         linear_progress_json AS "linearProgress",
@@ -511,8 +468,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
         linear_progress_json AS "linearProgress",
@@ -546,8 +501,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
         pull_request_json AS "pullRequest",
         current_step_json AS "currentStep",
         linear_progress_json AS "linearProgress",
@@ -583,8 +536,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name,
         thread_id,
         pr_url,
-        execution_target,
-        cloud_task_json,
         pull_request_json,
         current_step_json,
         linear_progress_json,
@@ -608,8 +559,6 @@ const makeRepository = Effect.gen(function* () {
         ${run.branchName},
         ${run.threadId},
         ${run.prUrl},
-        ${run.executionTarget},
-        ${run.cloudTask ? JSON.stringify(run.cloudTask) : null},
         ${run.pullRequest ? JSON.stringify(run.pullRequest) : null},
         ${run.currentStep ? JSON.stringify(run.currentStep) : null},
         ${JSON.stringify(run.linearProgress ?? {})},
@@ -630,8 +579,6 @@ const makeRepository = Effect.gen(function* () {
         branch_name = excluded.branch_name,
         thread_id = excluded.thread_id,
         pr_url = excluded.pr_url,
-        execution_target = excluded.execution_target,
-        cloud_task_json = excluded.cloud_task_json,
         pull_request_json = excluded.pull_request_json,
         current_step_json = excluded.current_step_json,
         linear_progress_json = excluded.linear_progress_json,

@@ -141,10 +141,6 @@ export interface WsRpcClient {
     readonly archiveIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.archiveIssue>;
     readonly openLinkedThread: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.openLinkedThread>;
     readonly launchIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.launchIssue>;
-    readonly updateExecutionDefault: RpcUnaryMethod<
-      typeof SYMPHONY_WS_METHODS.updateExecutionDefault
-    >;
-    readonly refreshCloudStatus: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.refreshCloudStatus>;
   };
 }
 
@@ -316,10 +312,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[SYMPHONY_WS_METHODS.openLinkedThread](input)),
       launchIssue: (input) =>
         transport.request((client) => client[SYMPHONY_WS_METHODS.launchIssue](input)),
-      updateExecutionDefault: (input) =>
-        transport.request((client) => client[SYMPHONY_WS_METHODS.updateExecutionDefault](input)),
-      refreshCloudStatus: (input) =>
-        transport.request((client) => client[SYMPHONY_WS_METHODS.refreshCloudStatus](input)),
     },
   };
 }

@@ -132,7 +132,6 @@ export function upsertManagedComment(
     const body = renderManagedProgressComment({
       phase: input.run.lifecyclePhase,
       lastUpdate: updatedAt,
-      executionTarget: input.run.executionTarget,
       currentStep: input.run.currentStep?.label ?? input.statusLine,
       pullRequestUrl: input.run.prUrl ?? input.run.pullRequest?.url ?? null,
       planMarkdown: input.planMarkdown,

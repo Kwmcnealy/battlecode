@@ -818,7 +818,7 @@ export function fetchLinearCandidates(input: {
       operationName: "SymphonyCandidateIssues",
       query: LINEAR_CANDIDATES_QUERY,
       variables: {
-        projectSlug: input.config.tracker.projectSlug,
+        projectSlug: input.config.tracker.projectSlugId,
         states,
         after,
       },

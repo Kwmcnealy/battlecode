@@ -82,9 +82,7 @@ export function parseWorkflowMarkdown(markdown: string): ParsedSymphonyWorkflow 
   const rawRecord = isRecord(parsedConfig) ? parsedConfig : {};
   assertNoLegacyProjectSlug(rawRecord);
 
-  const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)(
-    normalizeWorkflowKeys(rawRecord),
-  );
+  const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)(normalizeWorkflowKeys(rawRecord));
 
   return {
     config,

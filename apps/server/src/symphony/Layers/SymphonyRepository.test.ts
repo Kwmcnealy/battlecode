@@ -107,7 +107,6 @@ layer("SymphonyRepositoryLive", (it) => {
 
       const run = makeRepositoryRun(PROJECT_ID, makeIssue("issue-1", "BC-1"), {
         status: "completed",
-        executionTarget: "codex-cloud",
         branchName: "symphony/bc-1",
         archivedAt: "2026-05-02T12:05:00.000Z",
       });
@@ -128,46 +127,39 @@ layer("SymphonyRepositoryLive", (it) => {
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-running", "BC-2"), {
           status: "running",
-          executionTarget: "local",
           threadId: ThreadId.make("symphony-thread-project-symphony-issue-running"),
         }),
       );
       yield* repository.upsertRun(
-        makeRepositoryRun(PROJECT_ID, makeIssue("issue-cloud", "BC-3"), {
-          status: "cloud-running",
-          executionTarget: "codex-cloud",
+        makeRepositoryRun(PROJECT_ID, makeIssue("issue-review-ready", "BC-3"), {
+          status: "review-ready",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-completed-open", "BC-4"), {
           status: "completed",
-          executionTarget: "codex-cloud",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-archived", "BC-5"), {
           status: "completed",
-          executionTarget: "codex-cloud",
           archivedAt: "2026-05-02T12:10:00.000Z",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-eligible", "BC-6"), {
           status: "eligible",
-          executionTarget: "local",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-recoverable-canceled", "BC-7"), {
           status: "canceled",
-          executionTarget: "local",
           lastError: LINEAR_INELIGIBLE_LEGACY_ERROR,
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-user-canceled", "BC-8"), {
           status: "canceled",
-          executionTarget: "local",
           lastError: "Canceled from the Symphony dashboard.",
         }),
       );
@@ -175,8 +167,8 @@ layer("SymphonyRepositoryLive", (it) => {
       const monitoredRuns = yield* repository.listRunsForMonitoring(PROJECT_ID);
       assert.deepStrictEqual(monitoredRuns.map((run) => run.status).toSorted(), [
         "canceled",
-        "cloud-running",
         "completed",
+        "review-ready",
         "running",
       ]);
       assert.deepStrictEqual(monitoredRuns.map((run) => run.issue.identifier).toSorted(), [
@@ -196,13 +188,11 @@ layer("SymphonyRepositoryLive", (it) => {
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-review", "BC-6"), {
           status: "review-ready",
-          executionTarget: "codex-cloud",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(OTHER_PROJECT_ID, makeIssue("issue-archived-other", "BC-7"), {
           status: "review-ready",
-          executionTarget: "codex-cloud",
           archivedAt: "2026-05-02T12:20:00.000Z",
         }),
       );

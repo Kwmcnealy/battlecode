@@ -1,13 +1,7 @@
 import { WorkflowIcon } from "lucide-react";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  EnvironmentId,
-  ProjectId,
-  SymphonyExecutionTarget,
-  SymphonyRun,
-  SymphonySnapshot,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, SymphonyRun, SymphonySnapshot } from "@t3tools/contracts";
 
 import { ensureEnvironmentApi } from "../../environmentApi";
 import { useUiStateStore } from "../../uiStateStore";
@@ -135,54 +129,15 @@ export function SymphonyPanel({
     [api, commitSnapshotImmediately, projectId],
   );
 
-  const updateDefaultTarget = useCallback(
-    async (target: SymphonyExecutionTarget) => {
-      setBusyAction("update-target");
-      try {
-        const settings = await api.symphony.updateExecutionDefault({ projectId, target });
-        if (snapshotFrameRef.current !== null) {
-          window.cancelAnimationFrame(snapshotFrameRef.current);
-          snapshotFrameRef.current = null;
-        }
-        pendingSnapshotRef.current = null;
-        setSnapshot((current) => (current ? { ...current, settings } : current));
-        setError(null);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Symphony target update failed.");
-      } finally {
-        setBusyAction(null);
-      }
-    },
-    [api, projectId],
-  );
-
   const runIssueAction = useCallback(
-    async (
-      action: Extract<
-        SymphonyAction,
-        "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
-      >,
-      run: SymphonyRun,
-    ) => {
+    async (action: Extract<SymphonyAction, "archive" | "stop" | "launch">, run: SymphonyRun) => {
       setBusyAction(action);
       try {
         const next = await (action === "archive"
           ? api.symphony.archiveIssue({ projectId, issueId: run.issue.id })
           : action === "stop"
             ? api.symphony.stopIssue({ projectId, issueId: run.issue.id })
-            : action === "launch-local"
-              ? api.symphony.launchIssue({
-                  projectId,
-                  issueId: run.issue.id,
-                  target: "local",
-                })
-              : action === "launch-cloud"
-                ? api.symphony.launchIssue({
-                    projectId,
-                    issueId: run.issue.id,
-                    target: "codex-cloud",
-                  })
-                : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
+            : api.symphony.launchIssue({ projectId, issueId: run.issue.id }));
         commitSnapshotImmediately(next);
         setError(null);
       } catch (cause) {
@@ -296,12 +251,7 @@ export function SymphonyPanel({
       ) : (
         <>
           <WorkflowStatus snapshot={snapshot} />
-          <SymphonyToolbar
-            snapshot={snapshot}
-            busyAction={busyAction}
-            onAction={runAction}
-            onTargetChange={(target) => void updateDefaultTarget(target)}
-          />
+          <SymphonyToolbar snapshot={snapshot} busyAction={busyAction} onAction={runAction} />
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-2">
             <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
               <Button
