@@ -18,16 +18,16 @@ Rather than continue layering complexity onto the cloud-and-PR-aware orchestrato
 
 ## Approved Direction
 
-| Decision | Choice |
-|---|---|
-| Execution model | Local only. No Codex Cloud. No orchestrator-level GitHub PR lookup. |
-| Phase structure | Two phases: Planning (turn 1) → Doing (turn 2, continuation in the same T3 thread) |
-| Agent ↔ Symphony interface | Symphony parses structured markers in thread output (`SYMPHONY_PLAN_BEGIN/END`, `SYMPHONY_PR_URL`) |
-| Linear writes | Symphony-owned: managed progress comment + state transitions |
-| End of run | Stop at PR creation. Reconcile Linear terminal states (`Done`, `Canceled`) for auto-archive. |
-| Worktree management | Reuse `apps/server/src/git/`. Branch `symphony/<sanitized-issue-id>`. Concurrency cap default 3, configurable. |
-| Failure handling | Hybrid retry: auto-retry transient infra; human-gate output failures; stall detection; per-run + per-symptom isolation |
-| Configuration UX | Guided UI wizard fetches teams, projects, and workflow states from Linear. `WORKFLOW.md` remains the hand-editable artifact. |
+| Decision                   | Choice                                                                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Execution model            | Local only. No Codex Cloud. No orchestrator-level GitHub PR lookup.                                                          |
+| Phase structure            | Two phases: Planning (turn 1) → Doing (turn 2, continuation in the same T3 thread)                                           |
+| Agent ↔ Symphony interface | Symphony parses structured markers in thread output (`SYMPHONY_PLAN_BEGIN/END`, `SYMPHONY_PR_URL`)                           |
+| Linear writes              | Symphony-owned: managed progress comment + state transitions                                                                 |
+| End of run                 | Stop at PR creation. Reconcile Linear terminal states (`Done`, `Canceled`) for auto-archive.                                 |
+| Worktree management        | Reuse `apps/server/src/git/`. Branch `symphony/<sanitized-issue-id>`. Concurrency cap default 3, configurable.               |
+| Failure handling           | Hybrid retry: auto-retry transient infra; human-gate output failures; stall detection; per-run + per-symptom isolation       |
+| Configuration UX           | Guided UI wizard fetches teams, projects, and workflow states from Linear. `WORKFLOW.md` remains the hand-editable artifact. |
 
 ## Non-Goals
 
@@ -44,9 +44,9 @@ Rather than continue layering complexity onto the cloud-and-PR-aware orchestrato
 
 Symphony decomposes into three loops that run on independent error boundaries. A failure in one cannot cascade into another. This is the structural fix for the cascade the user has been hitting.
 
-1. **Scheduler.** Periodic Linear poll for issues in *intake* states. Allocates capacity. Creates new run records. Dispatches Phase 1.
+1. **Scheduler.** Periodic Linear poll for issues in _intake_ states. Allocates capacity. Creates new run records. Dispatches Phase 1.
 2. **Run Orchestrator.** For each in-flight run, drives Phase 1 → Phase 2 transitions. Parses thread markers. Calls into the Linear writer.
-3. **Reconciler.** Independently polls Linear for issues in *terminal* states (Done, Canceled). Archives matching local runs.
+3. **Reconciler.** Independently polls Linear for issues in _terminal_ states (Done, Canceled). Archives matching local runs.
 
 In the current implementation, all three are entangled in a single `runSchedulerTick` Effect — any failure (especially a Linear 400 in candidate fetch) propagates up and kills the whole tick. In the new design, each runs as its own Effect with its own catch boundary; failures are logged and surfaced as PubSub events but never propagate to a sibling concern.
 
@@ -109,15 +109,15 @@ In the current implementation, all three are entangled in a single `runScheduler
 
 Seven statuses, down from the current ~12:
 
-| Status | Meaning |
-|---|---|
-| `intake` | Run created from Linear intake; awaiting capacity slot |
-| `planning` | Phase 1 turn in flight (Codex turn 1) |
-| `implementing` | Phase 2 turn in flight (Codex turn 2 continuation) |
-| `in-review` | PR created; Linear at "In Review"; Symphony idle |
-| `completed` | Reconciler observed Linear "Done" |
-| `canceled` | Reconciler observed Linear "Canceled" |
-| `failed` | Terminal failure; manual Retry needed |
+| Status         | Meaning                                                |
+| -------------- | ------------------------------------------------------ |
+| `intake`       | Run created from Linear intake; awaiting capacity slot |
+| `planning`     | Phase 1 turn in flight (Codex turn 1)                  |
+| `implementing` | Phase 2 turn in flight (Codex turn 2 continuation)     |
+| `in-review`    | PR created; Linear at "In Review"; Symphony idle       |
+| `completed`    | Reconciler observed Linear "Done"                      |
+| `canceled`     | Reconciler observed Linear "Canceled"                  |
+| `failed`       | Terminal failure; manual Retry needed                  |
 
 Plus a separate `archivedAt: Date | null` field. Deleted statuses include `target-pending`, `released`, `eligible`, `retry-queued`, `waiting-cloud-signal`, and all cloud-specific lifecycle phases.
 
@@ -187,14 +187,14 @@ archivedAt: now     archivedAt: now
 
 Each run tracks a `lastSeenLinearState: string` field, updated each scheduler tick from the issue's current Linear state. The scheduler creates a fresh run only when Symphony observes a transition into an intake state, not when an issue has been continuously in intake. This bounds retry behavior so failed runs do not loop forever.
 
-| Existing run for issue | Issue currently in intake? | Was last-seen state intake? | Action |
-|---|---|---|---|
-| None | yes | — | Create fresh run |
-| Active (intake / planning / implementing / in-review) | yes | yes | No-op (update last-seen) |
-| Failed (not archived) | yes | yes | No-op — user has not re-engaged |
-| Failed (not archived) | yes | no (transitioned in) | Archive failed run, create fresh |
-| Archived completed/canceled | yes | no (transitioned in) | Create fresh run, leave archived |
-| In-review (not archived) | yes | no (PR was abandoned, user moved back) | Archive in-review run, create fresh |
+| Existing run for issue                                | Issue currently in intake? | Was last-seen state intake?            | Action                              |
+| ----------------------------------------------------- | -------------------------- | -------------------------------------- | ----------------------------------- |
+| None                                                  | yes                        | —                                      | Create fresh run                    |
+| Active (intake / planning / implementing / in-review) | yes                        | yes                                    | No-op (update last-seen)            |
+| Failed (not archived)                                 | yes                        | yes                                    | No-op — user has not re-engaged     |
+| Failed (not archived)                                 | yes                        | no (transitioned in)                   | Archive failed run, create fresh    |
+| Archived completed/canceled                           | yes                        | no (transitioned in)                   | Create fresh run, leave archived    |
+| In-review (not archived)                              | yes                        | no (PR was abandoned, user moved back) | Archive in-review run, create fresh |
 
 The key invariant: a Linear state transition into an intake state creates a fresh run. A run that has been sitting in intake does not keep re-firing. This requires storing `last_seen_linear_state` on the run record (one new column).
 
@@ -204,10 +204,10 @@ This policy also fixes the `shouldQueueIntakeRun` regression in the current code
 
 Two independent loops, each with its own error boundary:
 
-| Loop | Default interval | Linear filter scope |
-|---|---|---|
-| Scheduler | 30 seconds | issues in any of the configured intake, active, or review state names |
-| Reconciler | 60 seconds | issues in terminal states (done + canceled) |
+| Loop       | Default interval | Linear filter scope                                                   |
+| ---------- | ---------------- | --------------------------------------------------------------------- |
+| Scheduler  | 30 seconds       | issues in any of the configured intake, active, or review state names |
+| Reconciler | 60 seconds       | issues in terminal states (done + canceled)                           |
 
 Both intervals are configurable in `WORKFLOW.md`. Both apply ±10% jitter to prevent thundering-herd on reconnect. Both honor Linear's `Retry-After` header on 429 responses. The scheduler runs more often because intake responsiveness matters; the reconciler less often because terminal states change rarely.
 
@@ -259,16 +259,19 @@ The wizard's structural value: every value that today causes 400s or empty resul
 ### apps/server/src/symphony/
 
 #### Files to delete entirely
+
 - `codexCloud.ts` — Codex Cloud delegation
 - `codexCloud.test.ts`
 - `lifecyclePhase.ts` — only two phases now, expressed as inline union type
 
 #### Files to replace (logic substantially different)
+
 - `phasePrompts.ts` → renamed to `prompts.ts`. Two exports: `planningPrompt(issue, workflow)` and `doingPrompt(issue, plan, workflow)`. Drop `simplifyPrompt`, `reviewPrompt`, `fixPrompt`.
 - `phaseOutput.ts` → renamed to `threadOutputParser.ts`. Two exports: `parsePlanFromOutput(text)` and `parsePRUrlFromOutput(text)`. Drop the `REVIEW_PASS`/`REVIEW_FAIL` parser.
 - `phasePrompts.test.ts` and `phaseOutput.test.ts` rewritten.
 
 #### Files to keep with edits
+
 - `linear.ts` — bug fixes:
   - Inline comment documenting auth scheme: personal API keys (starting with `lin_api_`) sent raw; `Bearer ` prefix is for OAuth only.
   - Detect Bearer-prefixed keys at validation time, surface a helpful error.
@@ -285,6 +288,7 @@ The wizard's structural value: every value that today causes 400s or empty resul
 - `identity.ts` — no changes.
 
 #### Files to add (logic extracted from `Layers/SymphonyService.ts`)
+
 - `scheduler.ts` — pure logic: given current state and Linear poll result, what runs to create or update.
 - `orchestrator.ts` — pure logic: given a run and a thread event, what is the next action.
 - `reconciler.ts` — pure logic: given Linear terminal-state poll and active runs, which to archive.
@@ -304,11 +308,13 @@ The 4,375-line file is decomposed into the four modules above plus a slim compos
 - Emits PubSub events.
 
 #### Test file restructure
+
 `Layers/SymphonyService.lifecycle.test.ts` splits into `scheduler.test.ts`, `orchestrator.test.ts`, `reconciler.test.ts`, `linearWriter.test.ts`. Each tests its module in isolation. A new `Layers/SymphonyService.test.ts` covers composition only.
 
 ### apps/server/src/git/
 
 #### Remove from `Layers/GitHubCli.ts`
+
 - `getPullRequest`
 - `listOpenPullRequests`
 - `listPullRequestFeedbackSignals`
@@ -317,6 +323,7 @@ The 4,375-line file is decomposed into the four modules above plus a slim compos
 - `normalizeGitHubCliError` if no callers remain after PR helpers go (audit during implementation)
 
 #### Audit during implementation
+
 If `Layers/GitHubCli.ts` has zero remaining callers after the PR helpers are gone, delete the whole file plus its `Services/GitHubCli.ts` interface. The implementation plan verifies this in a dedicated step.
 
 ### packages/contracts/src/
@@ -333,20 +340,24 @@ If `Layers/GitHubCli.ts` has zero remaining callers after the PR helpers are gon
 ### apps/web/src/components/symphony/
 
 #### Delete entirely
+
 - `LinearAuthSettings.tsx` — folded into the wizard; the standalone goes away.
 - Any component or branch that is purely cloud-specific (audit each file in `components/symphony/`).
 
 #### Replace
+
 - `SymphonySettingsPanel.tsx` and `.browser.tsx` → become the wizard host with three steps: API key → project picker → state mapper.
 - `WorkflowSettingsSection.tsx` → becomes a "review your configuration" surface inside the wizard.
 
 #### New components
+
 - `LinearKeyInput.tsx` — pastes the key, calls `viewer { id name }` on blur, shows specific error messages.
 - `LinearProjectPicker.tsx` — dropdown populated from `fetchLinearProjects`; emits `slugId` (never raw text).
 - `LinearStateMapper.tsx` — checkbox grid mapping each lifecycle slot (intake/active/review/done/canceled) to one or more Linear state names from `fetchLinearWorkflowStates`.
 - `WizardProgress.tsx` — stepper.
 
 #### Keep with edits (strip cloud branches)
+
 - `SymphonyPanel.tsx`, `SymphonyPanel.browser.tsx`
 - `SymphonyEventTimeline.tsx` (drop cloud event types)
 - `IssueQueueTable.tsx`, `IssueQueueTable.browser.tsx` (drop "Target" column)
@@ -428,7 +439,6 @@ polling:
 stall:
   timeout_ms: 300000
 ---
-
 # Repo-specific agent guidance lives here as Markdown.
 # This body becomes part of the agent's system prompt.
 ```
@@ -436,42 +446,50 @@ stall:
 ### Field reference
 
 #### tracker
+
 - `endpoint` — Linear GraphQL URL. Almost always the default.
 - `api_key` — environment variable name (e.g., `$LINEAR_API_KEY`) or omitted. The actual secret value lives in the OS secret store, written by the wizard. The wizard never writes a literal key into YAML; hand-editing a literal key inline is technically possible but discouraged because the file is committed to git.
 - `project_slug_id` — random hash from the Linear project URL. Written by the wizard; never typed by hand. This single rule eliminates the slug-vs-slugId 400 class.
 - `project_name` — human-readable; advisory only.
 
 #### states
+
 Five lists of Linear state names. Case-exact strings. Selected via wizard checkboxes from Linear's actual workflow states for the project. Eliminates "ToDo" vs "To Do" mismatches.
 
 #### git
+
 - `pr_base_branch` — base branch for `gh pr create`. Default inferred from `git remote show origin | grep "HEAD branch"`; wizard offers it as an editable suggestion.
 
 #### agent
+
 - `max_turns` — Codex safety cap. Defensive only; agents should not need this many.
 - `validation` — shell commands the agent runs in Phase 2 before `gh pr create`. The agent's Phase 2 prompt explicitly instructs: "run each of these; if any fails, fix and rerun until they pass, then create the PR." This makes validation gates agent-internal, matching the no-orchestrator-enforced-quality-gates decision.
 
 #### concurrency
+
 - `max` — only `planning` and `implementing` statuses count. `intake` and `in-review` do not consume a Codex slot.
 
 #### polling
+
 Two intervals, both jittered. Both honor Linear's `Retry-After` on 429.
 
 #### stall
+
 - `timeout_ms` — wallclock from the last thread event. Kills the turn (Codex session disposed) and marks the run failed for manual Retry.
 
 ### Removed from the schema
 
-| Old key | Disposition |
-|---|---|
-| `tracker.projectSlug` | Renamed to `tracker.project_slug_id`. Hard rename, no alias. |
-| `cloud.*` (entire subtree) | Deleted. |
-| `executionTarget` (anywhere) | Deleted. |
-| Cloud-specific phase configs | Deleted. |
+| Old key                      | Disposition                                                  |
+| ---------------------------- | ------------------------------------------------------------ |
+| `tracker.projectSlug`        | Renamed to `tracker.project_slug_id`. Hard rename, no alias. |
+| `cloud.*` (entire subtree)   | Deleted.                                                     |
+| `executionTarget` (anywhere) | Deleted.                                                     |
+| Cloud-specific phase configs | Deleted.                                                     |
 
 ### Wizard write semantics
 
 The wizard:
+
 - Validates each step against Linear's live API before advancing.
 - Writes the entire frontmatter atomically (parse existing → merge → write back).
 - Preserves the Markdown body unchanged.
@@ -503,27 +521,28 @@ Everything else (PR base branch, validation commands, concurrency, polling, stal
 
 ### Failure Catalog
 
-| Failure | Class | Symphony action | User-visible |
-|---|---|---|---|
-| Linear poll: network / 5xx / 429 | transient | exp. backoff (1s → 5min, max 5 attempts), honor `Retry-After`; in-flight runs unaffected | toast; persistent banner after 3 consecutive |
-| Linear poll: 400 | persistent (config) | log full body; flag config invalid; do not auto-retry; in-flight runs unaffected | error banner with full body + "open wizard" link |
-| Linear write: network / 5xx / 429 | transient | exp. backoff; run continues | inline warning on run |
-| Linear write: 400 | persistent | log + `lastError`; run continues | inline error; manual write-retry button |
-| Worktree create: transient race | transient | retry once | none if recovered |
-| Worktree create: persistent | output | mark `failed` | run failed |
-| Codex session start: transient | transient | retry with backoff | none if recovered |
-| Codex session start: auth/permission | output | mark `failed` | run failed |
-| Phase 1 turn crash mid-stream | transient (Codex error code) | retry once | (retrying) |
-| Phase 1 no parseable plan | output | mark `failed` | run failed |
-| Phase 1 stall | output | kill turn + mark `failed` | run failed; reason "stalled" |
-| Phase 2 turn crash mid-stream | transient | retry once | (retrying) |
-| Phase 2 no PR URL marker | output | mark `failed` | run failed |
-| Phase 2 stall | output | kill turn + mark `failed` | run failed; reason "stalled" |
-| Server crash mid-run | output | on restart: orphaned `planning`/`implementing` → `failed`; mid-Codex-turn is not reliably resumable. Worktree is preserved (not pruned) so the user can inspect partial work or run Retry to start a fresh thread on the same branch. | run failed; reason "server restart" |
+| Failure                              | Class                        | Symphony action                                                                                                                                                                                                                       | User-visible                                     |
+| ------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Linear poll: network / 5xx / 429     | transient                    | exp. backoff (1s → 5min, max 5 attempts), honor `Retry-After`; in-flight runs unaffected                                                                                                                                              | toast; persistent banner after 3 consecutive     |
+| Linear poll: 400                     | persistent (config)          | log full body; flag config invalid; do not auto-retry; in-flight runs unaffected                                                                                                                                                      | error banner with full body + "open wizard" link |
+| Linear write: network / 5xx / 429    | transient                    | exp. backoff; run continues                                                                                                                                                                                                           | inline warning on run                            |
+| Linear write: 400                    | persistent                   | log + `lastError`; run continues                                                                                                                                                                                                      | inline error; manual write-retry button          |
+| Worktree create: transient race      | transient                    | retry once                                                                                                                                                                                                                            | none if recovered                                |
+| Worktree create: persistent          | output                       | mark `failed`                                                                                                                                                                                                                         | run failed                                       |
+| Codex session start: transient       | transient                    | retry with backoff                                                                                                                                                                                                                    | none if recovered                                |
+| Codex session start: auth/permission | output                       | mark `failed`                                                                                                                                                                                                                         | run failed                                       |
+| Phase 1 turn crash mid-stream        | transient (Codex error code) | retry once                                                                                                                                                                                                                            | (retrying)                                       |
+| Phase 1 no parseable plan            | output                       | mark `failed`                                                                                                                                                                                                                         | run failed                                       |
+| Phase 1 stall                        | output                       | kill turn + mark `failed`                                                                                                                                                                                                             | run failed; reason "stalled"                     |
+| Phase 2 turn crash mid-stream        | transient                    | retry once                                                                                                                                                                                                                            | (retrying)                                       |
+| Phase 2 no PR URL marker             | output                       | mark `failed`                                                                                                                                                                                                                         | run failed                                       |
+| Phase 2 stall                        | output                       | kill turn + mark `failed`                                                                                                                                                                                                             | run failed; reason "stalled"                     |
+| Server crash mid-run                 | output                       | on restart: orphaned `planning`/`implementing` → `failed`; mid-Codex-turn is not reliably resumable. Worktree is preserved (not pruned) so the user can inspect partial work or run Retry to start a fresh thread on the same branch. | run failed; reason "server restart"              |
 
 ### Retry Classification
 
 **Auto-retry (transient infrastructure)** — exponential backoff with cap (initial 1s, max 5 min, max 5 attempts):
+
 - Network errors (DNS, refused, timeout)
 - HTTP 5xx
 - HTTP 429 (honor `Retry-After`)
@@ -531,6 +550,7 @@ Everything else (PR base branch, validation commands, concurrency, polling, stal
 - Worktree race conditions
 
 **No auto-retry (output / config failures)** — user clicks Retry:
+
 - HTTP 400 (almost always config, not transient)
 - Phase 1: no parseable plan
 - Phase 2: no PR URL marker
@@ -550,6 +570,7 @@ Implementation pattern: each top-level concern is its own Effect daemon. Failure
 ### Stall Detection
 
 Per-run wallclock:
+
 - Reset on every Codex thread event (token usage update, tool call, message delta — any signal of agent progress).
 - If `now - last_event > stall_timeout_ms` (default 5 min), kill the Codex turn, mark the run `failed` with reason "stalled".
 
@@ -558,36 +579,42 @@ Identical heuristic to the Elixir reference's `reconcile_stalled_running_issues`
 ### Bug Fixes for Current Symptoms
 
 #### Linear 400 — full diagnostic visibility
+
 - Log the full HTTP response body on any non-2xx (currently truncated at 1000 bytes).
 - Log the GraphQL operation name and variable types alongside the body.
 - Surface the body in the UI banner (collapsed by default; expand to view).
 - Banner includes a one-click "open setup wizard" to fix configuration.
 
 #### Linear 400 — auth scheme robustness
+
 The wizard validates on paste, and the runtime client enforces:
+
 - `lin_api_*` → personal key, sent raw.
 - `Bearer ...` prefix → strip and warn ("OAuth tokens not supported here").
-- JWT-shaped → "this looks like an OAuth token; paste a personal API key (lin_api_*)".
+- JWT-shaped → "this looks like an OAuth token; paste a personal API key (lin*api*\*)".
 - Empty → fail-fast; never call Linear.
 
 #### Linear 400 — schema field deprecation hint
+
 If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`branchName`, `inverseRelations`, etc.), the error message includes a hint: "Linear's GraphQL schema may have changed; this Symphony build may be incompatible." Surfaces clearly; not auto-retried; user knows to update Symphony.
 
 #### Cascade kill (the symptom 3 fix)
+
 - Scheduler and reconciler are independent Effect daemons.
 - A persistent Linear poll 400 leaves: in-flight runs running, the reconciler archiving terminal issues, the UI showing "Linear poll unhealthy" — but does not freeze new-issue intake.
 
 #### Failed-run runaway prevention
+
 - The `lastSeenLinearState` policy in Section "Re-engagement Policy" means a failed run sitting in intake does not auto-recreate.
 - User has clear paths: click Retry (in-place fresh attempt), or move the issue out and back into intake (creates a new run record).
 
 ### Logging Tiers
 
-| Tier | Audience | Content |
-|---|---|---|
-| Server log (file/stdout) | Developer / debugging | Full structured: op name, status, body, headers, classification, stack |
-| UI dashboard event log | Normal user | Human-readable summary; click to expand to server-log entry |
-| Linear comment (optional, default off) | Very loud surface | Major failures only; per-project toggle |
+| Tier                                   | Audience              | Content                                                                |
+| -------------------------------------- | --------------------- | ---------------------------------------------------------------------- |
+| Server log (file/stdout)               | Developer / debugging | Full structured: op name, status, body, headers, classification, stack |
+| UI dashboard event log                 | Normal user           | Human-readable summary; click to expand to server-log entry            |
+| Linear comment (optional, default off) | Very loud surface     | Major failures only; per-project toggle                                |
 
 ### What we explicitly do not do
 
@@ -599,18 +626,18 @@ If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`b
 
 ### Unit tests (pure modules, no Linear, no Codex, no SQLite)
 
-| Test file | Covers |
-|---|---|
-| `linear.test.ts` | GraphQL request shape, response parsing, full-body error capture, auth scheme detection, 400/429/5xx classification |
-| `scheduler.test.ts` | new-run creation, capacity gating, `lastSeenLinearState` re-engagement edge cases |
-| `orchestrator.test.ts` | Phase 1 → Phase 2 transition, marker-found / marker-missing branches, failure classification |
-| `reconciler.test.ts` | terminal-state poll → archive decisions |
-| `linearWriter.test.ts` | managed comment upsert (idempotent), state transition with version conflicts |
+| Test file                    | Covers                                                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `linear.test.ts`             | GraphQL request shape, response parsing, full-body error capture, auth scheme detection, 400/429/5xx classification                 |
+| `scheduler.test.ts`          | new-run creation, capacity gating, `lastSeenLinearState` re-engagement edge cases                                                   |
+| `orchestrator.test.ts`       | Phase 1 → Phase 2 transition, marker-found / marker-missing branches, failure classification                                        |
+| `reconciler.test.ts`         | terminal-state poll → archive decisions                                                                                             |
+| `linearWriter.test.ts`       | managed comment upsert (idempotent), state transition with version conflicts                                                        |
 | `threadOutputParser.test.ts` | `parsePlanFromOutput` (found/missing/partial/multiple/nested), `parsePRUrlFromOutput` (found/missing/multiple/malformed/non-GitHub) |
-| `prompts.test.ts` | planning + doing prompts produce expected substrings |
-| `runModel.test.ts` | status transitions, archive eligibility, `lastSeenLinearState` updates |
-| `runLifecycle.test.ts` | status resolution from inputs |
-| `workflow.test.ts` | schema parse, defaults, error messages |
+| `prompts.test.ts`            | planning + doing prompts produce expected substrings                                                                                |
+| `runModel.test.ts`           | status transitions, archive eligibility, `lastSeenLinearState` updates                                                              |
+| `runLifecycle.test.ts`       | status resolution from inputs                                                                                                       |
+| `workflow.test.ts`           | schema parse, defaults, error messages                                                                                              |
 
 ### Service-level tests (composition with mocks)
 
@@ -626,12 +653,15 @@ If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`b
 - Server restart: orphaned `planning`/`implementing` runs → marked `failed`.
 
 ### Contract tests
+
 - `packages/contracts/src/symphony.test.ts` — schema validation for new wizard RPCs; lint-grep verifies deleted RPC method names are not exported anywhere.
 
 ### Repository tests
+
 - `SymphonyRepository.test.ts` — SQLite persistence with new `last_seen_linear_state` column; migration applies cleanly; cloud runs auto-archived.
 
 ### Browser tests
+
 - Wizard flow: invalid key → error → valid key → project populates → state mapper populates → save → WORKFLOW.md updated.
 - Run details drawer: cloud rows absent.
 - Issue queue table: "Target" column gone, row actions intact.
@@ -639,6 +669,7 @@ If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`b
 - Dashboard event log: Linear 400 banner expands to full body, "open wizard" link works.
 
 ### End-to-end (scripted manual, before merge)
+
 1. Wizard configure for a test Linear project.
 2. Create a test issue in "To Do" → watch full lifecycle: managed comment → thread starts → Phase 1 plan markers → comment updates → Phase 2 → PR created → comment updates with link → Linear → In Review.
 3. Move issue to Done → run archives.
@@ -647,6 +678,7 @@ If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`b
 6. Kill Codex mid-turn → stall detection after 5 min.
 
 ### Validation gates (per AGENTS.md, every phase)
+
 `bun fmt && bun lint && bun typecheck && bun run test`
 
 ## Deletion Roadmap
@@ -654,21 +686,27 @@ If Linear returns `GRAPHQL_VALIDATION_FAILED` referencing a known field name (`b
 Six phases. Each phase passes all gates before proceeding to the next. Each phase is independently revertable.
 
 ### Phase 1 — Safe parallel deletes
+
 Files with no incoming references after their direct callers are stripped:
+
 - `apps/server/src/symphony/codexCloud.ts` and `.test.ts`
 - `apps/server/src/symphony/lifecyclePhase.ts` (after status-enum collapse)
 - Cloud-specific UI components (file-by-file audit in `components/symphony/`)
 - `apps/web/src/components/symphony/LinearAuthSettings.tsx` (after merge into wizard)
 
 ### Phase 2 — Decompose Layers/SymphonyService.ts
+
 Extract pure modules:
+
 - `scheduler.ts`, `orchestrator.ts`, `reconciler.ts`, `linearWriter.ts`
 - `Layers/SymphonyService.ts` becomes the slim composition shell
 - Split `Layers/SymphonyService.lifecycle.test.ts` into per-module tests
 - Behavioral equivalence: pre/post diffs of test outputs should match
 
 ### Phase 3 — Strip cloud branches from kept files
+
 File-by-file:
+
 - `runModel.ts`, `runLifecycle.ts`, `lifecyclePolicy.ts`
 - `workflow.ts`, `settingsModel.ts`, `progressComment.ts`
 - `packages/contracts/src/symphony.ts`, `packages/shared/src/symphony.ts`
@@ -676,6 +714,7 @@ File-by-file:
 - `apps/server/src/git/Layers/GitHubCli.ts` (delete PR helpers)
 
 ### Phase 4 — New code
+
 - Wizard components and RPCs
 - `prompts.ts` (replacement for `phasePrompts.ts`)
 - `threadOutputParser.ts` (replacement for `phaseOutput.ts`)
@@ -684,6 +723,7 @@ File-by-file:
 - `lastSeenLinearState` policy implementation
 
 ### Phase 5 — Audit and cleanup (the dead-code pass)
+
 - Audit `Layers/GitHubCli.ts` — if zero callers, delete the whole file plus Service interface.
 - `fallow` (gstack dead-code analyzer) against the codebase; investigate every reported unused export.
 - `bun lint` with strict unused-import rules.
@@ -694,6 +734,7 @@ File-by-file:
 - README and AGENTS.md updates if Symphony is mentioned.
 
 ### Phase 6 — Migration and verification
+
 - Apply SQLite migration.
 - Verify: cloud runs auto-archived, `last_seen_linear_state` populated from current Linear state, no schema drift.
 - Upgrade path: user with old `tracker.projectSlug` sees a clear error directing them to the wizard.
@@ -717,19 +758,20 @@ Phase 1 first (smallest blast radius, easy revert). Phase 2 is the biggest refac
 
 ## Risks
 
-| Risk | Mitigation |
-|---|---|
+| Risk                                                                                       | Mitigation                                                                                                                                               |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Marker fragility — agents may not emit markers exactly as instructed across model versions | Strong system prompt with examples; fallback parsers (e.g., extract plan from any `## Plan` heading if marker missing); telemetry on parse-success rate. |
-| Linear schema drift | Schema-deprecation hints surfaced in 400 errors; explicit field-existence test on first poll after Linear API version changes. |
-| Phase 2 refactor risk — decomposing the 4,375-line file could introduce subtle regressions | Behavior-preserving refactor; per-module tests written before extraction; pre/post test snapshots; phase-by-phase merge with revertability. |
-| No PR-merge visibility — Symphony loses signal on when work ships | By design; Linear "Done" is the merge signal. Acceptable per the original Symphony spec. |
-| Token costs at scale — 2+ Codex turns per run | Concurrency cap (default 3); stall detection; manual stop. Future: per-project budget limits. |
-| Wizard requires Linear access at config time | Offline path: hand-edit `WORKFLOW.md` still supported; wizard error surfaces Linear status clearly. |
-| Migration auto-archives in-flight cloud runs | Confirmed acceptable. Migration logs the archived runs for audit; nothing is deleted. |
+| Linear schema drift                                                                        | Schema-deprecation hints surfaced in 400 errors; explicit field-existence test on first poll after Linear API version changes.                           |
+| Phase 2 refactor risk — decomposing the 4,375-line file could introduce subtle regressions | Behavior-preserving refactor; per-module tests written before extraction; pre/post test snapshots; phase-by-phase merge with revertability.              |
+| No PR-merge visibility — Symphony loses signal on when work ships                          | By design; Linear "Done" is the merge signal. Acceptable per the original Symphony spec.                                                                 |
+| Token costs at scale — 2+ Codex turns per run                                              | Concurrency cap (default 3); stall detection; manual stop. Future: per-project budget limits.                                                            |
+| Wizard requires Linear access at config time                                               | Offline path: hand-edit `WORKFLOW.md` still supported; wizard error surfaces Linear status clearly.                                                      |
+| Migration auto-archives in-flight cloud runs                                               | Confirmed acceptable. Migration logs the archived runs for audit; nothing is deleted.                                                                    |
 
 ## Acceptance Criteria
 
 ### Cleanup
+
 - All files in Phase 1's deletion list are removed.
 - All cloud-specific branches in kept files are removed.
 - `fallow` reports zero unused exports related to Symphony, Linear, cloud, or GitHub-CLI-PR helpers.
@@ -737,6 +779,7 @@ Phase 1 first (smallest blast radius, easy revert). Phase 2 is the biggest refac
 - `grep -ri "executionTarget" --exclude-dir=node_modules` returns zero hits.
 
 ### Bug fixes (the symptoms reported)
+
 - Linear 400 surfaces with full response body in UI banner; banner offers "open wizard" link.
 - Linear poll failure does not block the reconciler or in-flight runs (verified by test).
 - Issues moved into intake state are picked up reliably on next scheduler tick.
@@ -744,6 +787,7 @@ Phase 1 first (smallest blast radius, easy revert). Phase 2 is the biggest refac
 - `lastSeenLinearState` correctly tracks Linear transitions.
 
 ### New behavior
+
 - Wizard validates each step against Linear's API before advancing.
 - Wizard never accepts a free-text slugId (always picker).
 - Wizard never accepts a free-text state name (always checkbox).
@@ -753,6 +797,7 @@ Phase 1 first (smallest blast radius, easy revert). Phase 2 is the biggest refac
 - Concurrency cap is enforced.
 
 ### Validation gates
+
 - `bun fmt` clean.
 - `bun lint` clean.
 - `bun typecheck` clean.

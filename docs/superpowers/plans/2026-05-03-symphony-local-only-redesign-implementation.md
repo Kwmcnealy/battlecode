@@ -15,6 +15,7 @@
 ### Server (`apps/server/src/symphony/`)
 
 **Delete:**
+
 - `codexCloud.ts` and `codexCloud.test.ts` — Codex Cloud delegation (Phase 1)
 - `lifecyclePhase.ts` and `lifecyclePhase.test.ts` — multi-phase enum (Phase 4 after collapse)
 - `phasePrompts.ts` and `phasePrompts.test.ts` — replaced by `prompts.ts` (Phase 4)
@@ -22,6 +23,7 @@
 - `Layers/SymphonyService.lifecycle.test.ts` — split into per-module tests (Phase 2)
 
 **Create:**
+
 - `scheduler.ts` and `scheduler.test.ts` — pure scheduler logic
 - `orchestrator.ts` and `orchestrator.test.ts` — pure run orchestrator logic
 - `reconciler.ts` and `reconciler.test.ts` — pure reconciler logic
@@ -31,6 +33,7 @@
 - `Layers/SymphonyService.test.ts` — composition test
 
 **Modify:**
+
 - `linear.ts` — auth scheme detection, full-body logging, schema-deprecation hints, `projectSlug → projectSlugId` rename
 - `linear.test.ts` — expanded coverage
 - `workflow.ts` — strip cloud keys, add `concurrency`, polling intervals
@@ -50,27 +53,32 @@
 ### Server (`apps/server/src/git/`)
 
 **Modify:**
+
 - `Layers/GitHubCli.ts` — delete `getPullRequest`, `listOpenPullRequests`, `listPullRequestFeedbackSignals`, `withRestFallback`
 - `Services/GitHubCli.ts` — trim service interface
 
 ### Server (`apps/server/src/persistence/`)
 
 **Create:**
+
 - `Migrations/032_SymphonyLocalOnly.ts` — drop cloud columns, add `last_seen_linear_state`, backfill cloud runs to canceled+archived
 - `Migrations/032_SymphonyLocalOnly.test.ts`
 
 **Modify:**
+
 - `Migrations.ts` — register migration 032
 
 ### Server (`apps/server/src/`)
 
 **Modify:**
+
 - `ws.ts` — wire new wizard RPCs
 - `wsServer.ts` — wire new wizard RPCs
 
 ### Contracts (`packages/contracts/src/`)
 
 **Modify:**
+
 - `symphony.ts` — strip cloud, add wizard RPCs (`fetchLinearProjects`, `fetchLinearWorkflowStates`, `applyConfiguration`), add `lastSeenLinearState`, collapse status to 7 values
 - `symphony.test.ts` — updated
 - `rpc.ts` — wire wizard RPCs
@@ -80,16 +88,19 @@
 ### Shared (`packages/shared/src/`)
 
 **Modify:**
+
 - `symphony.ts` — archive eligibility helper without cloud phases
 - `symphony.test.ts` — updated
 
 ### Web (`apps/web/src/`)
 
 **Delete:**
+
 - `components/symphony/LinearAuthSettings.tsx` — folded into wizard
 - Cloud-specific components (audit list in Phase 3)
 
 **Create:**
+
 - `components/symphony/LinearKeyInput.tsx`
 - `components/symphony/LinearKeyInput.browser.tsx`
 - `components/symphony/LinearProjectPicker.tsx`
@@ -101,6 +112,7 @@
 - `components/symphony/SettingsWizard.browser.tsx`
 
 **Modify:**
+
 - `components/symphony/SymphonySettingsPanel.tsx` and `.browser.tsx` — render `SettingsWizard`
 - `components/symphony/SymphonyPanel.tsx` and `.browser.tsx` — strip cloud
 - `components/symphony/SymphonyEventTimeline.tsx` — drop cloud event types
@@ -130,6 +142,7 @@ Verify the worktree is clean and gates pass before starting any task.
 - [ ] **Step 1: Confirm working tree clean and on the right branch**
 
 Run:
+
 ```bash
 git status
 git branch --show-current
@@ -140,6 +153,7 @@ Expected: clean tree on `t3code/symphony-lookup-errors`. The spec commit `a78869
 - [ ] **Step 2: Run all gates to confirm baseline passes**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -155,6 +169,7 @@ Goal: remove files that have no inbound references after their immediate consume
 ### Task 1.1: Audit and delete `codexCloud.ts`
 
 **Files:**
+
 - Delete: `apps/server/src/symphony/codexCloud.ts`
 - Delete: `apps/server/src/symphony/codexCloud.test.ts`
 - Modify: any file importing from `codexCloud.ts` (audit identifies callers)
@@ -162,6 +177,7 @@ Goal: remove files that have no inbound references after their immediate consume
 - [ ] **Step 1: Find all importers of `codexCloud.ts`**
 
 Run:
+
 ```bash
 grep -rn "from.*codexCloud" apps/server/src apps/web/src packages/
 ```
@@ -173,12 +189,14 @@ Note every importing file and the symbols it imports. Most likely callers: `Laye
 For each importer found in Step 1, replace calls to deleted helpers with explicit "cloud not supported" errors or remove the calling branches entirely. This may temporarily make `Layers/SymphonyService.ts` larger/ugly — that's fine; Phase 2 decomposes it. The goal here is only that nothing imports `codexCloud.ts` anymore.
 
 Concretely, in `Layers/SymphonyService.ts`, search for `codexCloud` and either:
+
 - Delete the entire branch if it's purely cloud (e.g., `if (executionTarget === "cloud") { ... }`)
 - Replace with a `throw new SymphonyError({ message: "Codex Cloud is no longer supported; this build is local-only." })` for any path that legitimately can't be deleted yet (clean up in Phase 3)
 
 - [ ] **Step 3: Verify no imports remain**
 
 Run:
+
 ```bash
 grep -rn "codexCloud" apps/server/src apps/web/src packages/
 ```
@@ -188,6 +206,7 @@ Expected: zero hits in source files. (Hits in `docs/`, `.plans/`, or `node_modul
 - [ ] **Step 4: Delete the files**
 
 Run:
+
 ```bash
 rm apps/server/src/symphony/codexCloud.ts apps/server/src/symphony/codexCloud.test.ts
 ```
@@ -195,6 +214,7 @@ rm apps/server/src/symphony/codexCloud.ts apps/server/src/symphony/codexCloud.te
 - [ ] **Step 5: Run gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -220,11 +240,13 @@ EOF
 ### Task 1.2: Audit cloud-only UI components
 
 **Files:**
+
 - Audit: `apps/web/src/components/symphony/*.tsx` and `*.ts`
 
 - [ ] **Step 1: List all Symphony UI files**
 
 Run:
+
 ```bash
 ls apps/web/src/components/symphony/
 ```
@@ -232,17 +254,20 @@ ls apps/web/src/components/symphony/
 - [ ] **Step 2: Find files that import or reference cloud-specific identifiers**
 
 Run:
+
 ```bash
 grep -rln "executionTarget\|cloudTask\|CodexCloud\|cloudSubmission\|cloud-submitted\|cloud-running\|waiting-cloud" apps/web/src/components/symphony/
 ```
 
 Note each file. For each, decide one of:
+
 - **Delete entirely** if the file is purely cloud (e.g., a "cloud diagnostics" panel)
 - **Strip branches** if the file has both local and cloud code (handle in Phase 3)
 
 - [ ] **Step 3: Delete purely-cloud component files**
 
 For each file marked "delete entirely" in Step 2:
+
 ```bash
 rm apps/web/src/components/symphony/<FileName>.tsx
 rm apps/web/src/components/symphony/<FileName>.browser.tsx  # if exists
@@ -253,6 +278,7 @@ Then `grep -rn "<FileName>"` to find re-exporters or route imports and remove th
 - [ ] **Step 4: Run gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -295,6 +321,7 @@ The extraction order (linearWriter → reconciler → orchestrator → scheduler
 ### Task 2.1: Extract `linearWriter.ts`
 
 **Files:**
+
 - Create: `apps/server/src/symphony/linearWriter.ts`
 - Create: `apps/server/src/symphony/linearWriter.test.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
@@ -302,11 +329,13 @@ The extraction order (linearWriter → reconciler → orchestrator → scheduler
 - [ ] **Step 1: Identify Linear-write code in SymphonyService.ts**
 
 Run:
+
 ```bash
 grep -n "commentCreate\|commentUpdate\|issueUpdate\|managed-progress\|symphony-managed-progress" apps/server/src/symphony/Layers/SymphonyService.ts
 ```
 
 Note the line ranges of:
+
 - The managed-comment upsert function
 - The state-transition function
 - Any helpers they share
@@ -385,6 +414,7 @@ describe("linearWriter", () => {
 - [ ] **Step 3: Verify the new test fails**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/linearWriter.test.ts
 ```
@@ -469,6 +499,7 @@ Then delete the inline functions that you just moved.
 - [ ] **Step 6: Verify both test suites pass**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/linearWriter.test.ts apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts
 ```
@@ -478,6 +509,7 @@ Expected: both pass. The existing lifecycle tests are the behavior-preservation 
 - [ ] **Step 7: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -503,6 +535,7 @@ EOF
 ### Task 2.2: Extract `reconciler.ts`
 
 **Files:**
+
 - Create: `apps/server/src/symphony/reconciler.ts`
 - Create: `apps/server/src/symphony/reconciler.test.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
@@ -510,6 +543,7 @@ EOF
 - [ ] **Step 1: Identify reconciler code in SymphonyService.ts**
 
 Run:
+
 ```bash
 grep -n "reconcile\|terminal\|archivedAt\|done.*archive" apps/server/src/symphony/Layers/SymphonyService.ts
 ```
@@ -590,6 +624,7 @@ describe("reconciler.decideArchive", () => {
 - [ ] **Step 3: Verify tests fail**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/reconciler.test.ts
 ```
@@ -624,7 +659,11 @@ export interface ReconcilerInput {
 }
 
 export type ReconcilerDecision =
-  | { readonly archive: true; readonly newStatus: "completed" | "canceled"; readonly reason: string }
+  | {
+      readonly archive: true;
+      readonly newStatus: "completed" | "canceled";
+      readonly reason: string;
+    }
   | { readonly archive: false; readonly reason: string };
 
 export function decideArchive(input: ReconcilerInput): ReconcilerDecision {
@@ -651,6 +690,7 @@ In `Layers/SymphonyService.ts`, find the terminal-state reconciliation loop and 
 - [ ] **Step 6: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -676,6 +716,7 @@ EOF
 ### Task 2.3: Extract `orchestrator.ts`
 
 **Files:**
+
 - Create: `apps/server/src/symphony/orchestrator.ts`
 - Create: `apps/server/src/symphony/orchestrator.test.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
@@ -683,6 +724,7 @@ EOF
 - [ ] **Step 1: Identify orchestrator code in SymphonyService.ts**
 
 Run:
+
 ```bash
 grep -n "Phase 1\|Phase 2\|planning\|implementing\|nextPhase\|threadOutput\|parsePlan\|parsePR" apps/server/src/symphony/Layers/SymphonyService.ts
 ```
@@ -772,6 +814,7 @@ describe("orchestrator.decideNextAction", () => {
 - [ ] **Step 3: Verify tests fail**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/orchestrator.test.ts
 ```
@@ -888,6 +931,7 @@ In `Layers/SymphonyService.ts`, replace the inline phase-transition decision log
 - [ ] **Step 7: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -912,6 +956,7 @@ EOF
 ### Task 2.4: Extract `scheduler.ts`
 
 **Files:**
+
 - Create: `apps/server/src/symphony/scheduler.ts`
 - Create: `apps/server/src/symphony/scheduler.test.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
@@ -919,6 +964,7 @@ EOF
 - [ ] **Step 1: Identify scheduler code in SymphonyService.ts**
 
 Run:
+
 ```bash
 grep -n "shouldQueueIntakeRun\|launchQueuedRuns\|refreshCandidates\|runSchedulerTick\|capacity\|max_concurrent" apps/server/src/symphony/Layers/SymphonyService.ts
 ```
@@ -1038,6 +1084,7 @@ describe("scheduler.decideSchedulerActions", () => {
 - [ ] **Step 3: Verify tests fail**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/scheduler.test.ts
 ```
@@ -1155,6 +1202,7 @@ Note: this task is the moment where the bug-fix from the spec ("`shouldQueueInta
 - [ ] **Step 6: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1181,11 +1229,13 @@ EOF
 ### Task 2.5: Slim composition shell in `Layers/SymphonyService.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 
 - [ ] **Step 1: Inventory remaining inline logic**
 
 Run:
+
 ```bash
 wc -l apps/server/src/symphony/Layers/SymphonyService.ts
 grep -n "^function\|^const.*=.*=>\|^export\|^class" apps/server/src/symphony/Layers/SymphonyService.ts
@@ -1196,6 +1246,7 @@ After the previous tasks extracted `linearWriter`, `reconciler`, `orchestrator`,
 - [ ] **Step 2: Move remaining stragglers**
 
 For any pure helper still inline that is more than ~30 lines, extract it to one of the existing modules where it fits topically:
+
 - Run-status helpers → `runModel.ts`
 - Lifecycle helpers → `runLifecycle.ts`
 - Linear helpers → `linear.ts`
@@ -1206,6 +1257,7 @@ Goal: the Layer file should be under ~1,000 lines, ideally ~500-800.
 - [ ] **Step 3: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1231,12 +1283,14 @@ EOF
 ### Task 2.6: Split `Layers/SymphonyService.lifecycle.test.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts`
 - Create: `apps/server/src/symphony/Layers/SymphonyService.test.ts` (composition test)
 
 - [ ] **Step 1: Inventory the existing 1,889-line lifecycle test**
 
 Run:
+
 ```bash
 grep -n "describe(\|it(\|test(" apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts
 ```
@@ -1262,6 +1316,7 @@ Remove tests identified in Step 3 from `SymphonyService.lifecycle.test.ts`.
 - [ ] **Step 6: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1271,6 +1326,7 @@ Expected: all pass. Coverage should not regress (module-level tests fill any gap
 - [ ] **Step 7: Decide on the lifecycle file**
 
 If the lifecycle file is now empty or near-empty, delete it:
+
 ```bash
 rm apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts
 ```
@@ -1302,12 +1358,14 @@ Goal: remove all cloud-specific branches, fields, types, and references from fil
 ### Task 3.1: Strip cloud from `packages/contracts/src/symphony.ts`
 
 **Files:**
+
 - Modify: `packages/contracts/src/symphony.ts`
 - Modify: `packages/contracts/src/symphony.test.ts`
 
 - [ ] **Step 1: Search for cloud identifiers**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget\|CodexCloud" packages/contracts/src/symphony.ts
 ```
@@ -1317,12 +1375,14 @@ Note each match: schemas, types, RPC methods.
 - [ ] **Step 2: Remove cloud-specific schemas and types**
 
 In `packages/contracts/src/symphony.ts`, delete:
+
 - `SymphonyCloudTask` schema and type
 - `SymphonyExecutionTarget` schema (or collapse to a `Schema.Literal("local")` constant)
 - Any cloud-specific run status values from `SymphonyRunStatus` enum (the full collapse to 7 values is in Phase 4; here just remove obvious cloud ones like `cloud-submitted`, `cloud-running`, `waiting-cloud-signal`)
 - Cloud-specific RPC method names (search for `cloud` in the method-name constants block)
 
 Run typecheck after every save to catch dangling references:
+
 ```bash
 bun typecheck
 ```
@@ -1338,6 +1398,7 @@ In `packages/contracts/src/symphony.test.ts`, remove assertions that referenced 
 - [ ] **Step 5: Run gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1364,12 +1425,14 @@ EOF
 ### Task 3.2: Strip cloud from `apps/server/src/symphony/runModel.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/runModel.ts`
 - Modify: `apps/server/src/symphony/runModel.test.ts`
 
 - [ ] **Step 1: Search for cloud identifiers**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget" apps/server/src/symphony/runModel.ts
 ```
@@ -1385,6 +1448,7 @@ Remove assertions about cloud fields.
 - [ ] **Step 4: Run targeted tests**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/runModel.test.ts
 ```
@@ -1406,12 +1470,14 @@ EOF
 ### Task 3.3: Strip cloud from `apps/server/src/symphony/runLifecycle.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/runLifecycle.ts`
 - Modify: `apps/server/src/symphony/runLifecycle.test.ts`
 
 - [ ] **Step 1: Search and identify cloud branches**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget" apps/server/src/symphony/runLifecycle.ts
 ```
@@ -1427,6 +1493,7 @@ Remove the cloud-specific cases from `runLifecycle.test.ts`.
 - [ ] **Step 4: Run gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test apps/server/src/symphony/runLifecycle.test.ts
 ```
@@ -1448,11 +1515,13 @@ EOF
 ### Task 3.4: Strip cloud from `lifecyclePolicy.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/lifecyclePolicy.ts`
 
 - [ ] **Step 1: Search**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget\|CLOUD\|MONITORED" apps/server/src/symphony/lifecyclePolicy.ts
 ```
@@ -1464,6 +1533,7 @@ Delete cloud-only entries from any constant sets like `MONITORED_RUN_STATUSES`. 
 - [ ] **Step 3: Run gates**
 
 Run:
+
 ```bash
 bun typecheck
 ```
@@ -1485,12 +1555,14 @@ EOF
 ### Task 3.5: Strip cloud from `progressComment.ts` and tests
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/progressComment.ts`
 - Modify: `apps/server/src/symphony/progressComment.test.ts`
 
 - [ ] **Step 1: Find cloud rendering**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget" apps/server/src/symphony/progressComment.ts
 ```
@@ -1504,6 +1576,7 @@ Drop branches that emit cloud-target labels or cloud-task URLs. Simplify the pha
 - [ ] **Step 4: Run targeted tests**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/progressComment.test.ts
 ```
@@ -1523,11 +1596,13 @@ EOF
 ### Task 3.6: Strip cloud from `settingsModel.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/settingsModel.ts`
 
 - [ ] **Step 1: Find cloud fields**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget\|executionDefaultTarget" apps/server/src/symphony/settingsModel.ts
 ```
@@ -1539,6 +1614,7 @@ The `executionDefaultTarget` field becomes either constant `"local"` or removed 
 - [ ] **Step 3: Run gates**
 
 Run:
+
 ```bash
 bun typecheck
 ```
@@ -1558,12 +1634,14 @@ EOF
 ### Task 3.7: Strip cloud from `workflow.ts` and update schema
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/workflow.ts`
 - Modify: `apps/server/src/symphony/workflow.test.ts`
 
 - [ ] **Step 1: Find cloud config keys**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget\|projectSlug" apps/server/src/symphony/workflow.ts
 ```
@@ -1591,6 +1669,7 @@ The starter template's `project_slug:` becomes `project_slug_id:`.
 - [ ] **Step 4: Add `concurrency` and explicit `polling` keys**
 
 Extend the schema to include:
+
 ```ts
 export interface WorkflowConfig {
   readonly tracker: WorkflowTrackerConfig;
@@ -1608,6 +1687,7 @@ export interface WorkflowConfig {
 ```
 
 Defaults:
+
 - `concurrency.max`: 3
 - `polling.schedulerIntervalMs`: 30000
 - `polling.reconcilerIntervalMs`: 60000
@@ -1617,6 +1697,7 @@ Defaults:
 - [ ] **Step 5: Update tests**
 
 Update `workflow.test.ts`:
+
 - Remove cloud parsing tests
 - Add `projectSlugId` parsing test
 - Add `concurrency`, `polling`, `stall` defaulting tests
@@ -1625,6 +1706,7 @@ Update `workflow.test.ts`:
 - [ ] **Step 6: Run targeted tests**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/workflow.test.ts
 ```
@@ -1648,12 +1730,14 @@ EOF
 ### Task 3.8: Strip cloud from `packages/shared/src/symphony.ts`
 
 **Files:**
+
 - Modify: `packages/shared/src/symphony.ts`
 - Modify: `packages/shared/src/symphony.test.ts`
 
 - [ ] **Step 1: Find cloud lifecycle phases**
 
 Run:
+
 ```bash
 grep -n "cloud\|executionTarget" packages/shared/src/symphony.ts
 ```
@@ -1667,6 +1751,7 @@ Delete cloud-specific phases (e.g., `waiting-cloud-signal`) from the `disallowed
 - [ ] **Step 4: Run targeted tests**
 
 Run:
+
 ```bash
 bun run test packages/shared/src/symphony.test.ts
 ```
@@ -1686,6 +1771,7 @@ EOF
 ### Task 3.9: Strip cloud from web components
 
 **Files:**
+
 - Modify: `apps/web/src/components/symphony/SymphonyPanel.tsx` and `.browser.tsx`
 - Modify: `apps/web/src/components/symphony/SymphonyEventTimeline.tsx`
 - Modify: `apps/web/src/components/symphony/IssueQueueTable.tsx` and `.browser.tsx`
@@ -1702,6 +1788,7 @@ EOF
 - [ ] **Step 1: Find every cloud branch in web**
 
 Run:
+
 ```bash
 grep -rln "executionTarget\|cloudTask\|cloud-submitted\|cloud-running\|waiting-cloud\|RefreshCloud\|refresh-cloud" apps/web/src/
 ```
@@ -1709,6 +1796,7 @@ grep -rln "executionTarget\|cloudTask\|cloud-submitted\|cloud-running\|waiting-c
 - [ ] **Step 2: For each file, remove cloud branches**
 
 For each file in the list, find the cloud-specific branches and delete them:
+
 - Conditional `if (executionTarget === "cloud") { ... }` branches → delete
 - Cloud-specific table columns → delete
 - Cloud-specific event types → delete
@@ -1719,6 +1807,7 @@ In `IssueQueueTable.tsx`, the "Target" column gets removed entirely (every run i
 - [ ] **Step 3: Run gates after each file save**
 
 Run:
+
 ```bash
 bun typecheck
 ```
@@ -1728,6 +1817,7 @@ Fix import errors and unused vars as you go.
 - [ ] **Step 4: Run all gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1753,6 +1843,7 @@ EOF
 ### Task 3.10: Delete PR helpers from `apps/server/src/git/Layers/GitHubCli.ts`
 
 **Files:**
+
 - Modify: `apps/server/src/git/Layers/GitHubCli.ts`
 - Modify: `apps/server/src/git/Services/GitHubCli.ts`
 - Delete or trim: corresponding test files
@@ -1760,6 +1851,7 @@ EOF
 - [ ] **Step 1: Find PR helpers and callers**
 
 Run:
+
 ```bash
 grep -n "getPullRequest\|listOpenPullRequests\|listPullRequestFeedbackSignals\|withRestFallback\|normalizeGitHubCliError" apps/server/src/git/Layers/GitHubCli.ts
 grep -rln "getPullRequest\|listOpenPullRequests\|listPullRequestFeedbackSignals" apps/server/src apps/web/src
@@ -1772,6 +1864,7 @@ If any call sites remain in `Layers/SymphonyService.ts` or other Symphony files,
 - [ ] **Step 3: Delete the four helpers**
 
 In `Layers/GitHubCli.ts`, delete:
+
 - `getPullRequest`
 - `listOpenPullRequests`
 - `listPullRequestFeedbackSignals`
@@ -1782,6 +1875,7 @@ In `Services/GitHubCli.ts`, remove the corresponding interface entries.
 - [ ] **Step 4: Audit `normalizeGitHubCliError`**
 
 Run:
+
 ```bash
 grep -rn "normalizeGitHubCliError" apps/server/src apps/web/src
 ```
@@ -1791,6 +1885,7 @@ If zero callers remain, delete the function. If callers exist (e.g., for non-PR 
 - [ ] **Step 5: Run gates**
 
 Run:
+
 ```bash
 bun fmt && bun lint && bun typecheck && bun run test
 ```
@@ -1823,6 +1918,7 @@ Goal: implement everything that's net-new in the redesign — the migration, bug
 ### Task 4.1: Create migration `032_SymphonyLocalOnly.ts`
 
 **Files:**
+
 - Create: `apps/server/src/persistence/Migrations/032_SymphonyLocalOnly.ts`
 - Create: `apps/server/src/persistence/Migrations/032_SymphonyLocalOnly.test.ts`
 - Modify: `apps/server/src/persistence/Migrations.ts`
@@ -1903,6 +1999,7 @@ describe("Migration 032: SymphonyLocalOnly", () => {
 - [ ] **Step 2: Verify the test fails**
 
 Run:
+
 ```bash
 bun run test apps/server/src/persistence/Migrations/032_SymphonyLocalOnly.test.ts
 ```
@@ -2001,6 +2098,7 @@ import Migration0032 from "./Migrations/032_SymphonyLocalOnly.ts";
 ```
 
 And in `migrationEntries`:
+
 ```ts
 [32, "SymphonyLocalOnly", Migration0032],
 ```
@@ -2008,6 +2106,7 @@ And in `migrationEntries`:
 - [ ] **Step 5: Run the test**
 
 Run:
+
 ```bash
 bun run test apps/server/src/persistence/Migrations/032_SymphonyLocalOnly.test.ts
 ```
@@ -2039,6 +2138,7 @@ EOF
 ### Task 4.2: Linear client auth scheme detection and full body logging
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/linear.ts`
 - Modify: `apps/server/src/symphony/linear.test.ts`
 
@@ -2063,7 +2163,9 @@ describe("Linear API key validation", () => {
   });
 
   it("flags a JWT-shaped token as OAuth", () => {
-    const result = classifyLinearApiKey("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature");
+    const result = classifyLinearApiKey(
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+    );
     expect(result).toEqual({
       kind: "oauth-token",
       token: null,
@@ -2080,14 +2182,13 @@ describe("Linear API key validation", () => {
 describe("Linear error body logging", () => {
   it("includes the full response body in the thrown error message (no truncation)", async () => {
     const longBody = "X".repeat(5000);
-    vi.stubGlobal("fetch", async () =>
-      new Response(longBody, { status: 400, statusText: "Bad Request" }),
+    vi.stubGlobal(
+      "fetch",
+      async () => new Response(longBody, { status: 400, statusText: "Bad Request" }),
     );
 
     try {
-      await Effect.runPromise(
-        linearGraphql({ query: "query Q { a }", apiKey: "lin_api_abc" }),
-      );
+      await Effect.runPromise(linearGraphql({ query: "query Q { a }", apiKey: "lin_api_abc" }));
       throw new Error("expected to throw");
     } catch (e: unknown) {
       const message = (e as { message?: string }).message ?? String(e);
@@ -2100,6 +2201,7 @@ describe("Linear error body logging", () => {
 - [ ] **Step 2: Verify tests fail**
 
 Run:
+
 ```bash
 bun run test apps/server/src/symphony/linear.test.ts
 ```
@@ -2113,7 +2215,11 @@ In `apps/server/src/symphony/linear.ts`, add:
 ```ts
 export type LinearApiKeyClassification =
   | { readonly kind: "personal"; readonly token: string }
-  | { readonly kind: "personal-with-bearer-prefix"; readonly token: string; readonly warning: string }
+  | {
+      readonly kind: "personal-with-bearer-prefix";
+      readonly token: string;
+      readonly warning: string;
+    }
   | { readonly kind: "oauth-token"; readonly token: null; readonly error: string }
   | { readonly kind: "empty"; readonly token: null };
 
@@ -2151,10 +2257,15 @@ export function classifyLinearApiKey(raw: string): LinearApiKeyClassification {
 In `linear.ts`, find the function that sends GraphQL requests (the one that sets `authorization: input.apiKey`). Update it to:
 
 ```ts
-function buildAuthorizationHeader(rawKey: string): { ok: true; value: string } | { ok: false; error: string } {
+function buildAuthorizationHeader(
+  rawKey: string,
+): { ok: true; value: string } | { ok: false; error: string } {
   const classified = classifyLinearApiKey(rawKey);
   if (classified.token === null) {
-    return { ok: false, error: classified.kind === "empty" ? "API key is empty" : classified.error };
+    return {
+      ok: false,
+      error: classified.kind === "empty" ? "API key is empty" : classified.error,
+    };
   }
   return { ok: true, value: classified.token };
 }
@@ -2173,9 +2284,7 @@ function formatLinearHttpError(input: {
   readonly body: string;
   readonly rateLimit: string | null;
 }): string {
-  const parts = [
-    `Linear ${input.operationName} request failed with HTTP ${input.status}`,
-  ];
+  const parts = [`Linear ${input.operationName} request failed with HTTP ${input.status}`];
   parts.push(`response body: ${input.body}`); // full body, no truncation
   if (input.rateLimit) parts.push(`rate limit: ${input.rateLimit}`);
   return parts.join("; ");
@@ -2210,6 +2319,7 @@ EOF
 ### Task 4.3: Linear schema-deprecation hints
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/linear.ts`
 - Modify: `apps/server/src/symphony/linear.test.ts`
 
@@ -2251,15 +2361,11 @@ function formatLinearHttpError(input: {
   readonly body: string;
   readonly rateLimit: string | null;
 }): string {
-  const parts = [
-    `Linear ${input.operationName} request failed with HTTP ${input.status}`,
-  ];
+  const parts = [`Linear ${input.operationName} request failed with HTTP ${input.status}`];
   parts.push(`response body: ${input.body}`);
   if (input.rateLimit) parts.push(`rate limit: ${input.rateLimit}`);
 
-  const offendingField = KNOWN_LINEAR_FIELDS.find((field) =>
-    input.body.includes(`"${field}"`),
-  );
+  const offendingField = KNOWN_LINEAR_FIELDS.find((field) => input.body.includes(`"${field}"`));
   const isValidationError = input.body.includes("GRAPHQL_VALIDATION_FAILED");
 
   if (offendingField && isValidationError) {
@@ -2299,6 +2405,7 @@ EOF
 ### Task 4.4: `prompts.ts` (Phase 1 + Phase 2 prompt builders)
 
 **Files:**
+
 - Create: `apps/server/src/symphony/prompts.ts`
 - Create: `apps/server/src/symphony/prompts.test.ts`
 - Delete: `apps/server/src/symphony/phasePrompts.ts` and `phasePrompts.test.ts`
@@ -2478,6 +2585,7 @@ export function doingPrompt(input: {
 - [ ] **Step 4: Replace imports of `phasePrompts.ts`**
 
 Run:
+
 ```bash
 grep -rn "phasePrompts" apps/server/src apps/web/src
 ```
@@ -2518,6 +2626,7 @@ EOF
 ### Task 4.5: Comprehensive `threadOutputParser.test.ts`
 
 **Files:**
+
 - Create: `apps/server/src/symphony/threadOutputParser.test.ts`
 - Modify: `apps/server/src/symphony/threadOutputParser.ts` (refine if tests reveal issues)
 - Delete: `apps/server/src/symphony/phaseOutput.ts` and `phaseOutput.test.ts`
@@ -2589,7 +2698,9 @@ describe("parsePRUrlFromOutput", () => {
   });
 
   it("returns null for non-GitHub URLs", () => {
-    expect(parsePRUrlFromOutput("SYMPHONY_PR_URL: https://gitlab.com/x/y/-/merge_requests/1")).toBeNull();
+    expect(
+      parsePRUrlFromOutput("SYMPHONY_PR_URL: https://gitlab.com/x/y/-/merge_requests/1"),
+    ).toBeNull();
   });
 
   it("returns the first marker when multiple are present", () => {
@@ -2659,6 +2770,7 @@ EOF
 ### Task 4.6: Status enum collapse to 7 values + delete `lifecyclePhase.ts`
 
 **Files:**
+
 - Modify: `packages/contracts/src/symphony.ts`
 - Modify: `apps/server/src/symphony/runModel.ts`
 - Modify: `apps/server/src/symphony/runLifecycle.ts`
@@ -2696,6 +2808,7 @@ bun typecheck
 ```
 
 Iterate file-by-file until typecheck passes:
+
 - `runModel.ts`: drop `lifecyclePhase` from `makeRun` and any helpers
 - `runLifecycle.ts`: drop branches keyed on phase; map remaining states to the 7-value enum
 - `lifecyclePolicy.ts`: update `MONITORED_RUN_STATUSES` to the new set
@@ -2745,6 +2858,7 @@ EOF
 ### Task 4.7: Wizard server RPCs
 
 **Files:**
+
 - Modify: `packages/contracts/src/symphony.ts`
 - Modify: `packages/contracts/src/rpc.ts`
 - Modify: `packages/contracts/src/ipc.ts`
@@ -2791,7 +2905,9 @@ export const SymphonyApplyConfigurationInput = Schema.Struct({
   validation: Schema.Array(Schema.String),
   prBaseBranch: Schema.String,
 });
-export type SymphonyApplyConfigurationInput = Schema.Schema.Type<typeof SymphonyApplyConfigurationInput>;
+export type SymphonyApplyConfigurationInput = Schema.Schema.Type<
+  typeof SymphonyApplyConfigurationInput
+>;
 
 // Method names
 export const SYMPHONY_FETCH_LINEAR_PROJECTS = "symphony.fetchLinearProjects" as const;
@@ -2939,6 +3055,7 @@ EOF
 ### Task 4.8: Wizard UI — `LinearKeyInput.tsx`
 
 **Files:**
+
 - Create: `apps/web/src/components/symphony/LinearKeyInput.tsx`
 - Create: `apps/web/src/components/symphony/LinearKeyInput.browser.tsx`
 
@@ -2968,7 +3085,8 @@ describe("LinearKeyInput", () => {
   it("shows the OAuth-token error when the key looks JWT-shaped", async () => {
     const onValidate = vi.fn().mockResolvedValue({
       ok: false,
-      error: "This looks like an OAuth/JWT token. Symphony requires a personal API key (lin_api_*).",
+      error:
+        "This looks like an OAuth/JWT token. Symphony requires a personal API key (lin_api_*).",
     });
     render(<LinearKeyInput onValidate={onValidate} onValid={() => {}} />);
 
@@ -3085,6 +3203,7 @@ EOF
 ### Task 4.9: Wizard UI — `LinearProjectPicker.tsx`
 
 **Files:**
+
 - Create: `apps/web/src/components/symphony/LinearProjectPicker.tsx`
 - Create: `apps/web/src/components/symphony/LinearProjectPicker.browser.tsx`
 
@@ -3202,6 +3321,7 @@ EOF
 ### Task 4.10: Wizard UI — `LinearStateMapper.tsx`
 
 **Files:**
+
 - Create: `apps/web/src/components/symphony/LinearStateMapper.tsx`
 - Create: `apps/web/src/components/symphony/LinearStateMapper.browser.tsx`
 
@@ -3377,6 +3497,7 @@ EOF
 ### Task 4.11: Wizard UI — `WizardProgress.tsx` and `SettingsWizard.tsx`
 
 **Files:**
+
 - Create: `apps/web/src/components/symphony/WizardProgress.tsx`
 - Create: `apps/web/src/components/symphony/SettingsWizard.tsx`
 - Create: `apps/web/src/components/symphony/SettingsWizard.browser.tsx`
@@ -3391,9 +3512,9 @@ import { SettingsWizard } from "./SettingsWizard.tsx";
 
 const noopApi = {
   validateKey: vi.fn().mockResolvedValue({ ok: true }),
-  fetchProjects: vi.fn().mockResolvedValue([
-    { id: "p1", name: "BattleTCG", slugId: "abc111", teamName: "Eng" },
-  ]),
+  fetchProjects: vi
+    .fn()
+    .mockResolvedValue([{ id: "p1", name: "BattleTCG", slugId: "abc111", teamName: "Eng" }]),
   fetchStates: vi.fn().mockResolvedValue([
     { id: "s1", name: "To Do", type: "unstarted", position: 0 },
     { id: "s2", name: "In Progress", type: "started", position: 1 },
@@ -3535,10 +3656,7 @@ export function SettingsWizard(props: SettingsWizardProps) {
     <div>
       <WizardProgress steps={["API key", "Project", "States", "Save"]} currentIndex={step} />
       {step === 0 ? (
-        <LinearKeyInput
-          onValidate={(k) => props.api.validateKey(k)}
-          onValid={handleValidKey}
-        />
+        <LinearKeyInput onValidate={(k) => props.api.validateKey(k)} onValid={handleValidKey} />
       ) : null}
       {step === 1 ? (
         <LinearProjectPicker projects={projects} onSelect={handleSelectProject} />
@@ -3586,6 +3704,7 @@ EOF
 ### Task 4.12: Wire wizard into `SymphonySettingsPanel`, delete `LinearAuthSettings`
 
 **Files:**
+
 - Modify: `apps/web/src/components/symphony/SymphonySettingsPanel.tsx` and `.browser.tsx`
 - Delete: `apps/web/src/components/symphony/LinearAuthSettings.tsx`
 
@@ -3656,6 +3775,7 @@ EOF
 ### Task 4.13: Per-symptom isolation in poll loops
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.test.ts`
 
@@ -3697,23 +3817,17 @@ const tick = Effect.all(
   [
     schedulerTick().pipe(
       Effect.catchAll((error) =>
-        Effect.logError("scheduler tick failed", { error }).pipe(
-          Effect.as(undefined),
-        ),
+        Effect.logError("scheduler tick failed", { error }).pipe(Effect.as(undefined)),
       ),
     ),
     runOrchestratorTick().pipe(
       Effect.catchAll((error) =>
-        Effect.logError("run orchestrator tick failed", { error }).pipe(
-          Effect.as(undefined),
-        ),
+        Effect.logError("run orchestrator tick failed", { error }).pipe(Effect.as(undefined)),
       ),
     ),
     reconcilerTick().pipe(
       Effect.catchAll((error) =>
-        Effect.logError("reconciler tick failed", { error }).pipe(
-          Effect.as(undefined),
-        ),
+        Effect.logError("reconciler tick failed", { error }).pipe(Effect.as(undefined)),
       ),
     ),
   ],
@@ -3766,6 +3880,7 @@ EOF
 ### Task 4.14: Stall detection
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.test.ts`
 
@@ -3794,7 +3909,11 @@ describe("Stall detection", () => {
 In `Layers/SymphonyService.ts`, add a stall check inside the per-run orchestrator tick:
 
 ```ts
-function isStalled(run: { lastEventAt: string | null }, now: Date, stallTimeoutMs: number): boolean {
+function isStalled(
+  run: { lastEventAt: string | null },
+  now: Date,
+  stallTimeoutMs: number,
+): boolean {
   if (run.lastEventAt === null) return false;
   return now.getTime() - new Date(run.lastEventAt).getTime() > stallTimeoutMs;
 }
@@ -3803,12 +3922,13 @@ function isStalled(run: { lastEventAt: string | null }, now: Date, stallTimeoutM
 if (run.status === "planning" || run.status === "implementing") {
   const stallTimeoutMs = workflow.stall.timeoutMs;
   if (isStalled(run, new Date(), stallTimeoutMs)) {
-    yield* codexAppServerManager.disposeSession(run.threadId);
-    yield* runRepository.updateRun({
-      runId: run.runId,
-      status: "failed",
-      lastError: `stalled (no agent progress for ${stallTimeoutMs}ms)`,
-    });
+    yield * codexAppServerManager.disposeSession(run.threadId);
+    yield *
+      runRepository.updateRun({
+        runId: run.runId,
+        status: "failed",
+        lastError: `stalled (no agent progress for ${stallTimeoutMs}ms)`,
+      });
     return;
   }
 }
@@ -3840,6 +3960,7 @@ EOF
 ### Task 4.15: Concurrency cap enforcement
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.test.ts`
 
@@ -3866,7 +3987,7 @@ describe("Concurrency cap", () => {
 The capacity logic was added in Task 2.4. Verify the integration in `Layers/SymphonyService.ts` supplies the right `runningCount`:
 
 ```ts
-const runningCount = (yield* runRepository.listRunsByStatus(["planning", "implementing"])).length;
+const runningCount = (yield * runRepository.listRunsByStatus(["planning", "implementing"])).length;
 const decisions = decideSchedulerActions({
   candidates,
   existingRuns,
@@ -3907,11 +4028,13 @@ Goal: ensure no dead code remains. Run the dead-code analyzers and grep audits.
 ### Task 5.1: Audit `Layers/GitHubCli.ts` callers
 
 **Files:**
+
 - Possibly delete: `apps/server/src/git/Layers/GitHubCli.ts` and `Services/GitHubCli.ts`
 
 - [ ] **Step 1: Find remaining callers**
 
 Run:
+
 ```bash
 grep -rn "GitHubCli\|GitHubCliShape\|@t3tools/server/git" apps/server/src apps/web/src packages/
 ```
@@ -3946,11 +4069,13 @@ EOF
 ### Task 5.2: Run `fallow` for dead exports
 
 **Files:**
+
 - (audit only)
 
 - [ ] **Step 1: Run fallow**
 
 Run:
+
 ```bash
 fallow exports
 ```
@@ -3976,6 +4101,7 @@ EOF
 ### Task 5.3: Strict unused-import lint
 
 **Files:**
+
 - (audit only)
 
 - [ ] **Step 1: Run lint**
@@ -4003,6 +4129,7 @@ EOF
 ### Task 5.4: Manual greps for stale references
 
 **Files:**
+
 - (audit only)
 
 - [ ] **Step 1: Grep for "cloud" in symphony source**
@@ -4048,6 +4175,7 @@ EOF
 ### Task 5.5: Audit `.plans/` and `docs/` for stale notes
 
 **Files:**
+
 - Possibly modify: files under `.plans/` and `docs/`
 
 - [ ] **Step 1: List candidates**
@@ -4084,6 +4212,7 @@ Goal: validate the migration runs cleanly on a real database and run the manual 
 ### Task 6.1: Verify migration on a test database
 
 **Files:**
+
 - (verification only — no code changes)
 
 - [ ] **Step 1: Make a backup of the dev DB if one exists**
@@ -4094,6 +4223,7 @@ find apps/server -name "*.sqlite" -not -path "*/node_modules/*"
 ```
 
 If a dev DB exists, copy it:
+
 ```bash
 cp <found-path> <found-path>.backup-$(date +%s)
 ```
@@ -4105,6 +4235,7 @@ cd apps/server && bun run dev
 ```
 
 Watch for migration log output. Migration 032 should run automatically and log:
+
 ```
 Running all migrations...
 Migrations ran successfully { migrations: [..., '32_SymphonyLocalOnly'] }
@@ -4113,11 +4244,13 @@ Migrations ran successfully { migrations: [..., '32_SymphonyLocalOnly'] }
 - [ ] **Step 3: Inspect schema**
 
 In another terminal:
+
 ```bash
 sqlite3 <db-path> "PRAGMA table_info(symphony_runs);"
 ```
 
 Verify:
+
 - `last_seen_linear_state` column exists
 - `execution_target`, `cloud_task_json` columns are absent
 
@@ -4137,6 +4270,7 @@ Verify any pre-existing cloud runs are now status=canceled with `archivedAt` set
 ### Task 6.2: Run end-to-end manual script
 
 **Files:**
+
 - (verification only)
 
 This is the scripted manual end-to-end specified in the design's "Testing Strategy" section.
@@ -4144,6 +4278,7 @@ This is the scripted manual end-to-end specified in the design's "Testing Strate
 - [ ] **Step 1: Configure via wizard**
 
 Open the web UI; navigate to Symphony settings. Walk through the wizard:
+
 - Paste a valid `lin_api_*` key (use a test Linear workspace if possible)
 - Pick a project
 - Map states (defaults should be sensible for the test workspace)
@@ -4159,6 +4294,7 @@ Description: short instruction the agent can act on (e.g., "Add a comment to REA
 - [ ] **Step 3: Watch Symphony pick it up**
 
 Within `polling.scheduler_interval_ms` + jitter (~30s), Symphony should:
+
 - Create a run row
 - Open a T3 chat thread for the issue
 - Move Linear: To Do → In Progress
@@ -4179,6 +4315,7 @@ Within `polling.reconciler_interval_ms` (~60s), the run should auto-archive (sta
 - [ ] **Step 7: Test the cascade fix**
 
 Temporarily break `WORKFLOW.md` (e.g., set `project_slug_id` to a bogus value). Trigger a scheduler tick. Verify:
+
 - Linear poll fails with HTTP 400
 - The full response body is visible in the dashboard event log
 - The error banner offers "open wizard"
@@ -4197,6 +4334,7 @@ If any step fails, file an issue or adjust the implementation. The plan is not c
 ### Task 6.3: Documentation updates
 
 **Files:**
+
 - Modify: `README.md` (if it mentions Symphony)
 - Modify: `AGENTS.md` (if it mentions Symphony)
 - Possibly modify: `docs/` Symphony-related docs
@@ -4210,6 +4348,7 @@ grep -rln "Symphony\|symphony" README.md AGENTS.md docs/ --include="*.md"
 - [ ] **Step 2: Update each doc**
 
 For each file:
+
 - Update any Symphony architecture description to reflect local-only
 - Update setup instructions to point at the wizard
 - Remove any references to cloud or Codex Cloud
@@ -4230,6 +4369,7 @@ EOF
 ### Task 6.4: Final gates and PR
 
 **Files:**
+
 - (verification only)
 
 - [ ] **Step 1: Run all gates one final time**
