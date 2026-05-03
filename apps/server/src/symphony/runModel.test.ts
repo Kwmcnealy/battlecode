@@ -53,8 +53,6 @@ describe("Symphony run model", () => {
       makeRunWithStatus("eligible"),
       makeRunWithStatus("running"),
       makeRunWithStatus("retry-queued"),
-      makeRunWithStatus("cloud-submitted"),
-      makeRunWithStatus("cloud-running"),
       makeRunWithStatus("review-ready"),
       makeRunWithStatus("completed"),
       makeRunWithStatus("released"),
@@ -68,11 +66,7 @@ describe("Symphony run model", () => {
 
     expect(queues.pendingTarget).toHaveLength(1);
     expect(queues.eligible).toHaveLength(1);
-    expect(queues.running.map((run) => run.status)).toEqual([
-      "running",
-      "cloud-submitted",
-      "cloud-running",
-    ]);
+    expect(queues.running.map((run) => run.status)).toEqual(["running"]);
     expect(queues.retrying).toHaveLength(1);
     expect(queues.completed.map((run) => run.status)).toEqual([
       "review-ready",
@@ -84,13 +78,11 @@ describe("Symphony run model", () => {
     expect(queues.archived.map((run) => run.status)).toEqual(["completed"]);
   });
 
-  it("creates new runs awaiting an explicit execution target", () => {
+  it("creates new runs with target-pending status", () => {
     const run = makeRun(PROJECT_ID, makeIssue(), CREATED_AT);
 
     expect(run.status).toBe("target-pending");
     expect(run.lifecyclePhase).toBe("intake");
-    expect(run.executionTarget).toBeNull();
-    expect(run.cloudTask).toBeNull();
     expect(run.linearProgress).toEqual({
       commentId: null,
       commentUrl: null,

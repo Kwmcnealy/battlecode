@@ -140,12 +140,7 @@ export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queue
   return {
     pendingTarget: activeRuns.filter((run) => run.status === "target-pending"),
     eligible: activeRuns.filter((run) => run.status === "eligible"),
-    running: activeRuns.filter(
-      (run) =>
-        run.status === "running" ||
-        run.status === "cloud-submitted" ||
-        run.status === "cloud-running",
-    ),
+    running: activeRuns.filter((run) => run.status === "running"),
     retrying: activeRuns.filter((run) => run.status === "retry-queued"),
     completed: activeRuns.filter(
       (run) =>
@@ -198,8 +193,6 @@ export function makeRun(
     branchName: branchNameForIssue(issue.identifier),
     threadId: null,
     prUrl: null,
-    executionTarget: null,
-    cloudTask: null,
     pullRequest: null,
     currentStep: null,
     linearProgress: {
