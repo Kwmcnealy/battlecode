@@ -11,6 +11,7 @@ interface BasePhasePromptInput {
 
 export interface PlanPhasePromptInput extends BasePhasePromptInput {
   readonly planMarkdown: string;
+  readonly phaseInstructions?: string | null;
 }
 
 export interface FixPhasePromptInput extends BasePhasePromptInput {
@@ -36,6 +37,11 @@ function workflowBlock(workflowPrompt: string): string {
 
 function planBlock(planMarkdown: string): string {
   return ["Approved plan", planMarkdown.trim() || "No approved plan was captured."].join("\n");
+}
+
+function phaseInstructionBlock(instructions: string | null | undefined): string | null {
+  const normalized = instructions?.trim();
+  return normalized ? ["Phase instructions", normalized].join("\n") : null;
 }
 
 export function buildPlanningPrompt(input: BasePhasePromptInput): string {
@@ -64,8 +70,11 @@ export function buildSimplificationPrompt(input: PlanPhasePromptInput): string {
     issueBlock(input.issue),
     workflowBlock(input.workflowPrompt),
     planBlock(input.planMarkdown),
+    phaseInstructionBlock(input.phaseInstructions),
     "Simplify the implementation while preserving behavior and the approved plan scope.",
-  ].join("\n\n");
+  ]
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }
 
 export function buildReviewPrompt(input: PlanPhasePromptInput): string {
@@ -74,6 +83,7 @@ export function buildReviewPrompt(input: PlanPhasePromptInput): string {
     issueBlock(input.issue),
     workflowBlock(input.workflowPrompt),
     planBlock(input.planMarkdown),
+    phaseInstructionBlock(input.phaseInstructions),
     "Review the implementation against the approved plan and repository instructions.",
     [
       "Include exactly one review marker at the end of your response:",
@@ -81,7 +91,9 @@ export function buildReviewPrompt(input: PlanPhasePromptInput): string {
       "REVIEW_FAIL: <first finding>",
       "- <additional finding>",
     ].join("\n"),
-  ].join("\n\n");
+  ]
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }
 
 export function buildFixPrompt(input: FixPhasePromptInput): string {

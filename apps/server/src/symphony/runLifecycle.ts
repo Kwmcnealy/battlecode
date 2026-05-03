@@ -156,6 +156,14 @@ export function deriveRunProgress(
       updatedAt: pullRequest.updatedAt,
     });
   }
+  if (prClassification === "closed" && pullRequest) {
+    return progress({
+      source: "github",
+      label: "Pull request closed",
+      detail: `#${pullRequest.number} ${pullRequest.title}`,
+      updatedAt: pullRequest.updatedAt,
+    });
+  }
 
   const linearState = input.linear?.stateName ?? input.run.issue.state;
   const linearClassification = classifyLinearState(linearState, input.config.tracker);
@@ -257,7 +265,7 @@ export function resolveRunLifecycle(input: RunLifecycleInput): RunLifecycleResul
   const status: SymphonyRunStatus =
     prClassification === "done" || linearClassification === "done"
       ? "completed"
-      : linearClassification === "canceled"
+      : prClassification === "closed" || linearClassification === "canceled"
         ? "canceled"
         : prClassification === "review" || linearClassification === "review"
           ? "review-ready"

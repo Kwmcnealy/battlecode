@@ -1,6 +1,6 @@
-import type { SymphonyExecutionTarget } from "@t3tools/contracts";
+import type { SymphonyExecutionTarget, SymphonyLifecyclePhase } from "@t3tools/contracts";
 
-import { lifecyclePhaseLabel, type SymphonyLifecyclePhase } from "./lifecyclePhase.ts";
+import { lifecyclePhaseLabel } from "./lifecyclePhase.ts";
 
 export const SYMPHONY_MANAGED_PROGRESS_MARKER = "<!-- symphony-managed-progress v1 -->";
 

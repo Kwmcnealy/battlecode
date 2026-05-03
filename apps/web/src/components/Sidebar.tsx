@@ -192,10 +192,7 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import {
-  PHASE_BADGE_CLASSNAME,
-  formatLifecyclePhase,
-} from "./symphony/symphonyDisplay";
+import { PHASE_BADGE_CLASSNAME, formatLifecyclePhase } from "./symphony/symphonyDisplay";
 const THREAD_PREVIEW_LIMIT = 6;
 const SYMPHONY_THREAD_ID_PREFIX = "symphony-thread-";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {

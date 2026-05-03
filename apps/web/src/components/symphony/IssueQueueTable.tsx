@@ -134,10 +134,7 @@ export function IssueQueueTable({
                 <td className="px-3 py-3">
                   <Badge
                     variant="outline"
-                    className={cn(
-                      "whitespace-nowrap",
-                      PHASE_BADGE_CLASSNAME[run.lifecyclePhase],
-                    )}
+                    className={cn("whitespace-nowrap", PHASE_BADGE_CLASSNAME[run.lifecyclePhase])}
                   >
                     {formatLifecyclePhase(run.lifecyclePhase)}
                   </Badge>

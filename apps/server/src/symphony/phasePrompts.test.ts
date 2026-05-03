@@ -47,18 +47,22 @@ describe("Symphony phase prompts", () => {
       issue,
       workflowPrompt: "Preserve behavior.",
       planMarkdown: "- [x] Implementation complete",
+      phaseInstructions: "Run the code simplifier.",
     });
     const reviewPrompt = buildReviewPrompt({
       issue,
       workflowPrompt: "Review the diff against the plan.",
       planMarkdown: "- [x] Implementation complete",
+      phaseInstructions: "Prioritize regressions.",
     });
 
     expect(simplificationPrompt).toContain("Simplify the implementation");
     expect(simplificationPrompt).toContain("Preserve behavior.");
+    expect(simplificationPrompt).toContain("Run the code simplifier.");
     expect(reviewPrompt).toContain("REVIEW_PASS: <summary>");
     expect(reviewPrompt).toContain("REVIEW_FAIL: <first finding>");
     expect(reviewPrompt).toContain("Include exactly one review marker");
+    expect(reviewPrompt).toContain("Prioritize regressions.");
   });
 
   it("builds a fix prompt that lists review findings and workflow instructions", () => {

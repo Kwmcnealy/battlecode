@@ -139,6 +139,18 @@ describe("Symphony run lifecycle", () => {
     expect(result.currentStep.label).toBe("Pull request merged");
   });
 
+  it("marks a run canceled when its PR is closed without merge", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeCompletedThread(),
+      pullRequest: makePullRequest("closed"),
+    });
+
+    expect(result.status).toBe("canceled");
+    expect(result.currentStep.label).toBe("Pull request closed");
+  });
+
   it("keeps submitted cloud runs in cloud-submitted", () => {
     const result = resolveRunLifecycle({
       run: makeLifecycleRun({

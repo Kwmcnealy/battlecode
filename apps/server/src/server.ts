@@ -43,6 +43,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
+import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
@@ -185,11 +186,24 @@ const ProviderLayerLive = Layer.unwrap(
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
 
+const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
+
 const GitManagerLayerLive = GitManagerLive.pipe(
-  Layer.provideMerge(ProjectSetupScriptRunnerLive),
+  Layer.provideMerge(
+    ProjectSetupScriptRunnerLive.pipe(
+      Layer.provideMerge(TerminalLayerLive),
+      Layer.provideMerge(OrchestrationLayerLive),
+    ),
+  ),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
-  Layer.provideMerge(RoutingTextGenerationLive),
+  Layer.provideMerge(
+    RoutingTextGenerationLive.pipe(
+      Layer.provideMerge(ServerSettingsLive),
+      Layer.provideMerge(OpenCodeRuntimeLive),
+    ),
+  ),
+  Layer.provideMerge(ServerSettingsLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -197,8 +211,6 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
   Layer.provideMerge(GitCoreLive),
 );
-
-const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
 const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(
   Layer.provide(WorkspacePathsLive),
@@ -227,6 +239,7 @@ const SymphonyLayerLive = SymphonyServiceLive.pipe(
   Layer.provideMerge(ServerSecretStoreLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
+  Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(OrchestrationLayerLive),
 );

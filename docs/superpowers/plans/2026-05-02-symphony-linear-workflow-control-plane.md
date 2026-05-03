@@ -73,6 +73,7 @@ Modify these existing files:
 ## Task 1: Extend Contracts And Workflow Config
 
 **Files:**
+
 - Modify: `packages/contracts/src/symphony.ts`
 - Modify: `packages/contracts/src/symphony.test.ts`
 - Modify: `apps/server/src/symphony/workflow.ts`
@@ -99,7 +100,9 @@ it("decodes Symphony lifecycle workflow config with Linear control-plane default
   });
   expect(config.pullRequest.baseBranch).toBe(null);
   expect(config.quality.maxReviewFixLoops).toBe(1);
-  expect(config.quality.simplificationPrompt).toContain("Simplify only the code changed for this issue.");
+  expect(config.quality.simplificationPrompt).toContain(
+    "Simplify only the code changed for this issue.",
+  );
   expect(config.quality.reviewPrompt).toContain("Review the current branch for correctness.");
 });
 ```
@@ -137,24 +140,16 @@ export const SymphonyLifecyclePhase = Schema.Literals([
 export type SymphonyLifecyclePhase = typeof SymphonyLifecyclePhase.Type;
 
 export const SymphonyLinearProgressComment = Schema.Struct({
-  commentId: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  commentUrl: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
+  commentId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  commentUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   lastRenderedHash: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  lastUpdatedAt: Schema.NullOr(IsoDateTime).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
+  lastUpdatedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   lastMilestoneAt: Schema.NullOr(IsoDateTime).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  lastFeedbackAt: Schema.NullOr(IsoDateTime).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
+  lastFeedbackAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type SymphonyLinearProgressComment = typeof SymphonyLinearProgressComment.Type;
 
@@ -385,6 +380,7 @@ git commit -m "feat(symphony): add workflow lifecycle config" -m "Co-Authored-By
 ## Task 2: Persist Lifecycle Metadata
 
 **Files:**
+
 - Create: `apps/server/src/persistence/Migrations/031_SymphonyLifecycleControlPlane.ts`
 - Create: `apps/server/src/persistence/Migrations/031_SymphonyLifecycleControlPlane.test.ts`
 - Modify: `apps/server/src/persistence/Migrations.ts`
@@ -418,7 +414,10 @@ layer(testLayer)("031_SymphonyLifecycleControlPlane", (it) => {
 
       yield* runMigrations({ toMigrationInclusive: 30 });
       let columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(symphony_runs)`;
-      assert.equal(columns.some((column) => column.name === "lifecycle_phase"), false);
+      assert.equal(
+        columns.some((column) => column.name === "lifecycle_phase"),
+        false,
+      );
 
       yield* runMigrations({ toMigrationInclusive: 31 });
       columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(symphony_runs)`;
@@ -597,29 +596,30 @@ In `decodeRunRow`, decode the JSON fields:
 const linearProgressJson =
   row.linearProgress === null
     ? {}
-    : yield* decodeJson("SymphonyRepository.run.linearProgress", row.linearProgress);
+    : yield * decodeJson("SymphonyRepository.run.linearProgress", row.linearProgress);
 const qualityGateJson =
   row.qualityGate === null
     ? {}
-    : yield* decodeJson("SymphonyRepository.run.qualityGate", row.qualityGate);
+    : yield * decodeJson("SymphonyRepository.run.qualityGate", row.qualityGate);
 const lifecyclePhase =
   row.lifecyclePhase === null
     ? "intake"
-    : yield* decodeWith(
+    : yield *
+      decodeWith(
         "SymphonyRepository.run.lifecyclePhase.decode",
         decodeLifecyclePhase,
         row.lifecyclePhase,
       );
-const linearProgress = yield* decodeWith(
-  "SymphonyRepository.run.linearProgress.decode",
-  decodeLinearProgress,
-  linearProgressJson,
-);
-const qualityGate = yield* decodeWith(
-  "SymphonyRepository.run.qualityGate.decode",
-  decodeQualityGate,
-  qualityGateJson,
-);
+const linearProgress =
+  yield *
+  decodeWith(
+    "SymphonyRepository.run.linearProgress.decode",
+    decodeLinearProgress,
+    linearProgressJson,
+  );
+const qualityGate =
+  yield *
+  decodeWith("SymphonyRepository.run.qualityGate.decode", decodeQualityGate, qualityGateJson);
 ```
 
 Include these properties in the object passed to `decodeRun`:
@@ -703,6 +703,7 @@ git commit -m "feat(symphony): persist lifecycle metadata" -m "Co-Authored-By: P
 ## Task 3: Add Linear Managed Comment Helpers
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/linear.ts`
 - Modify: `apps/server/src/symphony/linear.test.ts`
 - Create: `apps/server/src/symphony/progressComment.ts`
@@ -754,28 +755,29 @@ it("updates a Linear comment body", async () => {
 it("lists Linear comments for feedback detection", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            issue: {
-              comments: {
-                nodes: [
-                  {
-                    id: "comment-user",
-                    url: "https://linear.app/t3/issue/APP-1#comment-comment-user",
-                    body: "Please tighten validation.",
-                    createdAt: "2026-05-02T12:40:00.000Z",
-                    updatedAt: "2026-05-02T12:40:00.000Z",
-                    user: { id: "user-1", name: "Cal", displayName: "Cal" },
-                  },
-                ],
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-user",
+                      url: "https://linear.app/t3/issue/APP-1#comment-comment-user",
+                      body: "Please tighten validation.",
+                      createdAt: "2026-05-02T12:40:00.000Z",
+                      updatedAt: "2026-05-02T12:40:00.000Z",
+                      user: { id: "user-1", name: "Cal", displayName: "Cal" },
+                    },
+                  ],
+                },
               },
             },
-          },
-        }),
-        { status: 200 },
-      ),
+          }),
+          { status: 200 },
+        ),
     ),
   );
 
@@ -901,7 +903,9 @@ export function updateLinearComment(input: {
         catch: (cause) =>
           new SymphonyError({
             message:
-              cause instanceof Error ? cause.message : "Failed to parse Linear comment update response.",
+              cause instanceof Error
+                ? cause.message
+                : "Failed to parse Linear comment update response.",
             cause,
           }),
       }),
@@ -1026,7 +1030,11 @@ Expected: FAIL because `progressComment.ts` does not exist.
 Create `apps/server/src/symphony/progressComment.ts`:
 
 ```ts
-import type { SymphonyExecutionTarget, SymphonyLifecyclePhase, SymphonyRun } from "@t3tools/contracts";
+import type {
+  SymphonyExecutionTarget,
+  SymphonyLifecyclePhase,
+  SymphonyRun,
+} from "@t3tools/contracts";
 
 const MANAGED_COMMENT_MARKER = "<!-- symphony-managed-progress v1 -->";
 
@@ -1056,7 +1064,9 @@ export function renderManagedProgressComment(input: {
   readonly statusLine: string;
   readonly lastUpdate: string;
 }): string {
-  const execution = input.run.executionTarget ? TARGET_LABEL[input.run.executionTarget] : "Not selected";
+  const execution = input.run.executionTarget
+    ? TARGET_LABEL[input.run.executionTarget]
+    : "Not selected";
   const pr = input.run.pullRequest?.url ?? input.run.prUrl ?? "pending";
   const phase = PHASE_LABEL[input.run.lifecyclePhase];
   const currentStep = input.run.currentStep?.label ?? input.statusLine;
@@ -1114,6 +1124,7 @@ git commit -m "feat(symphony): manage Linear progress comments" -m "Co-Authored-
 ## Task 4: Add Phase Helpers And Prompts
 
 **Files:**
+
 - Create: `apps/server/src/symphony/lifecyclePhase.ts`
 - Create: `apps/server/src/symphony/lifecyclePhase.test.ts`
 - Create: `apps/server/src/symphony/phasePrompts.ts`
@@ -1128,7 +1139,11 @@ Create `apps/server/src/symphony/lifecyclePhase.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 
-import { lifecyclePhaseIsActive, lifecyclePhaseLabel, nextPhaseAfterReview } from "./lifecyclePhase.ts";
+import {
+  lifecyclePhaseIsActive,
+  lifecyclePhaseLabel,
+  nextPhaseAfterReview,
+} from "./lifecyclePhase.ts";
 
 describe("lifecyclePhase", () => {
   it("labels visible phases", () => {
@@ -1245,10 +1260,19 @@ describe("phasePrompts", () => {
   });
 
   it("builds gate prompts with phase-specific instructions", () => {
-    expect(buildImplementationPrompt({ planMarkdown: "- [ ] Fix upload", workflowPrompt: "Repo rules." })).toContain("Implement the approved plan");
-    expect(buildSimplificationPrompt({ simplificationPrompt: "Simplify scoped changes." })).toBe("Simplify scoped changes.");
+    expect(
+      buildImplementationPrompt({
+        planMarkdown: "- [ ] Fix upload",
+        workflowPrompt: "Repo rules.",
+      }),
+    ).toContain("Implement the approved plan");
+    expect(buildSimplificationPrompt({ simplificationPrompt: "Simplify scoped changes." })).toBe(
+      "Simplify scoped changes.",
+    );
     expect(buildReviewPrompt({ reviewPrompt: "Review scoped changes." })).toContain("REVIEW_PASS");
-    expect(buildFixPrompt({ findings: ["Missing test"], workflowPrompt: "Repo rules." })).toContain("Missing test");
+    expect(buildFixPrompt({ findings: ["Missing test"], workflowPrompt: "Repo rules." })).toContain(
+      "Missing test",
+    );
   });
 });
 ```
@@ -1295,7 +1319,9 @@ export function buildImplementationPrompt(input: {
   ].join("\n");
 }
 
-export function buildSimplificationPrompt(input: { readonly simplificationPrompt: string }): string {
+export function buildSimplificationPrompt(input: {
+  readonly simplificationPrompt: string;
+}): string {
   return input.simplificationPrompt.trim();
 }
 
@@ -1465,6 +1491,7 @@ git commit -m "feat(symphony): add lifecycle phase helpers" -m "Co-Authored-By: 
 ## Task 5: Implement To Do Intake, Planning, And Managed Comment Updates
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/linear.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts`
@@ -1545,7 +1572,11 @@ it.effect("plans To Do issues, posts managed progress, and moves Linear to In Pr
     });
     assert.strictEqual(run?.lifecyclePhase, "implementing");
     assert.strictEqual(run?.linearProgress.commentId, "comment-progress");
-    assert.ok(linearMocks.createLinearComment.mock.calls.some((call) => String(call[0].body).includes("Symphony Progress")));
+    assert.ok(
+      linearMocks.createLinearComment.mock.calls.some((call) =>
+        String(call[0].body).includes("Symphony Progress"),
+      ),
+    );
     assert.ok(linearMocks.updateLinearIssueState.mock.calls.length > 0);
   }),
 );
@@ -1593,7 +1624,7 @@ import { extractLatestPlanMarkdown } from "../phaseOutput.ts";
 Inside `makeSymphonyService`, acquire `GitManager`:
 
 ```ts
-const gitManager = yield* GitManager;
+const gitManager = yield * GitManager;
 ```
 
 Add helper:
@@ -1659,13 +1690,17 @@ const updateManagedProgressComment = (input: {
       .upsertRun(nextRun)
       .pipe(Effect.mapError(toSymphonyError("Failed to persist Symphony progress comment.")));
     return nextRun;
-  }).pipe(Effect.catchAll((error) => emitProjectEvent({
-    projectId: input.projectId,
-    issueId: input.run.issue.id,
-    runId: input.run.runId,
-    type: "linear.progress-warning",
-    message: `Linear progress comment update failed: ${error.message}`,
-  }).pipe(Effect.as(input.run), Effect.ignoreCause({ log: true }))));
+  }).pipe(
+    Effect.catchAll((error) =>
+      emitProjectEvent({
+        projectId: input.projectId,
+        issueId: input.run.issue.id,
+        runId: input.run.runId,
+        type: "linear.progress-warning",
+        message: `Linear progress comment update failed: ${error.message}`,
+      }).pipe(Effect.as(input.run), Effect.ignoreCause({ log: true })),
+    ),
+  );
 ```
 
 - [ ] **Step 5: Add planning launch helper**
@@ -1693,9 +1728,9 @@ const startPlanningTurn = (input: {
       threadId: runThreadId,
       updatedAt: startedAt,
     };
-    yield* repository.upsertRun(nextRun).pipe(
-      Effect.mapError(toSymphonyError("Failed to mark Symphony run as planning.")),
-    );
+    yield* repository
+      .upsertRun(nextRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run as planning.")));
     yield* ensureLocalSymphonyThreadFullAccess({
       projectId: input.projectId,
       run: nextRun,
@@ -1703,27 +1738,29 @@ const startPlanningTurn = (input: {
       branchName: input.branchName,
       workspacePath: input.workspacePath,
     });
-    yield* orchestrationEngine.dispatch({
-      type: "thread.turn.start",
-      commandId: commandId("planning-turn-start"),
-      threadId: runThreadId,
-      message: {
-        messageId: messageId(),
-        role: "user",
-        text: buildPlanningPrompt({
-          issueIdentifier: input.run.issue.identifier,
-          issueTitle: input.run.issue.title,
-          issueDescription: input.run.issue.description,
-          workflowPrompt: input.workflow.promptTemplate,
-        }),
-        attachments: [],
-      },
-      modelSelection: defaultSymphonyLocalModelSelection(),
-      titleSeed: `Symphony ${input.run.issue.identifier} plan`,
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      createdAt: startedAt,
-    }).pipe(Effect.mapError(toSymphonyError("Failed to launch Symphony planning turn.")));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: commandId("planning-turn-start"),
+        threadId: runThreadId,
+        message: {
+          messageId: messageId(),
+          role: "user",
+          text: buildPlanningPrompt({
+            issueIdentifier: input.run.issue.identifier,
+            issueTitle: input.run.issue.title,
+            issueDescription: input.run.issue.description,
+            workflowPrompt: input.workflow.promptTemplate,
+          }),
+          attachments: [],
+        },
+        modelSelection: defaultSymphonyLocalModelSelection(),
+        titleSeed: `Symphony ${input.run.issue.identifier} plan`,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: startedAt,
+      })
+      .pipe(Effect.mapError(toSymphonyError("Failed to launch Symphony planning turn.")));
     return nextRun;
   });
 ```
@@ -1743,9 +1780,10 @@ if (run.lifecyclePhase === "planning" && latestTurn.state === "completed") {
       lastError: "Planning completed without a checklist plan.",
       updatedAt: completedAt,
     };
-    yield* repository.upsertRun(failedRun).pipe(
-      Effect.mapError(toSymphonyError("Failed to mark planning as failed.")),
-    );
+    yield *
+      repository
+        .upsertRun(failedRun)
+        .pipe(Effect.mapError(toSymphonyError("Failed to mark planning as failed.")));
     return;
   }
 
@@ -1760,30 +1798,34 @@ if (run.lifecyclePhase === "planning" && latestTurn.state === "completed") {
     },
     updatedAt: completedAt,
   };
-  const withProgress = yield* updateManagedProgressComment({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run: plannedRun,
-    planMarkdown,
-    statusLine: "Planning complete; implementation starting",
-    milestone: "Plan posted; moving to In Progress",
-  });
-  yield* transitionLinearRunState({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run: withProgress,
-    stateName: input.workflow.config.tracker.transitionStates.started,
-    reason: "plan-posted",
-  });
-  yield* startLocalContinuationTurn({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run: withProgress,
-    prompt: buildImplementationPrompt({
+  const withProgress =
+    yield *
+    updateManagedProgressComment({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run: plannedRun,
       planMarkdown,
-      workflowPrompt: input.workflow.promptTemplate,
-    }),
-  });
+      statusLine: "Planning complete; implementation starting",
+      milestone: "Plan posted; moving to In Progress",
+    });
+  yield *
+    transitionLinearRunState({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run: withProgress,
+      stateName: input.workflow.config.tracker.transitionStates.started,
+      reason: "plan-posted",
+    });
+  yield *
+    startLocalContinuationTurn({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run: withProgress,
+      prompt: buildImplementationPrompt({
+        planMarkdown,
+        workflowPrompt: input.workflow.promptTemplate,
+      }),
+    });
   return;
 }
 ```
@@ -1811,26 +1853,34 @@ Add a helper in `SymphonyService.ts`:
 
 ```ts
 function stateMatches(states: readonly string[], stateName: string): boolean {
-  return states.some((state) => state.trim().toLocaleLowerCase() === stateName.trim().toLocaleLowerCase());
+  return states.some(
+    (state) => state.trim().toLocaleLowerCase() === stateName.trim().toLocaleLowerCase(),
+  );
 }
 ```
 
 Inside the `Effect.forEach(candidates, ...)` callback:
 
 ```ts
-if (run.lifecyclePhase === "intake" && stateMatches(workflow.config.tracker.intakeStates, run.issue.state)) {
-  const prepared = yield* prepareRunWorkspace({
-    projectRoot: project.workspaceRoot,
-    workflow,
-    run,
-  });
-  yield* startPlanningTurn({
-    projectId,
-    workflow,
-    run,
-    workspacePath: prepared.workspacePath,
-    branchName: prepared.branchName,
-  });
+if (
+  run.lifecyclePhase === "intake" &&
+  stateMatches(workflow.config.tracker.intakeStates, run.issue.state)
+) {
+  const prepared =
+    yield *
+    prepareRunWorkspace({
+      projectRoot: project.workspaceRoot,
+      workflow,
+      run,
+    });
+  yield *
+    startPlanningTurn({
+      projectId,
+      workflow,
+      run,
+      workspacePath: prepared.workspacePath,
+      branchName: prepared.branchName,
+    });
   return;
 }
 ```
@@ -1856,6 +1906,7 @@ git commit -m "feat(symphony): plan To Do issues through Linear" -m "Co-Authored
 ## Task 6: Add Simplification, Review, And Fix Phase Loop
 
 **Files:**
+
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.ts`
 - Modify: `apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts`
 - Modify: `apps/server/src/symphony/phaseOutput.ts`
@@ -2024,25 +2075,27 @@ const startPhaseTurn = (input: {
       status: "running",
       updatedAt: startedAt,
     };
-    yield* repository.upsertRun(nextRun).pipe(
-      Effect.mapError(toSymphonyError("Failed to update Symphony phase.")),
-    );
-    yield* orchestrationEngine.dispatch({
-      type: "thread.turn.start",
-      commandId: commandId(`${input.phase}-turn-start`),
-      threadId: input.run.threadId,
-      message: {
-        messageId: messageId(),
-        role: "user",
-        text: input.prompt,
-        attachments: [],
-      },
-      modelSelection: defaultSymphonyLocalModelSelection(),
-      titleSeed: `Symphony ${input.run.issue.identifier} ${input.phase}`,
-      runtimeMode: "full-access",
-      interactionMode: "default",
-      createdAt: startedAt,
-    }).pipe(Effect.mapError(toSymphonyError("Failed to launch Symphony phase turn.")));
+    yield* repository
+      .upsertRun(nextRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to update Symphony phase.")));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: commandId(`${input.phase}-turn-start`),
+        threadId: input.run.threadId,
+        message: {
+          messageId: messageId(),
+          role: "user",
+          text: input.prompt,
+          attachments: [],
+        },
+        modelSelection: defaultSymphonyLocalModelSelection(),
+        titleSeed: `Symphony ${input.run.issue.identifier} ${input.phase}`,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdAt: startedAt,
+      })
+      .pipe(Effect.mapError(toSymphonyError("Failed to launch Symphony phase turn.")));
   });
 ```
 
@@ -2052,15 +2105,16 @@ In `reconcileRunWithThread`, before generic continuation logic:
 
 ```ts
 if (run.lifecyclePhase === "implementing" && latestTurn.state === "completed") {
-  yield* startPhaseTurn({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run,
-    phase: "simplifying",
-    prompt: buildSimplificationPrompt({
-      simplificationPrompt: input.workflow.config.quality.simplificationPrompt,
-    }),
-  });
+  yield *
+    startPhaseTurn({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run,
+      phase: "simplifying",
+      prompt: buildSimplificationPrompt({
+        simplificationPrompt: input.workflow.config.quality.simplificationPrompt,
+      }),
+    });
   return;
 }
 ```
@@ -2071,15 +2125,16 @@ Add:
 
 ```ts
 if (run.lifecyclePhase === "simplifying" && latestTurn.state === "completed") {
-  yield* startPhaseTurn({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run,
-    phase: "reviewing",
-    prompt: buildReviewPrompt({
-      reviewPrompt: input.workflow.config.quality.reviewPrompt,
-    }),
-  });
+  yield *
+    startPhaseTurn({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run,
+      phase: "reviewing",
+      prompt: buildReviewPrompt({
+        reviewPrompt: input.workflow.config.quality.reviewPrompt,
+      }),
+    });
   return;
 }
 ```
@@ -2100,9 +2155,10 @@ if (run.lifecyclePhase === "reviewing" && latestTurn.state === "completed") {
       lastError: "Review completed without REVIEW_PASS or REVIEW_FAIL marker.",
       updatedAt: completedAt,
     };
-    yield* repository.upsertRun(failedRun).pipe(
-      Effect.mapError(toSymphonyError("Failed to mark review as failed.")),
-    );
+    yield *
+      repository
+        .upsertRun(failedRun)
+        .pipe(Effect.mapError(toSymphonyError("Failed to mark review as failed.")));
     return;
   }
   const nextPhase = nextPhaseAfterReview({
@@ -2125,20 +2181,22 @@ if (run.lifecyclePhase === "reviewing" && latestTurn.state === "completed") {
     lastError: nextPhase === "failed" ? outcome.summary : null,
     updatedAt: completedAt,
   };
-  yield* repository.upsertRun(nextRun).pipe(
-    Effect.mapError(toSymphonyError("Failed to persist review outcome.")),
-  );
+  yield *
+    repository
+      .upsertRun(nextRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to persist review outcome.")));
   if (nextPhase === "fixing") {
-    yield* startPhaseTurn({
-      projectId: run.projectId,
-      workflow: input.workflow,
-      run: nextRun,
-      phase: "fixing",
-      prompt: buildFixPrompt({
-        findings: outcome.findings,
-        workflowPrompt: input.workflow.promptTemplate,
-      }),
-    });
+    yield *
+      startPhaseTurn({
+        projectId: run.projectId,
+        workflow: input.workflow,
+        run: nextRun,
+        phase: "fixing",
+        prompt: buildFixPrompt({
+          findings: outcome.findings,
+          workflowPrompt: input.workflow.promptTemplate,
+        }),
+      });
   }
   return;
 }
@@ -2152,15 +2210,16 @@ Add:
 
 ```ts
 if (run.lifecyclePhase === "fixing" && latestTurn.state === "completed") {
-  yield* startPhaseTurn({
-    projectId: run.projectId,
-    workflow: input.workflow,
-    run,
-    phase: "simplifying",
-    prompt: buildSimplificationPrompt({
-      simplificationPrompt: input.workflow.config.quality.simplificationPrompt,
-    }),
-  });
+  yield *
+    startPhaseTurn({
+      projectId: run.projectId,
+      workflow: input.workflow,
+      run,
+      phase: "simplifying",
+      prompt: buildSimplificationPrompt({
+        simplificationPrompt: input.workflow.config.quality.simplificationPrompt,
+      }),
+    });
   return;
 }
 ```
@@ -2186,6 +2245,7 @@ git commit -m "feat(symphony): sequence quality gate phases" -m "Co-Authored-By:
 ## Task 7: Add Symphony-Owned PR Creation And Linear Review Transition
 
 **Files:**
+
 - Modify: `packages/contracts/src/git.ts`
 - Modify: `packages/contracts/src/git.test.ts`
 - Modify: `apps/server/src/git/Layers/GitManager.ts`
@@ -2250,13 +2310,13 @@ Use the override where PR creation currently resolves base:
 
 ```ts
 const baseBranch =
-  baseBranchOverride ?? (yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext));
+  baseBranchOverride ?? yield * resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
 ```
 
 Pass it from `runStackedAction`:
 
 ```ts
-runPrStep(modelSelection, input.cwd, currentBranch, input.baseBranch, progress.emit)
+runPrStep(modelSelection, input.cwd, currentBranch, input.baseBranch, progress.emit);
 ```
 
 In `apps/server/src/git/Layers/GitManager.test.ts`, add a focused test that calls `runStackedAction` with `baseBranch: "development"` and asserts `GitHubCli.createPullRequest` receives `baseBranch: "development"`.
@@ -2355,20 +2415,24 @@ const createPullRequestForRun = (input: {
   Effect.gen(function* () {
     const cwd = input.run.workspacePath;
     if (!cwd) {
-      return yield* new SymphonyError({ message: "Cannot create PR without a Symphony workspace." });
+      return yield* new SymphonyError({
+        message: "Cannot create PR without a Symphony workspace.",
+      });
     }
-    const result = yield* gitManager.runStackedAction({
-      actionId: commandId("symphony-create-pr"),
-      cwd,
-      action: "commit_push_pr",
-      commitMessage: `${input.run.issue.identifier}: ${input.run.issue.title}`,
-      ...(input.workflow.config.pullRequest.baseBranch
-        ? { baseBranch: input.workflow.config.pullRequest.baseBranch }
-        : {}),
-    }).pipe(Effect.mapError(toSymphonyError("Failed to create Symphony pull request.")));
+    const result = yield* gitManager
+      .runStackedAction({
+        actionId: commandId("symphony-create-pr"),
+        cwd,
+        action: "commit_push_pr",
+        commitMessage: `${input.run.issue.identifier}: ${input.run.issue.title}`,
+        ...(input.workflow.config.pullRequest.baseBranch
+          ? { baseBranch: input.workflow.config.pullRequest.baseBranch }
+          : {}),
+      })
+      .pipe(Effect.mapError(toSymphonyError("Failed to create Symphony pull request.")));
     const prUrl =
       result.pr.status === "created" || result.pr.status === "opened_existing"
-        ? result.pr.url ?? null
+        ? (result.pr.url ?? null)
         : null;
     const nextRun: SymphonyRun = {
       ...input.run,
@@ -2377,9 +2441,9 @@ const createPullRequestForRun = (input: {
       prUrl,
       updatedAt: nowIso(),
     };
-    yield* repository.upsertRun(nextRun).pipe(
-      Effect.mapError(toSymphonyError("Failed to persist Symphony PR state.")),
-    );
+    yield* repository
+      .upsertRun(nextRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to persist Symphony PR state.")));
     yield* transitionLinearRunState({
       projectId: input.projectId,
       workflow: input.workflow,
@@ -2511,6 +2575,7 @@ git commit -m "feat(symphony): create PRs from clean review gates" -m "Co-Author
 ## Task 8: Detect Rework From Linear And GitHub Signals
 
 **Files:**
+
 - Modify: `apps/server/src/git/Services/GitHubCli.ts`
 - Modify: `apps/server/src/git/Layers/GitHubCli.ts`
 - Modify: `apps/server/src/git/Layers/GitHubCli.test.ts`
@@ -2743,7 +2808,10 @@ In `apps/server/src/git/Layers/GitHubCli.ts`, import `type GitHubPullRequestFeed
 Add helpers:
 
 ```ts
-function parseRepositoryAndNumber(url: string): { readonly repository: string; readonly number: number } {
+function parseRepositoryAndNumber(url: string): {
+  readonly repository: string;
+  readonly number: number;
+} {
   const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url.trim());
   if (!match) {
     throw new Error(`Cannot parse GitHub pull request URL: ${url}`);
@@ -2915,19 +2983,21 @@ if (reworkReason && persistedRun.threadId) {
     },
     updatedAt: nowIso(),
   };
-  yield* repository.upsertRun(reworkRun).pipe(
-    Effect.mapError(toSymphonyError("Failed to mark Symphony run for rework.")),
-  );
-  yield* startPhaseTurn({
-    projectId: reworkRun.projectId,
-    workflow: input.workflow,
-    run: reworkRun,
-    phase: "fixing",
-    prompt: buildFixPrompt({
-      findings: [reworkReason],
-      workflowPrompt: input.workflow.promptTemplate,
-    }),
-  });
+  yield *
+    repository
+      .upsertRun(reworkRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run for rework.")));
+  yield *
+    startPhaseTurn({
+      projectId: reworkRun.projectId,
+      workflow: input.workflow,
+      run: reworkRun,
+      phase: "fixing",
+      prompt: buildFixPrompt({
+        findings: [reworkReason],
+        workflowPrompt: input.workflow.promptTemplate,
+      }),
+    });
   return { run: reworkRun };
 }
 ```
@@ -3015,6 +3085,7 @@ git commit -m "feat(symphony): detect review rework signals" -m "Co-Authored-By:
 ## Task 9: Unify Symphony Tab And Sidebar Phase Display
 
 **Files:**
+
 - Modify: `apps/web/src/components/symphony/symphonyDisplay.ts`
 - Modify: `apps/web/src/components/symphony/IssueQueueTable.tsx`
 - Modify: `apps/web/src/components/symphony/RunDetailsDrawer.tsx`
@@ -3158,7 +3229,9 @@ In `RunDetailsDrawer.tsx`, show phase badge in the header and add detail rows:
 In `Sidebar.tsx`, replace the current `run.currentStep?.label ?? target` text with:
 
 ```tsx
-{run.currentStep?.label ?? formatLifecyclePhase(run.lifecyclePhase)}
+{
+  run.currentStep?.label ?? formatLifecyclePhase(run.lifecyclePhase);
+}
 ```
 
 Replace the right status pill text with the phase label and class:
@@ -3170,7 +3243,9 @@ className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9p
 ```
 
 ```tsx
-{formatLifecyclePhase(run.lifecyclePhase)}
+{
+  formatLifecyclePhase(run.lifecyclePhase);
+}
 ```
 
 - [ ] **Step 8: Run web tests**
@@ -3195,6 +3270,7 @@ git commit -m "feat(web): show Symphony lifecycle phases" -m "Co-Authored-By: Pa
 ## Task 10: Final Validation And Documentation
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-05-02-symphony-linear-workflow-control-plane-design.md` only if implementation discoveries require a design correction.
 - Modify: `docs/superpowers/plans/2026-05-02-symphony-linear-workflow-control-plane.md` to check off completed tasks if execution is done from this plan.
 
