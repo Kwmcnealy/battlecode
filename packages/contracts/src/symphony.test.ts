@@ -13,6 +13,7 @@ import {
   SymphonyRun,
   SymphonyRunProgress,
   SymphonySnapshot,
+  SymphonySnapshotDiagnostics,
   SymphonySettings,
   SymphonyUpdateExecutionDefaultInput,
   SymphonyWorkflowConfig,
@@ -116,6 +117,7 @@ describe("Symphony contracts", () => {
     expect(Schema.decodeUnknownSync(SymphonyLinearProgressComment)({})).toEqual({
       commentId: null,
       commentUrl: null,
+      ownedCommentIds: [],
       lastRenderedHash: null,
       lastUpdatedAt: null,
       lastMilestoneAt: null,
@@ -126,6 +128,10 @@ describe("Symphony contracts", () => {
       lastReviewPassedAt: null,
       lastReviewSummary: null,
       lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
     });
   });
 
@@ -201,6 +207,55 @@ describe("Symphony contracts", () => {
     });
 
     expect(snapshot.status).toBe("setup-blocked");
+    expect(snapshot.diagnostics).toEqual({
+      lastPollAt: null,
+      queriedStates: [],
+      candidateCount: null,
+      warningSummary: {
+        count: 0,
+        latestMessage: null,
+      },
+      errorSummary: {
+        count: 0,
+        latestMessage: null,
+      },
+    });
+  });
+
+  it("decodes optional dashboard diagnostics", () => {
+    expect(Schema.decodeUnknownSync(SymphonySnapshotDiagnostics)({})).toEqual({
+      lastPollAt: null,
+      queriedStates: [],
+      candidateCount: null,
+      warningSummary: {
+        count: 0,
+        latestMessage: null,
+      },
+      errorSummary: {
+        count: 0,
+        latestMessage: null,
+      },
+    });
+
+    const diagnostics = Schema.decodeUnknownSync(SymphonySnapshotDiagnostics)({
+      lastPollAt: "2026-05-02T12:01:00.000Z",
+      queriedStates: ["Todo", "In Progress"],
+      candidateCount: 12,
+      warningSummary: {
+        count: 2,
+        latestMessage: "Linear lookup warning",
+      },
+      errorSummary: {
+        count: 1,
+        latestMessage: "Workflow invalid",
+      },
+    });
+
+    expect(diagnostics.lastPollAt).toBe("2026-05-02T12:01:00.000Z");
+    expect(diagnostics.queriedStates).toEqual(["Todo", "In Progress"]);
+    expect(diagnostics.candidateCount).toBe(12);
+    expect(diagnostics.warningSummary.latestMessage).toBe("Linear lookup warning");
+    expect(diagnostics.errorSummary.count).toBe(1);
   });
 
   it("accepts Symphony execution target and Codex Cloud task metadata", () => {
@@ -264,6 +319,7 @@ describe("Symphony contracts", () => {
     expect(run.linearProgress).toEqual({
       commentId: null,
       commentUrl: null,
+      ownedCommentIds: [],
       lastRenderedHash: null,
       lastUpdatedAt: null,
       lastMilestoneAt: null,
@@ -274,6 +330,10 @@ describe("Symphony contracts", () => {
       lastReviewPassedAt: null,
       lastReviewSummary: null,
       lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
     });
     expect(run.pullRequest).toBeNull();
     expect(run.currentStep).toBeNull();

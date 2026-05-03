@@ -338,6 +338,7 @@ export type SymphonyRunProgress = typeof SymphonyRunProgress.Type;
 export const SymphonyLinearProgressComment = Schema.Struct({
   commentId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   commentUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  ownedCommentIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   lastRenderedHash: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -359,6 +360,18 @@ export const SymphonyQualityGateState = Schema.Struct({
   ),
   lastReviewFindings: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  lastReviewedCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFixCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastPublishedCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFeedbackFingerprint: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type SymphonyQualityGateState = typeof SymphonyQualityGateState.Type;
@@ -438,6 +451,27 @@ export const SymphonyTotals = Schema.Struct({
 });
 export type SymphonyTotals = typeof SymphonyTotals.Type;
 
+export const SymphonySnapshotDiagnosticSummary = Schema.Struct({
+  count: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  latestMessage: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonySnapshotDiagnosticSummary = typeof SymphonySnapshotDiagnosticSummary.Type;
+
+export const SymphonySnapshotDiagnostics = Schema.Struct({
+  lastPollAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  queriedStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  candidateCount: Schema.NullOr(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  warningSummary: SymphonySnapshotDiagnosticSummary,
+  errorSummary: SymphonySnapshotDiagnosticSummary,
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonySnapshotDiagnostics = typeof SymphonySnapshotDiagnostics.Type;
+
 export const SymphonySnapshot = Schema.Struct({
   projectId: ProjectId,
   status: SymphonyRuntimeStatus,
@@ -445,6 +479,7 @@ export const SymphonySnapshot = Schema.Struct({
   queues: SymphonyQueueSnapshot,
   totals: SymphonyTotals,
   events: Schema.Array(SymphonyEvent),
+  diagnostics: Schema.optionalKey(SymphonySnapshotDiagnostics),
   updatedAt: IsoDateTime,
 });
 export type SymphonySnapshot = typeof SymphonySnapshot.Type;

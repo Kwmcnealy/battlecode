@@ -288,7 +288,7 @@ In `packages/contracts/src/symphony.ts`, add this entry immediately after `retry
 In `packages/contracts/src/ipc.ts`, add the method immediately after `retryIssue`:
 
 ```ts
-    archiveIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+archiveIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
 ```
 
 - [ ] **Step 5: Add the RPC definition and group registration**
@@ -324,127 +324,130 @@ In `apps/server/src/symphony/Services/SymphonyService.ts`, add this method immed
 In `apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts`, add these tests inside the existing `layer("SymphonyService lifecycle reconciliation", ...)` block:
 
 ```ts
-  it.effect("archives an inactive run locally without changing Linear", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
+it.effect("archives an inactive run locally without changing Linear", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* writeWorkflow;
+    projectRootRef.current = projectRoot;
+    const repository = yield* SymphonyRepository;
+    const service = yield* SymphonyService;
 
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "failed",
-          lifecyclePhase: "failed",
-          executionTarget: "local",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          currentStep: {
-            source: "local-thread",
-            label: "Codex turn failed",
-            detail: "lint failed",
-            updatedAt: CREATED_AT,
+    yield* runMigrations();
+    yield* insertProjectionProject(projectRoot);
+    yield* configureWorkflowSettings;
+    yield* repository.upsertRun(
+      makeServiceRun({
+        status: "failed",
+        lifecyclePhase: "failed",
+        executionTarget: "local",
+        workspacePath: projectRoot,
+        branchName: "symphony/bc-1",
+        currentStep: {
+          source: "local-thread",
+          label: "Codex turn failed",
+          detail: "lint failed",
+          updatedAt: CREATED_AT,
+        },
+        attempts: [
+          {
+            attempt: 1,
+            status: "failed",
+            startedAt: CREATED_AT,
+            completedAt: "2026-05-02T12:05:00.000Z",
+            error: "lint failed",
           },
-          attempts: [
-            {
-              attempt: 1,
-              status: "failed",
-              startedAt: CREATED_AT,
-              completedAt: "2026-05-02T12:05:00.000Z",
-              error: "lint failed",
-            },
-          ],
-          lastError: "lint failed",
-        }),
-      );
+        ],
+        lastError: "lint failed",
+      }),
+    );
 
-      const snapshot = yield* service.archiveIssue({
+    const snapshot = yield* service.archiveIssue({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
+
+    const run = yield* repository.getRunByIssue({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
+    assert.strictEqual(run?.status, "failed");
+    assert.strictEqual(run?.lifecyclePhase, "failed");
+    assert.strictEqual(run?.currentStep?.label, "Codex turn failed");
+    assert.strictEqual(run?.attempts.length, 1);
+    assert.strictEqual(run?.lastError, "lint failed");
+    assert.notStrictEqual(run?.archivedAt, null);
+    assert.strictEqual(snapshot.totals.archived, 1);
+    assert.strictEqual(snapshot.queues.failed.length, 0);
+    expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+  }),
+);
+
+it.effect("rejects manual archive while a run is active", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* writeWorkflow;
+    projectRootRef.current = projectRoot;
+    const repository = yield* SymphonyRepository;
+    const service = yield* SymphonyService;
+
+    yield* runMigrations();
+    yield* insertProjectionProject(projectRoot);
+    yield* configureWorkflowSettings;
+    yield* repository.upsertRun(
+      makeServiceRun({
+        status: "running",
+        lifecyclePhase: "implementing",
+        executionTarget: "local",
+      }),
+    );
+
+    const exit = yield* Effect.exit(
+      service.archiveIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
-      });
+      }),
+    );
 
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "failed");
-      assert.strictEqual(run?.lifecyclePhase, "failed");
-      assert.strictEqual(run?.currentStep?.label, "Codex turn failed");
-      assert.strictEqual(run?.attempts.length, 1);
-      assert.strictEqual(run?.lastError, "lint failed");
-      assert.notStrictEqual(run?.archivedAt, null);
-      assert.strictEqual(snapshot.totals.archived, 1);
-      assert.strictEqual(snapshot.queues.failed.length, 0);
-      expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
-    }),
-  );
-
-  it.effect("rejects manual archive while a run is active", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "running",
-          lifecyclePhase: "implementing",
-          executionTarget: "local",
-        }),
+    assert.strictEqual(exit._tag, "Failure");
+    if (exit._tag === "Failure") {
+      assert.match(
+        String(exit.cause),
+        /Cannot archive a run while Symphony is actively working on it/,
       );
+    }
+    const run = yield* repository.getRunByIssue({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
+    assert.strictEqual(run?.archivedAt, null);
+  }),
+);
 
-      const exit = yield* Effect.exit(
-        service.archiveIssue({
-          projectId: PROJECT_ID,
-          issueId: ISSUE_ID,
-        }),
-      );
+it.effect("returns a fresh snapshot when archiving an already archived run", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* writeWorkflow;
+    projectRootRef.current = projectRoot;
+    const repository = yield* SymphonyRepository;
+    const service = yield* SymphonyService;
 
-      assert.strictEqual(exit._tag, "Failure");
-      if (exit._tag === "Failure") {
-        assert.match(String(exit.cause), /Cannot archive a run while Symphony is actively working on it/);
-      }
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.archivedAt, null);
-    }),
-  );
+    yield* runMigrations();
+    yield* insertProjectionProject(projectRoot);
+    yield* configureWorkflowSettings;
+    yield* repository.upsertRun(
+      makeServiceRun({
+        status: "canceled",
+        lifecyclePhase: "canceled",
+        archivedAt: "2026-05-02T12:30:00.000Z",
+      }),
+    );
 
-  it.effect("returns a fresh snapshot when archiving an already archived run", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
+    const snapshot = yield* service.archiveIssue({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
 
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "canceled",
-          lifecyclePhase: "canceled",
-          archivedAt: "2026-05-02T12:30:00.000Z",
-        }),
-      );
-
-      const snapshot = yield* service.archiveIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-
-      assert.strictEqual(snapshot.totals.archived, 1);
-      expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
-    }),
-  );
+    assert.strictEqual(snapshot.totals.archived, 1);
+    expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+  }),
+);
 ```
 
 - [ ] **Step 8: Run the service tests and verify they fail**
@@ -468,46 +471,46 @@ import { getSymphonyArchiveEligibility } from "@t3tools/shared/symphony";
 Add this function near `retryIssue`:
 
 ```ts
-  const archiveIssue: SymphonyServiceShape["archiveIssue"] = ({ projectId, issueId }) =>
-    Effect.gen(function* () {
-      const run = yield* repository
-        .getRunByIssue({ projectId, issueId })
-        .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run.")));
-      if (!run) {
-        return yield* buildSnapshot(projectId);
-      }
-      const eligibility = getSymphonyArchiveEligibility(run);
-      if (!eligibility.canArchive) {
-        return yield* new SymphonyError({
-          message: eligibility.reason ?? "Symphony run cannot be archived right now.",
-        });
-      }
-      if (run.archivedAt !== null) {
-        return yield* buildSnapshot(projectId);
-      }
-
-      const archivedAt = nowIso();
-      const nextRun: SymphonyRun = {
-        ...run,
-        archivedAt,
-        updatedAt: archivedAt,
-      };
-      yield* repository
-        .upsertRun(nextRun)
-        .pipe(Effect.mapError(toSymphonyError("Failed to archive Symphony issue.")));
-      yield* emitProjectEvent({
-        projectId,
-        issueId,
-        runId: run.runId,
-        type: "run.archived",
-        message: `${run.issue.identifier} archived`,
-        payload: {
-          archivedAt,
-          reason: "manual",
-        },
-      });
+const archiveIssue: SymphonyServiceShape["archiveIssue"] = ({ projectId, issueId }) =>
+  Effect.gen(function* () {
+    const run = yield* repository
+      .getRunByIssue({ projectId, issueId })
+      .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run.")));
+    if (!run) {
       return yield* buildSnapshot(projectId);
+    }
+    const eligibility = getSymphonyArchiveEligibility(run);
+    if (!eligibility.canArchive) {
+      return yield* new SymphonyError({
+        message: eligibility.reason ?? "Symphony run cannot be archived right now.",
+      });
+    }
+    if (run.archivedAt !== null) {
+      return yield* buildSnapshot(projectId);
+    }
+
+    const archivedAt = nowIso();
+    const nextRun: SymphonyRun = {
+      ...run,
+      archivedAt,
+      updatedAt: archivedAt,
+    };
+    yield* repository
+      .upsertRun(nextRun)
+      .pipe(Effect.mapError(toSymphonyError("Failed to archive Symphony issue.")));
+    yield* emitProjectEvent({
+      projectId,
+      issueId,
+      runId: run.runId,
+      type: "run.archived",
+      message: `${run.issue.identifier} archived`,
+      payload: {
+        archivedAt,
+        reason: "manual",
+      },
     });
+    return yield* buildSnapshot(projectId);
+  });
 ```
 
 Add `archiveIssue` to the returned service object immediately after `retryIssue`.
@@ -591,66 +594,66 @@ git commit -m "feat(symphony): add archive issue action" -m "Co-Authored-By: Pap
 In `apps/server/src/symphony/Layers/SymphonyService.lifecycle.test.ts`, update the existing `"maps Human Review, Done, and Canceled Linear states to lifecycle statuses"` test so the final Canceled assertion is:
 
 ```ts
-      assert.strictEqual(run?.status, "canceled");
-      assert.notStrictEqual(run?.archivedAt, null);
+assert.strictEqual(run?.status, "canceled");
+assert.notStrictEqual(run?.archivedAt, null);
 ```
 
 Add this PR closed coverage near the merged PR test:
 
 ```ts
-  it.effect("refreshes a known PR URL to closed, cancels the run, and archives it", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
+it.effect("refreshes a known PR URL to closed, cancels the run, and archives it", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* writeWorkflow;
+    projectRootRef.current = projectRoot;
+    const repository = yield* SymphonyRepository;
+    const service = yield* SymphonyService;
 
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "review-ready",
-          executionTarget: "codex-cloud",
-          branchName: "symphony/bc-1",
-          prUrl: "https://github.com/t3/battlecode/pull/43",
-          pullRequest: {
-            number: 43,
-            title: "Cancel cloud lifecycle",
-            url: "https://github.com/t3/battlecode/pull/43",
-            baseBranch: "development",
-            headBranch: "symphony/bc-1",
-            state: "open",
-            updatedAt: CREATED_AT,
-          },
-        }),
-      );
-      githubMocks.getPullRequest.mockReturnValueOnce(
-        Effect.succeed({
+    yield* runMigrations();
+    yield* insertProjectionProject(projectRoot);
+    yield* configureWorkflowSettings;
+    yield* repository.upsertRun(
+      makeServiceRun({
+        status: "review-ready",
+        executionTarget: "codex-cloud",
+        branchName: "symphony/bc-1",
+        prUrl: "https://github.com/t3/battlecode/pull/43",
+        pullRequest: {
           number: 43,
           title: "Cancel cloud lifecycle",
           url: "https://github.com/t3/battlecode/pull/43",
-          baseRefName: "development",
-          headRefName: "symphony/bc-1",
-          state: "closed",
-          updatedAt: "2026-05-02T12:35:00.000Z",
-        }),
-      );
+          baseBranch: "development",
+          headBranch: "symphony/bc-1",
+          state: "open",
+          updatedAt: CREATED_AT,
+        },
+      }),
+    );
+    githubMocks.getPullRequest.mockReturnValueOnce(
+      Effect.succeed({
+        number: 43,
+        title: "Cancel cloud lifecycle",
+        url: "https://github.com/t3/battlecode/pull/43",
+        baseRefName: "development",
+        headRefName: "symphony/bc-1",
+        state: "closed",
+        updatedAt: "2026-05-02T12:35:00.000Z",
+      }),
+    );
 
-      yield* service.refreshCloudStatus({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
+    yield* service.refreshCloudStatus({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
 
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "canceled");
-      assert.strictEqual(run?.pullRequest?.state, "closed");
-      assert.notStrictEqual(run?.archivedAt, null);
-    }),
-  );
+    const run = yield* repository.getRunByIssue({
+      projectId: PROJECT_ID,
+      issueId: ISSUE_ID,
+    });
+    assert.strictEqual(run?.status, "canceled");
+    assert.strictEqual(run?.pullRequest?.state, "closed");
+    assert.notStrictEqual(run?.archivedAt, null);
+  }),
+);
 ```
 
 - [ ] **Step 2: Run the service test and verify the Canceled case fails**
@@ -668,19 +671,19 @@ Expected: the Canceled Linear assertion fails because reconciliation only archiv
 In `apps/server/src/symphony/Layers/SymphonyService.ts`, replace the existing `nextArchivedAt` expression:
 
 ```ts
-      const nextArchivedAt =
-        nextStatus === "completed"
-          ? (runWithBranch.archivedAt ?? reconciledAt)
-          : runWithBranch.archivedAt;
+const nextArchivedAt =
+  nextStatus === "completed"
+    ? (runWithBranch.archivedAt ?? reconciledAt)
+    : runWithBranch.archivedAt;
 ```
 
 with:
 
 ```ts
-      const nextArchivedAt =
-        nextStatus === "completed" || nextStatus === "canceled"
-          ? (runWithBranch.archivedAt ?? reconciledAt)
-          : runWithBranch.archivedAt;
+const nextArchivedAt =
+  nextStatus === "completed" || nextStatus === "canceled"
+    ? (runWithBranch.archivedAt ?? reconciledAt)
+    : runWithBranch.archivedAt;
 ```
 
 - [ ] **Step 4: Run the focused service test**
@@ -717,48 +720,48 @@ git commit -m "fix(symphony): archive canceled terminal runs" -m "Co-Authored-By
 In `apps/web/src/components/symphony/IssueQueueTable.browser.tsx`, add this test:
 
 ```tsx
-  it("offers archive for inactive rows and forwards the archive action", async () => {
-    const onIssueAction = vi.fn();
-    const screen = await render(
-      <IssueQueueTable
-        runs={[makeRun({ status: "failed", lifecyclePhase: "failed" })]}
-        busyAction={null}
-        selectedRunId={null}
-        onSelectRun={vi.fn()}
-        onIssueAction={onIssueAction}
-        onOpenLinkedThread={vi.fn()}
-      />,
-    );
+it("offers archive for inactive rows and forwards the archive action", async () => {
+  const onIssueAction = vi.fn();
+  const screen = await render(
+    <IssueQueueTable
+      runs={[makeRun({ status: "failed", lifecyclePhase: "failed" })]}
+      busyAction={null}
+      selectedRunId={null}
+      onSelectRun={vi.fn()}
+      onIssueAction={onIssueAction}
+      onOpenLinkedThread={vi.fn()}
+    />,
+  );
 
-    try {
-      await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
+  try {
+    await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
 
-      expect(onIssueAction.mock.calls.map((call) => call[0])).toEqual(["archive"]);
-    } finally {
-      await screen.unmount();
-    }
-  });
+    expect(onIssueAction.mock.calls.map((call) => call[0])).toEqual(["archive"]);
+  } finally {
+    await screen.unmount();
+  }
+});
 
-  it("hides archive for active execution rows", async () => {
-    const screen = await render(
-      <IssueQueueTable
-        runs={[makeRun({ status: "running", lifecyclePhase: "implementing" })]}
-        busyAction={null}
-        selectedRunId={null}
-        onSelectRun={vi.fn()}
-        onIssueAction={vi.fn()}
-        onOpenLinkedThread={vi.fn()}
-      />,
-    );
+it("hides archive for active execution rows", async () => {
+  const screen = await render(
+    <IssueQueueTable
+      runs={[makeRun({ status: "running", lifecyclePhase: "implementing" })]}
+      busyAction={null}
+      selectedRunId={null}
+      onSelectRun={vi.fn()}
+      onIssueAction={vi.fn()}
+      onOpenLinkedThread={vi.fn()}
+    />,
+  );
 
-    try {
-      await expect
-        .element(page.getByRole("button", { name: "Archive", exact: true }))
-        .not.toBeInTheDocument();
-    } finally {
-      await screen.unmount();
-    }
-  });
+  try {
+    await expect
+      .element(page.getByRole("button", { name: "Archive", exact: true }))
+      .not.toBeInTheDocument();
+  } finally {
+    await screen.unmount();
+  }
+});
 ```
 
 In `apps/web/src/components/symphony/SymphonyPanel.browser.tsx`, update `makeEnvironmentApi` so `archiveIssue` is a mock:
@@ -770,57 +773,57 @@ In `apps/web/src/components/symphony/SymphonyPanel.browser.tsx`, update `makeEnv
 Then add this test:
 
 ```tsx
-  it("archives an inactive run from the active view", async () => {
-    const activeRun = makeRun("4", "Failed run to archive", {
-      status: "failed",
-      lifecyclePhase: "failed",
-      executionTarget: "local",
-      pullRequest: null,
-      prUrl: null,
-    });
-    const archivedRun = {
-      ...activeRun,
-      archivedAt: ARCHIVED_AT,
-    };
-    const snapshotRef = {
-      current: makeSnapshot({ activeRuns: [activeRun] }),
-    };
-    const api = makeEnvironmentApi({
-      snapshotRef,
-      onSubscribe: () => undefined,
-    });
-    vi.mocked(api.symphony.archiveIssue).mockImplementation(async () => {
-      snapshotRef.current = makeSnapshot({ archivedRuns: [archivedRun] });
-      return snapshotRef.current;
-    });
-    __setEnvironmentApiOverrideForTests(ENVIRONMENT_ID, api);
-
-    const screen = await render(
-      <SymphonyPanel
-        environmentId={ENVIRONMENT_ID}
-        projectId={PROJECT_ID}
-        projectName="Battlecode"
-        projectCwd="/repo/battlecode"
-        onOpenThread={vi.fn()}
-      />,
-    );
-
-    try {
-      await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
-      await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
-
-      expect(api.symphony.archiveIssue).toHaveBeenCalledWith({
-        projectId: PROJECT_ID,
-        issueId: activeRun.issue.id,
-      });
-      expect(document.body.textContent).not.toContain("Failed run to archive");
-
-      await userEvent.click(page.getByRole("button", { name: /Archived/ }));
-      await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
-    } finally {
-      await screen.unmount();
-    }
+it("archives an inactive run from the active view", async () => {
+  const activeRun = makeRun("4", "Failed run to archive", {
+    status: "failed",
+    lifecyclePhase: "failed",
+    executionTarget: "local",
+    pullRequest: null,
+    prUrl: null,
   });
+  const archivedRun = {
+    ...activeRun,
+    archivedAt: ARCHIVED_AT,
+  };
+  const snapshotRef = {
+    current: makeSnapshot({ activeRuns: [activeRun] }),
+  };
+  const api = makeEnvironmentApi({
+    snapshotRef,
+    onSubscribe: () => undefined,
+  });
+  vi.mocked(api.symphony.archiveIssue).mockImplementation(async () => {
+    snapshotRef.current = makeSnapshot({ archivedRuns: [archivedRun] });
+    return snapshotRef.current;
+  });
+  __setEnvironmentApiOverrideForTests(ENVIRONMENT_ID, api);
+
+  const screen = await render(
+    <SymphonyPanel
+      environmentId={ENVIRONMENT_ID}
+      projectId={PROJECT_ID}
+      projectName="Battlecode"
+      projectCwd="/repo/battlecode"
+      onOpenThread={vi.fn()}
+    />,
+  );
+
+  try {
+    await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
+
+    expect(api.symphony.archiveIssue).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      issueId: activeRun.issue.id,
+    });
+    expect(document.body.textContent).not.toContain("Failed run to archive");
+
+    await userEvent.click(page.getByRole("button", { name: /Archived/ }));
+    await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
+  } finally {
+    await screen.unmount();
+  }
+});
 ```
 
 - [ ] **Step 2: Run browser tests and verify they fail**
@@ -875,20 +878,22 @@ Update the `onIssueAction` type in both `IssueQueueRowProps` and `IssueQueueTabl
 Destructure `canArchive` from row state and insert this button before Stop:
 
 ```tsx
-            {canArchive ? (
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busyAction !== null}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onIssueAction("archive", run);
-                }}
-              >
-                <ArchiveIcon className="size-3" />
-                Archive
-              </Button>
-            ) : null}
+{
+  canArchive ? (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={busyAction !== null}
+      onClick={(event) => {
+        event.stopPropagation();
+        onIssueAction("archive", run);
+      }}
+    >
+      <ArchiveIcon className="size-3" />
+      Archive
+    </Button>
+  ) : null;
+}
 ```
 
 - [ ] **Step 5: Wire the panel action**
@@ -905,23 +910,23 @@ In `apps/web/src/components/symphony/SymphonyPanel.tsx`, update the `runIssueAct
 Update the action chain:
 
 ```ts
-        const next = await (action === "archive"
-          ? api.symphony.archiveIssue({ projectId, issueId: run.issue.id })
-          : action === "stop"
-            ? api.symphony.stopIssue({ projectId, issueId: run.issue.id })
-            : action === "launch-local"
-              ? api.symphony.launchIssue({
-                  projectId,
-                  issueId: run.issue.id,
-                  target: "local",
-                })
-              : action === "launch-cloud"
-                ? api.symphony.launchIssue({
-                    projectId,
-                    issueId: run.issue.id,
-                    target: "codex-cloud",
-                  })
-                : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
+const next = await (action === "archive"
+  ? api.symphony.archiveIssue({ projectId, issueId: run.issue.id })
+  : action === "stop"
+    ? api.symphony.stopIssue({ projectId, issueId: run.issue.id })
+    : action === "launch-local"
+      ? api.symphony.launchIssue({
+          projectId,
+          issueId: run.issue.id,
+          target: "local",
+        })
+      : action === "launch-cloud"
+        ? api.symphony.launchIssue({
+            projectId,
+            issueId: run.issue.id,
+            target: "codex-cloud",
+          })
+        : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
 ```
 
 - [ ] **Step 6: Run browser tests**

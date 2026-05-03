@@ -3,11 +3,13 @@ import { assert, it } from "@effect/vitest";
 import {
   GitHubCliError,
   ProjectId,
+  SymphonyError,
   SymphonyIssueId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationReadModel,
   type OrchestrationThread,
+  type SymphonyEvent,
   type SymphonyIssue,
   type SymphonyRun,
 } from "@t3tools/contracts";
@@ -23,6 +25,7 @@ import { GitHubCli } from "../../git/Services/GitHubCli.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
+import { runProcess } from "../../processRunner.ts";
 import { SymphonyRepository } from "../Services/SymphonyRepository.ts";
 import { SymphonyService } from "../Services/SymphonyService.ts";
 import { LINEAR_INELIGIBLE_LEGACY_ERROR } from "../lifecyclePolicy.ts";
@@ -60,6 +63,14 @@ const CREATED_AT = "2026-05-02T12:00:00.000Z";
 const PROJECT_ID = ProjectId.make("project-symphony-service");
 const ISSUE_ID = SymphonyIssueId.make("issue-bc-1");
 const textEncoder = new TextEncoder();
+
+function countLinearLookupWarnings(events: readonly SymphonyEvent[]): number {
+  return events.filter(
+    (event) =>
+      event.type === "run.signal-warning" &&
+      event.message.startsWith("Linear issue lookup failed:"),
+  ).length;
+}
 
 const WORKFLOW_MD = `---
 tracker:
@@ -271,6 +282,34 @@ const writeWorkflow = Effect.gen(function* () {
   yield* fs.writeFileString(path.join(projectRoot, "WORKFLOW.md"), WORKFLOW_MD);
   return projectRoot;
 });
+
+const runGit = (cwd: string, args: readonly string[]) =>
+  Effect.tryPromise({
+    try: () => runProcess("git", [...args], { cwd, timeoutMs: 10_000 }),
+    catch: (cause) => new SymphonyError({ message: `git ${args.join(" ")} failed`, cause }),
+  }).pipe(Effect.asVoid);
+
+const initializeGitRepository = (projectRoot: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* runGit(projectRoot, ["init"]);
+    yield* runGit(projectRoot, ["config", "user.email", "symphony@example.com"]);
+    yield* runGit(projectRoot, ["config", "user.name", "Symphony Test"]);
+    yield* fs.writeFileString(path.join(projectRoot, "README.md"), "initial\n");
+    yield* runGit(projectRoot, ["add", "README.md"]);
+    yield* runGit(projectRoot, ["commit", "-m", "Initial commit"]);
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const result = await runProcess("git", ["rev-parse", "HEAD"], {
+          cwd: projectRoot,
+          timeoutMs: 10_000,
+        });
+        return result.stdout.trim();
+      },
+      catch: (cause) => new SymphonyError({ message: "git rev-parse HEAD failed", cause }),
+    });
+  });
 
 interface OrchestrationMockState {
   currentReadModel: OrchestrationReadModel | null;
@@ -652,6 +691,78 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       assert.strictEqual(run?.archivedAt, archivedAt);
       assert.strictEqual(snapshot.totals.archived, 1);
       expect(linearMocks.updateLinearIssueState).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("reactivates archived runs when Linear returns them to intake", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const archivedAt = "2026-05-02T12:10:00.000Z";
+
+      linearMocks.fetchLinearCandidates.mockReturnValue(
+        Effect.succeed([
+          makeIssue({
+            state: "Todo",
+            updatedAt: "2026-05-02T12:12:00.000Z",
+          }),
+        ]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "released",
+          lifecyclePhase: "intake",
+          executionTarget: "codex-cloud",
+          cloudTask: {
+            provider: "codex-cloud-linear",
+            status: "failed",
+            taskUrl: null,
+            linearCommentId: null,
+            linearCommentUrl: null,
+            repository: null,
+            repositoryUrl: null,
+            lastMessage: "previous run",
+            delegatedAt: CREATED_AT,
+            lastCheckedAt: CREATED_AT,
+          },
+          pullRequest: {
+            number: 7,
+            title: "Old PR",
+            url: "https://github.com/t3/battlecode/pull/7",
+            baseBranch: "development",
+            headBranch: "symphony/bc-1",
+            state: "closed",
+            updatedAt: CREATED_AT,
+          },
+          prUrl: "https://github.com/t3/battlecode/pull/7",
+          archivedAt,
+          lastError: "previous failure",
+        }),
+      );
+
+      const snapshot = yield* service.refresh({ projectId: PROJECT_ID });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.archivedAt, null);
+      assert.strictEqual(run?.status, "target-pending");
+      assert.strictEqual(run?.lifecyclePhase, "intake");
+      assert.strictEqual(run?.executionTarget, null);
+      assert.strictEqual(run?.cloudTask, null);
+      assert.strictEqual(run?.pullRequest, null);
+      assert.strictEqual(run?.prUrl, null);
+      assert.strictEqual(run?.lastError, null);
+      assert.strictEqual(snapshot.queues.pendingTarget.length, 1);
+      assert.strictEqual(snapshot.totals.archived, 0);
+      assert.ok(snapshot.events.some((event) => event.type === "run.reactivated"));
     }),
   );
 
@@ -1276,6 +1387,98 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
     }),
   );
 
+  it.effect("updates an existing PR after a clean review pass", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const planMarkdown = "- [x] Update existing PR";
+      const thread = makeThread({
+        worktreePath: projectRoot,
+        latestTurn: {
+          turnId: "turn-review-existing-pr" as never,
+          state: "completed",
+          requestedAt: CREATED_AT,
+          startedAt: CREATED_AT,
+          completedAt: "2026-05-02T12:20:00.000Z",
+          assistantMessageId: "message-review-existing-pr" as never,
+        },
+        messages: [
+          {
+            id: "message-review-existing-pr" as never,
+            role: "assistant",
+            text: "REVIEW_PASS: existing PR is ready",
+            turnId: "turn-review-existing-pr" as never,
+            streaming: false,
+            createdAt: "2026-05-02T12:19:00.000Z",
+            updatedAt: "2026-05-02T12:19:00.000Z",
+          },
+        ],
+      });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("Human Review")]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "running",
+          lifecyclePhase: "reviewing",
+          executionTarget: "local",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          threadId: thread.id,
+          prUrl: "https://github.com/t3/battlecode/pull/42",
+          pullRequest: {
+            number: 42,
+            title: "Fix cloud lifecycle",
+            url: "https://github.com/t3/battlecode/pull/42",
+            baseBranch: "development",
+            headBranch: "symphony/bc-1",
+            state: "open",
+            updatedAt: "2026-05-02T12:10:00.000Z",
+          },
+          currentStep: {
+            source: "symphony",
+            label: "Reviewing implementation",
+            detail: planMarkdown,
+            updatedAt: CREATED_AT,
+          },
+          attempts: [
+            {
+              attempt: 1,
+              status: "streaming-turn",
+              startedAt: CREATED_AT,
+              completedAt: null,
+              error: null,
+            },
+          ],
+        }),
+      );
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      expect(gitManagerMocks.runStackedAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "commit_push_pr",
+          baseBranch: "development",
+        }),
+        undefined,
+      );
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "review-ready");
+      assert.strictEqual(run?.lifecyclePhase, "in-review");
+      assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
+    }),
+  );
+
   it.effect("collects PR feedback and starts a fix turn while in review", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
@@ -1337,6 +1540,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
           linearProgress: {
             commentId: "comment-1",
             commentUrl: "https://linear.app/t3/issue/BC-1#comment-comment-1",
+            ownedCommentIds: ["comment-1"],
             lastRenderedHash: "hash-1",
             lastUpdatedAt: "2026-05-02T12:20:00.000Z",
             lastMilestoneAt: "2026-05-02T12:20:00.000Z",
@@ -1363,6 +1567,226 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       assert.strictEqual(run?.status, "running");
       assert.strictEqual(run?.lifecyclePhase, "fixing");
       assert.strictEqual(run?.linearProgress.lastFeedbackAt, "2026-05-02T12:31:00.000Z");
+    }),
+  );
+
+  it.effect("ignores Symphony-owned Linear comments when checking review feedback", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const thread = makeThread({ worktreePath: projectRoot });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("Human Review")]),
+      );
+      githubMocks.getPullRequest.mockReturnValue(
+        Effect.succeed({
+          number: 42,
+          title: "Fix cloud lifecycle",
+          url: "https://github.com/t3/battlecode/pull/42",
+          baseRefName: "development",
+          headRefName: "symphony/bc-1",
+          state: "open",
+          updatedAt: "2026-05-02T12:30:00.000Z",
+        }),
+      );
+      linearMocks.fetchLinearIssueComments.mockReturnValue(
+        Effect.succeed([
+          {
+            id: "comment-1",
+            url: "https://linear.app/t3/issue/BC-1#comment-comment-1",
+            body: "<!-- symphony-managed-progress v1 -->\n# Symphony Progress",
+            createdAt: "2026-05-02T12:32:00.000Z",
+            updatedAt: "2026-05-02T12:32:00.000Z",
+            userName: "Symphony",
+          },
+          {
+            id: "comment-2",
+            url: "https://linear.app/t3/issue/BC-1#comment-comment-2",
+            body: "Symphony milestone for BC-1: PR opened",
+            createdAt: "2026-05-02T12:33:00.000Z",
+            updatedAt: "2026-05-02T12:33:00.000Z",
+            userName: "Symphony",
+          },
+        ]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "review-ready",
+          lifecyclePhase: "in-review",
+          executionTarget: "local",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          threadId: thread.id,
+          prUrl: "https://github.com/t3/battlecode/pull/42",
+          linearProgress: {
+            commentId: "comment-1",
+            commentUrl: "https://linear.app/t3/issue/BC-1#comment-comment-1",
+            ownedCommentIds: ["comment-1", "comment-2"],
+            lastRenderedHash: "hash-1",
+            lastUpdatedAt: "2026-05-02T12:20:00.000Z",
+            lastMilestoneAt: "2026-05-02T12:20:00.000Z",
+            lastFeedbackAt: null,
+          },
+        }),
+      );
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      expect(orchestrationState.dispatchedCommands).toHaveLength(0);
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "review-ready");
+      assert.strictEqual(run?.linearProgress.lastFeedbackAt, null);
+    }),
+  );
+
+  it.effect("fails a no-op fix turn instead of looping", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const reviewedCommit = yield* initializeGitRepository(projectRoot);
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const thread = makeThread({
+        worktreePath: projectRoot,
+        latestTurn: {
+          turnId: "turn-fix" as never,
+          state: "completed",
+          requestedAt: CREATED_AT,
+          startedAt: CREATED_AT,
+          completedAt: "2026-05-02T12:40:00.000Z",
+          assistantMessageId: "message-fix" as never,
+        },
+      });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("In Progress")]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      const baseRun = makeServiceRun();
+      yield* repository.upsertRun({
+        ...baseRun,
+        status: "running",
+        lifecyclePhase: "fixing",
+        executionTarget: "local",
+        workspacePath: projectRoot,
+        branchName: "symphony/bc-1",
+        threadId: thread.id,
+        currentStep: {
+          source: "symphony",
+          label: "Fixing review findings",
+          detail: "- [x] Existing plan",
+          updatedAt: CREATED_AT,
+        },
+        qualityGate: {
+          ...baseRun.qualityGate,
+          lastReviewedCommit: reviewedCommit,
+          lastFeedbackFingerprint: "feedback-hash",
+        },
+        attempts: [
+          {
+            attempt: 1,
+            status: "streaming-turn",
+            startedAt: CREATED_AT,
+            completedAt: null,
+            error: null,
+          },
+        ],
+      });
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "failed");
+      assert.match(run?.lastError ?? "", /without code, test, or documentation changes/);
+      expect(orchestrationState.dispatchedCommands).toHaveLength(0);
+    }),
+  );
+
+  it.effect("fails instead of starting a new phase after max turns", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      const thread = makeThread({
+        worktreePath: projectRoot,
+        latestTurn: {
+          turnId: "turn-review-fail" as never,
+          state: "completed",
+          requestedAt: CREATED_AT,
+          startedAt: CREATED_AT,
+          completedAt: "2026-05-02T12:45:00.000Z",
+          assistantMessageId: "message-review-fail" as never,
+        },
+        messages: [
+          {
+            id: "message-review-fail" as never,
+            role: "assistant",
+            text: "REVIEW_FAIL: missing validation\n- Add validation.",
+            turnId: "turn-review-fail" as never,
+            streaming: false,
+            createdAt: "2026-05-02T12:44:00.000Z",
+            updatedAt: "2026-05-02T12:44:00.000Z",
+          },
+        ],
+      });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("In Progress")]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      const baseRun = makeServiceRun();
+      yield* repository.upsertRun({
+        ...baseRun,
+        status: "running",
+        lifecyclePhase: "reviewing",
+        executionTarget: "local",
+        workspacePath: projectRoot,
+        branchName: "symphony/bc-1",
+        threadId: thread.id,
+        currentStep: {
+          source: "symphony",
+          label: "Reviewing implementation",
+          detail: "- [x] Existing plan",
+          updatedAt: CREATED_AT,
+        },
+        attempts: Array.from({ length: 20 }, (_, index) => ({
+          attempt: index + 1,
+          status: index === 19 ? ("streaming-turn" as const) : ("succeeded" as const),
+          startedAt: CREATED_AT,
+          completedAt: index === 19 ? null : "2026-05-02T12:30:00.000Z",
+          error: null,
+        })),
+      });
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "failed");
+      assert.match(run?.lastError ?? "", /configured max_turns/);
+      expect(orchestrationState.dispatchedCommands).toHaveLength(0);
     }),
   );
 
@@ -1430,6 +1854,36 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       });
       assert.strictEqual(run?.status, "canceled");
       assert.notStrictEqual(run?.archivedAt, null);
+    }),
+  );
+
+  it.effect("coalesces repeated Linear lookup warnings during rapid refreshes", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.fail(new SymphonyError({ message: "Linear request failed with HTTP 400." })),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "cloud-running",
+          executionTarget: "codex-cloud",
+          branchName: "symphony/bc-1",
+        }),
+      );
+
+      const firstSnapshot = yield* service.refresh({ projectId: PROJECT_ID });
+      const secondSnapshot = yield* service.refresh({ projectId: PROJECT_ID });
+
+      const firstCount = countLinearLookupWarnings(firstSnapshot.events);
+      assert.ok(firstCount > 0);
+      assert.strictEqual(countLinearLookupWarnings(secondSnapshot.events), firstCount);
     }),
   );
 });

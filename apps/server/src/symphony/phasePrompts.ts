@@ -16,6 +16,7 @@ export interface PlanPhasePromptInput extends BasePhasePromptInput {
 
 export interface FixPhasePromptInput extends BasePhasePromptInput {
   readonly findings: readonly string[];
+  readonly pullRequestUrl?: string | null;
 }
 
 function issueBlock(issue: PhasePromptIssue): string {
@@ -108,7 +109,16 @@ export function buildFixPrompt(input: FixPhasePromptInput): string {
     "You are in the Symphony fix phase.",
     issueBlock(input.issue),
     workflowBlock(input.workflowPrompt),
-    "Fix the review findings below, then stop after focused validation.",
+    input.pullRequestUrl ? `Pull request: ${input.pullRequestUrl}` : null,
+    [
+      "Fix the review findings below.",
+      "Run focused validation for the changes.",
+      "Commit any file changes with the required co-author trailer.",
+      "Do not move Linear states or edit the managed Symphony progress comment.",
+      "Do not stop after analysis only; either make the required code/test/docs change or report a true blocker.",
+    ].join("\n"),
     findings,
-  ].join("\n\n");
+  ]
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }

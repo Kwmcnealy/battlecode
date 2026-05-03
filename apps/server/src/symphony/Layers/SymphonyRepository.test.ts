@@ -69,6 +69,7 @@ layer("SymphonyRepositoryLive", (it) => {
         linearProgress: {
           commentId: "comment-1",
           commentUrl: "https://linear.app/t3/issue/BC-0#comment-comment-1",
+          ownedCommentIds: ["comment-1"],
           lastRenderedHash: "hash-1",
           lastUpdatedAt: "2026-05-02T12:03:00.000Z",
           lastMilestoneAt: "2026-05-02T12:02:00.000Z",
@@ -79,6 +80,10 @@ layer("SymphonyRepositoryLive", (it) => {
           lastReviewPassedAt: null,
           lastReviewSummary: "Review failed with one concrete finding.",
           lastReviewFindings: ["Missing migration coverage"],
+          lastReviewedCommit: "abc123",
+          lastFixCommit: null,
+          lastPublishedCommit: null,
+          lastFeedbackFingerprint: "feedback-hash",
         },
       });
 

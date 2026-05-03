@@ -205,6 +205,7 @@ export function makeRun(
     linearProgress: {
       commentId: null,
       commentUrl: null,
+      ownedCommentIds: [],
       lastRenderedHash: null,
       lastUpdatedAt: null,
       lastMilestoneAt: null,
@@ -215,6 +216,10 @@ export function makeRun(
       lastReviewPassedAt: null,
       lastReviewSummary: null,
       lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
     },
     archivedAt: null,
     attempts: [],

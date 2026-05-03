@@ -98,12 +98,17 @@ describe("Symphony run model", () => {
       lastUpdatedAt: null,
       lastMilestoneAt: null,
       lastFeedbackAt: null,
+      ownedCommentIds: [],
     });
     expect(run.qualityGate).toEqual({
       reviewFixLoops: 0,
       lastReviewPassedAt: null,
       lastReviewSummary: null,
       lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
     });
     expect(run.archivedAt).toBeNull();
   });

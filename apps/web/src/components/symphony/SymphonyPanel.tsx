@@ -16,7 +16,7 @@ import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { IssueQueueTable } from "./IssueQueueTable";
 import { RunDetailsDrawer } from "./RunDetailsDrawer";
-import type { SymphonyAction } from "./symphonyDisplay";
+import { mergeSymphonySnapshotForDisplay, type SymphonyAction } from "./symphonyDisplay";
 import { SymphonyToolbar } from "./SymphonyToolbar";
 import { WorkflowStatus } from "./WorkflowStatus";
 
@@ -66,7 +66,7 @@ export function SymphonyPanel({
         return;
       }
       startTransition(() => {
-        setSnapshot(pendingSnapshot);
+        setSnapshot((current) => mergeSymphonySnapshotForDisplay(current, pendingSnapshot));
       });
     });
   }, []);

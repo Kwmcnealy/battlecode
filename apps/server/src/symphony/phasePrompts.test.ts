@@ -70,11 +70,14 @@ describe("Symphony phase prompts", () => {
       issue,
       workflowPrompt: "Fix only reviewed defects.",
       findings: ["Missing coverage for failed update", "Progress comment omits PR URL"],
+      pullRequestUrl: "https://github.com/t3/battlecode/pull/42",
     });
 
     expect(prompt).toContain("Fix the review findings");
+    expect(prompt).toContain("Pull request: https://github.com/t3/battlecode/pull/42");
     expect(prompt).toContain("- Missing coverage for failed update");
     expect(prompt).toContain("- Progress comment omits PR URL");
+    expect(prompt).toContain("Do not stop after analysis only");
     expect(prompt).toContain("Fix only reviewed defects.");
   });
 });

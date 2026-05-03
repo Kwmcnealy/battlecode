@@ -124,6 +124,20 @@ query SymphonyCandidateIssues($projectSlug: String!, $states: [String!], $after:
 }
 `;
 
+const DEFAULT_LINEAR_INTAKE_STATES = ["To Do", "Todo"] as const;
+const LINEAR_RATE_LIMIT_HEADER_NAMES = [
+  "retry-after",
+  "x-ratelimit-limit",
+  "x-ratelimit-remaining",
+  "x-ratelimit-reset",
+  "x-ratelimit-requests-limit",
+  "x-ratelimit-requests-remaining",
+  "x-ratelimit-requests-reset",
+  "x-ratelimit-complexity-limit",
+  "x-ratelimit-complexity-remaining",
+  "x-ratelimit-complexity-reset",
+] as const;
+
 const LINEAR_TEST_QUERY = `query SymphonyViewer { viewer { id name } }`;
 
 const LINEAR_CREATE_COMMENT_MUTATION = `
@@ -172,7 +186,7 @@ query SymphonyIssueComments($issueId: String!) {
 `;
 
 const LINEAR_ISSUES_BY_IDS_QUERY = `
-query SymphonyIssuesByIds($ids: [String!]) {
+query SymphonyIssuesByIds($ids: [ID!]) {
   issues(first: 100, filter: { id: { in: $ids } }) {
     nodes {
       id
@@ -265,6 +279,7 @@ export interface LinearCodexTaskDetection {
 function linearGraphql(input: {
   readonly endpoint: string;
   readonly apiKey: string;
+  readonly operationName?: string;
   readonly query: string;
   readonly variables?: Record<string, unknown>;
 }): Effect.Effect<Record<string, unknown>, SymphonyError> {
@@ -281,15 +296,31 @@ function linearGraphql(input: {
           variables: input.variables ?? {},
         }),
       });
-      const body = (await response.json()) as unknown;
+      const rawBody = await response.text();
+      let body: unknown;
+      try {
+        body = rawBody.trim().length > 0 ? JSON.parse(rawBody) : {};
+      } catch (cause) {
+        if (!response.ok) {
+          throw new Error(formatLinearHttpError(input.operationName, response, null, rawBody), {
+            cause,
+          });
+        }
+        throw new Error(
+          `Linear ${input.operationName ?? "GraphQL"} returned invalid JSON: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+          { cause },
+        );
+      }
       if (!response.ok) {
-        throw new Error(`Linear request failed with HTTP ${response.status}.`);
+        throw new Error(formatLinearHttpError(input.operationName, response, body, rawBody));
       }
       if (!isRecord(body)) {
         throw new Error("Linear returned a non-object GraphQL response.");
       }
       if (Array.isArray(body.errors) && body.errors.length > 0) {
-        throw new Error(JSON.stringify(body.errors));
+        throw new Error(formatLinearGraphqlErrors(input.operationName, body.errors));
       }
       return body;
     },
@@ -299,6 +330,63 @@ function linearGraphql(input: {
         cause,
       }),
   });
+}
+
+function truncateLinearDetail(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 500 ? `${normalized.slice(0, 497)}...` : normalized;
+}
+
+function formatLinearGraphqlErrors(operationName: string | undefined, errors: unknown): string {
+  const errorDetails = readArray(errors).flatMap((entry) => {
+    const error = readRecord(entry);
+    if (!error) return [];
+    const message = readString(error.message) ?? JSON.stringify(error);
+    const extensions = readRecord(error.extensions);
+    const extensionDetail = extensions
+      ? Object.entries(extensions)
+          .flatMap(([key, value]) => {
+            if (
+              typeof value === "string" ||
+              typeof value === "number" ||
+              typeof value === "boolean"
+            ) {
+              return [`${key}=${String(value)}`];
+            }
+            return [];
+          })
+          .join(", ")
+      : "";
+    return [`${message}${extensionDetail ? ` (${extensionDetail})` : ""}`];
+  });
+  const detail = errorDetails.length > 0 ? errorDetails.join("; ") : JSON.stringify(errors);
+  return truncateLinearDetail(`Linear ${operationName ?? "GraphQL"} failed: ${detail}`);
+}
+
+function formatLinearRateLimitHeaders(headers: Headers): string {
+  const details = LINEAR_RATE_LIMIT_HEADER_NAMES.flatMap((headerName) => {
+    const value = headers.get(headerName);
+    return value ? [`${headerName}=${value}`] : [];
+  });
+  return details.join(", ");
+}
+
+function formatLinearHttpError(
+  operationName: string | undefined,
+  response: Response,
+  body: unknown,
+  rawBody: string,
+): string {
+  const record = readRecord(body);
+  const errors = record ? readArray(record.errors) : [];
+  const detail =
+    errors.length > 0
+      ? formatLinearGraphqlErrors(operationName, errors)
+      : truncateLinearDetail(rawBody);
+  const rateLimitDetail = formatLinearRateLimitHeaders(response.headers);
+  return `Linear ${operationName ?? "GraphQL"} request failed with HTTP ${response.status}${
+    detail ? `: ${detail}` : ""
+  }${rateLimitDetail ? `; rate limit: ${rateLimitDetail}` : ""}`;
 }
 
 function normalizeLinearWorkflowTeam(value: unknown): LinearWorkflowTeam | null {
@@ -577,29 +665,73 @@ export function fetchLinearIssuesByIds(input: {
     return Effect.succeed([]);
   }
 
-  return linearGraphql({
-    endpoint: input.endpoint,
-    apiKey: input.apiKey,
-    query: LINEAR_ISSUES_BY_IDS_QUERY,
-    variables: {
-      ids: issueIds,
-    },
-  }).pipe(
-    Effect.map((body) => {
-      const data = readNestedRecord(body, "data");
-      const issues = data ? readNestedRecord(data, "issues") : null;
-      const nodes = issues ? readArray(issues.nodes) : [];
-      return nodes.flatMap((node) => {
-        const record = readRecord(node);
-        const normalized = record ? normalizeLinearIssueWorkflowContext(record) : null;
-        return normalized ? [normalized] : [];
-      });
-    }),
+  const chunks = Array.from({ length: Math.ceil(issueIds.length / 100) }, (_entry, index) =>
+    issueIds.slice(index * 100, index * 100 + 100),
   );
+
+  return Effect.forEach(
+    chunks,
+    (ids) =>
+      linearGraphql({
+        endpoint: input.endpoint,
+        apiKey: input.apiKey,
+        operationName: "SymphonyIssuesByIds",
+        query: LINEAR_ISSUES_BY_IDS_QUERY,
+        variables: {
+          ids,
+        },
+      }).pipe(
+        Effect.map((body) => {
+          const data = readNestedRecord(body, "data");
+          const issues = data ? readNestedRecord(data, "issues") : null;
+          const nodes = issues ? readArray(issues.nodes) : [];
+          return nodes.flatMap((node) => {
+            const record = readRecord(node);
+            const normalized = record ? normalizeLinearIssueWorkflowContext(record) : null;
+            return normalized ? [normalized] : [];
+          });
+        }),
+      ),
+    { concurrency: 2 },
+  ).pipe(Effect.map((pages) => pages.flat()));
 }
 
 function namesMatch(left: string, right: string): boolean {
   return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
+}
+
+function normalizeStateNameKey(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function buildLinearCandidateStateFilter(
+  tracker: SymphonyWorkflowConfig["tracker"],
+): readonly string[] {
+  const configuredCandidateStates = [
+    ...(tracker.intakeStates ?? []),
+    ...tracker.activeStates,
+    ...tracker.reviewStates,
+  ]
+    .map((state) => state.trim())
+    .filter((state) => state.length > 0);
+  const candidateStates =
+    configuredCandidateStates.length > 0 ? configuredCandidateStates : DEFAULT_LINEAR_INTAKE_STATES;
+  const excludedStates = new Set(
+    [...tracker.terminalStates, ...tracker.doneStates, ...tracker.canceledStates]
+      .map(normalizeStateNameKey)
+      .filter((state) => state.length > 0),
+  );
+  const seenStates = new Set<string>();
+
+  return candidateStates.flatMap((state) => {
+    const trimmed = state.trim();
+    const key = normalizeStateNameKey(trimmed);
+    if (trimmed.length === 0 || excludedStates.has(key) || seenStates.has(key)) {
+      return [];
+    }
+    seenStates.add(key);
+    return [trimmed];
+  });
 }
 
 export function resolveLinearWorkflowStateId(input: {
@@ -733,6 +865,7 @@ export function fetchLinearCandidates(input: {
   readonly apiKey: string;
   readonly config: SymphonyWorkflowConfig;
 }): Effect.Effect<readonly SymphonyIssue[], SymphonyError> {
+  const states = buildLinearCandidateStateFilter(input.config.tracker);
   const fetchPage = (
     after: string | null,
     accumulated: readonly SymphonyIssue[],
@@ -740,10 +873,11 @@ export function fetchLinearCandidates(input: {
     linearGraphql({
       endpoint: input.endpoint,
       apiKey: input.apiKey,
+      operationName: "SymphonyCandidateIssues",
       query: LINEAR_CANDIDATES_QUERY,
       variables: {
         projectSlug: input.config.tracker.projectSlug,
-        states: input.config.tracker.activeStates,
+        states,
         after,
       },
     }).pipe(

@@ -175,9 +175,10 @@ describe("Symphony Linear helpers", () => {
             kind: "linear",
             endpoint: "https://linear.example/graphql",
             projectSlug: "battlecode",
-            activeStates: ["Todo", "In Progress"],
+            intakeStates: ["Todo", "todo", "Done", "Canceled"],
+            activeStates: ["In Progress", "done"],
             terminalStates: ["Done"],
-            reviewStates: ["In Review"],
+            reviewStates: ["In Review", "in progress"],
             doneStates: ["Done"],
             canceledStates: ["Canceled"],
             transitionStates: {
@@ -201,8 +202,70 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).query).toContain("slugId");
+    const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: Record<string, unknown>;
+    };
+    expect(firstRequest.query).toContain("slugId");
+    expect(firstRequest.variables.states).toEqual(["Todo", "In Progress", "In Review"]);
     expect(issues.map((issue) => issue.identifier)).toEqual(["APP-1", "APP-2"]);
+  });
+
+  it("uses default intake candidate states when no candidate state groups are configured", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issues: {
+                nodes: [],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await Effect.runPromise(
+      fetchLinearCandidates({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        config: {
+          tracker: {
+            kind: "linear",
+            endpoint: "https://linear.example/graphql",
+            projectSlug: "battlecode",
+            activeStates: [],
+            terminalStates: [],
+            reviewStates: [],
+            doneStates: [],
+            canceledStates: [],
+            transitionStates: {
+              started: null,
+              review: null,
+              done: null,
+              canceled: null,
+            },
+          },
+          polling: { intervalMs: 30_000 },
+          workspace: { root: "" },
+          hooks: { timeoutMs: 60_000 },
+          agent: {
+            maxConcurrentAgents: 3,
+            maxTurns: 20,
+            maxRetryBackoffMs: 300_000,
+          },
+          codex: { runtimeMode: "full-access" },
+        },
+      }),
+    );
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly variables: Record<string, unknown>;
+    };
+    expect(request.variables.states).toEqual(["To Do", "Todo"]);
   });
 
   it("fetches tracked Linear issues by id with team and state context", async () => {
@@ -248,7 +311,78 @@ describe("Symphony Linear helpers", () => {
     expect(issues[0]?.issue.identifier).toBe("APP-1");
     expect(issues[0]?.team).toEqual({ id: "team-1", name: "App", key: "APP" });
     expect(issues[0]?.state).toEqual({ id: "state-progress", name: "In Progress" });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).query).toContain("team {");
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+    };
+    expect(request.query).toContain("team {");
+    expect(request.query).toContain("$ids: [ID!]");
+  });
+
+  it("includes Linear GraphQL validation details in request failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              errors: [
+                {
+                  message:
+                    'Variable "$ids" of type "[String!]" used in position expecting type "[ID!]".',
+                  extensions: { code: "GRAPHQL_VALIDATION_FAILED", type: "graphql error" },
+                },
+              ],
+            }),
+            { status: 400 },
+          ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_key",
+          issueIds: ["linear-issue-1"],
+        }),
+      ),
+    ).rejects.toThrow(/expecting type/);
+  });
+
+  it("includes Linear rate-limit details in HTTP failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              errors: [
+                {
+                  message: "Rate limit exceeded.",
+                  extensions: { code: "RATE_LIMITED", retryAfter: 30 },
+                },
+              ],
+            }),
+            {
+              status: 429,
+              headers: {
+                "retry-after": "30",
+                "x-ratelimit-requests-remaining": "0",
+              },
+            },
+          ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_key",
+          issueIds: ["linear-issue-1"],
+        }),
+      ),
+    ).rejects.toThrow(/RATE_LIMITED.*retry-after=30.*x-ratelimit-requests-remaining=0/);
   });
 
   it("resolves Linear workflow state ids by issue team and configured name", async () => {

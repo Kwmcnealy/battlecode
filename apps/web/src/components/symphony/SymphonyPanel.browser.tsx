@@ -6,9 +6,11 @@ import {
   SymphonyIssueId,
   SymphonyRunId,
   type EnvironmentApi,
+  type SymphonyEvent,
   type SymphonyRun,
   type SymphonySettings,
   type SymphonySnapshot,
+  type SymphonySnapshotDiagnostics,
   type SymphonySubscribeEvent,
 } from "@t3tools/contracts";
 import { act } from "react";
@@ -73,6 +75,7 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
     linearProgress: {
       commentId: `comment-${id}`,
       commentUrl: `https://linear.app/t3/issue/BC-${id}#comment-comment-${id}`,
+      ownedCommentIds: [],
       lastRenderedHash: null,
       lastUpdatedAt: CREATED_AT,
       lastMilestoneAt: CREATED_AT,
@@ -83,6 +86,10 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
       lastReviewPassedAt: CREATED_AT,
       lastReviewSummary: "Ready for PR review",
       lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
     },
     archivedAt: null,
     attempts: [],
@@ -125,6 +132,8 @@ function makeSettings(): SymphonySettings {
 function makeSnapshot(input: {
   readonly activeRuns?: readonly SymphonyRun[];
   readonly archivedRuns?: readonly SymphonyRun[];
+  readonly diagnostics?: SymphonySnapshotDiagnostics;
+  readonly events?: readonly SymphonyEvent[];
 }): SymphonySnapshot {
   const activeRuns = input.activeRuns ?? [];
   const archivedRuns = input.archivedRuns ?? [];
@@ -152,7 +161,8 @@ function makeSnapshot(input: {
       canceled: 0,
       archived: archivedRuns.length,
     },
-    events: [],
+    events: [...(input.events ?? [])],
+    ...(input.diagnostics ? { diagnostics: input.diagnostics } : {}),
     updatedAt: CREATED_AT,
   };
 }
@@ -371,6 +381,90 @@ describe("SymphonyPanel", () => {
 
       await userEvent.click(page.getByRole("button", { name: /Archived/ }));
       await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("shows compact diagnostics and keeps rows visible across warning-only snapshots", async () => {
+    const activeRun = makeRun("5", "Stable cloud run");
+    const snapshotRef = {
+      current: makeSnapshot({
+        activeRuns: [activeRun],
+        diagnostics: {
+          lastPollAt: "2026-05-02T12:10:00.000Z",
+          queriedStates: ["Todo", "In Progress"],
+          candidateCount: 3,
+          warningSummary: {
+            count: 0,
+            latestMessage: null,
+          },
+          errorSummary: {
+            count: 0,
+            latestMessage: null,
+          },
+        },
+      }),
+    };
+    let subscriptionCallback: ((event: SymphonySubscribeEvent) => void) | null = null;
+    __setEnvironmentApiOverrideForTests(
+      ENVIRONMENT_ID,
+      makeEnvironmentApi({
+        snapshotRef,
+        onSubscribe: (callback) => {
+          subscriptionCallback = callback;
+        },
+      }),
+    );
+
+    const screen = await render(
+      <SymphonyPanel
+        environmentId={ENVIRONMENT_ID}
+        projectId={PROJECT_ID}
+        projectName="Battlecode"
+        projectCwd="/repo/battlecode"
+        onOpenThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await expect.element(page.getByText("Stable cloud run")).toBeInTheDocument();
+      await expect.element(page.getByText("States Todo, In Progress")).toBeInTheDocument();
+      await expect.element(page.getByText("3 candidates")).toBeInTheDocument();
+
+      const warningEvent: SymphonyEvent = {
+        eventId: "event-warning-1",
+        projectId: PROJECT_ID,
+        runId: activeRun.runId,
+        issueId: activeRun.issue.id,
+        type: "run.signal-warning",
+        message: "PR lookup warning",
+        payload: {},
+        createdAt: "2026-05-02T12:11:00.000Z",
+      };
+      snapshotRef.current = makeSnapshot({
+        activeRuns: [{ ...activeRun }],
+        diagnostics: {
+          lastPollAt: "2026-05-02T12:11:00.000Z",
+          queriedStates: ["Todo", "In Progress"],
+          candidateCount: 3,
+          warningSummary: {
+            count: 1,
+            latestMessage: "PR lookup warning",
+          },
+          errorSummary: {
+            count: 0,
+            latestMessage: null,
+          },
+        },
+        events: [warningEvent],
+      });
+      await act(async () => {
+        subscriptionCallback?.({ kind: "snapshot", snapshot: snapshotRef.current });
+      });
+
+      await expect.element(page.getByText("Stable cloud run")).toBeInTheDocument();
+      await expect.element(page.getByText("1 warnings")).toBeInTheDocument();
     } finally {
       await screen.unmount();
     }
