@@ -77,7 +77,6 @@ import {
 } from "../phaseOutput.ts";
 import {
   MANAGED_COMMENT_MARKER,
-  appendOwnedCommentId,
   transitionLinearState,
   upsertManagedComment,
 } from "../linearWriter.ts";

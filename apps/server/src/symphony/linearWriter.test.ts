@@ -1,3 +1,10 @@
+import {
+  ProjectId,
+  SymphonyIssueId,
+  SymphonyRunId,
+  type SymphonyRun,
+  type SymphonyWorkflowConfig,
+} from "@t3tools/contracts";
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +13,7 @@ import {
   appendOwnedCommentId,
   transitionLinearState,
   upsertManagedComment,
+  type LinearWriterRunDeps,
 } from "./linearWriter.ts";
 
 // Mock the Linear API calls so tests are pure (no network, no DB).
@@ -35,42 +43,74 @@ beforeEach(() => {
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const BASE_LINEAR_PROGRESS = {
+const BASE_LINEAR_PROGRESS: SymphonyRun["linearProgress"] = {
   commentId: null,
   commentUrl: null,
-  ownedCommentIds: [] as string[],
+  ownedCommentIds: [],
   lastRenderedHash: null,
   lastUpdatedAt: null,
   lastMilestoneAt: null,
   lastFeedbackAt: null,
 };
 
-function makeRun(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+const BASE_QUALITY_GATE: SymphonyRun["qualityGate"] = {
+  reviewFixLoops: 0,
+  lastReviewPassedAt: null,
+  lastReviewSummary: null,
+  lastReviewFindings: [],
+  lastReviewedCommit: null,
+  lastFixCommit: null,
+  lastPublishedCommit: null,
+  lastFeedbackFingerprint: null,
+};
+
+function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
   return {
-    runId: "run-1",
+    runId: SymphonyRunId.make("run-1"),
+    projectId: ProjectId.make("project-1"),
     issue: {
-      id: "issue-id-1",
+      id: SymphonyIssueId.make("issue-id-1"),
       identifier: "APP-1",
       title: "Test issue",
       description: null,
+      priority: null,
+      state: "To Do",
+      branchName: null,
+      url: null,
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-05-03T00:00:00.000Z",
+      updatedAt: "2026-05-03T00:00:00.000Z",
     },
+    status: "eligible",
     lifecyclePhase: "planning",
-    executionTarget: "local",
+    workspacePath: null,
+    branchName: null,
+    threadId: null,
     prUrl: null,
+    executionTarget: "local",
+    cloudTask: null,
     pullRequest: null,
     currentStep: null,
-    qualityGate: { lastReviewFindings: [] },
+    qualityGate: { ...BASE_QUALITY_GATE },
     linearProgress: { ...BASE_LINEAR_PROGRESS },
+    archivedAt: null,
+    attempts: [],
+    nextRetryAt: null,
+    lastError: null,
+    createdAt: "2026-05-03T00:00:00.000Z",
     updatedAt: "2026-05-03T00:00:00.000Z",
     ...overrides,
   };
 }
 
-function makeWorkflow(endpointOverride?: string) {
+function makeWorkflow(endpointOverride?: string): { config: SymphonyWorkflowConfig } {
   return {
     config: {
       tracker: {
-        endpoint: endpointOverride ?? null,
+        kind: "linear",
+        endpoint: endpointOverride ?? "https://api.linear.app/graphql",
+        projectSlug: "",
         activeStates: ["In Progress"],
         reviewStates: ["Human Review"],
         terminalStates: ["Done", "Canceled"],
@@ -84,19 +124,32 @@ function makeWorkflow(endpointOverride?: string) {
         },
         intakeStates: ["To Do"],
       },
+      polling: { intervalMs: 30_000 },
+      workspace: { root: "" },
+      hooks: { timeoutMs: 60_000 },
+      agent: { maxConcurrentAgents: 10, maxTurns: 20, maxRetryBackoffMs: 300_000 },
+      codex: { runtimeMode: "full-access" },
+      pullRequest: { baseBranch: null },
+      quality: {
+        maxReviewFixLoops: 1,
+        simplificationPrompt:
+          "Simplify only the code changed for this issue. Preserve behavior and UI unless a fix is required.",
+        reviewPrompt:
+          "Review the current branch for correctness, regressions, and missing validation. Return REVIEW_PASS or REVIEW_FAIL with concrete findings.",
+      },
     },
   };
 }
 
 function makeDeps(apiKey = "test-api-key") {
   const emitProjectEvent = vi.fn().mockReturnValue(Effect.void);
-  const upsertRun = vi.fn().mockImplementation((run: unknown) => Effect.succeed(run));
+  const upsertRun = vi.fn().mockImplementation((run: SymphonyRun) => Effect.succeed(run));
 
   return {
     readLinearApiKey: vi.fn().mockReturnValue(Effect.succeed(apiKey)),
     emitProjectEvent,
     upsertRun,
-  };
+  } satisfies LinearWriterRunDeps;
 }
 
 async function runEffect<A>(effect: Effect.Effect<A, never>): Promise<A> {
@@ -158,10 +211,10 @@ describe("upsertManagedComment", () => {
     );
 
     const result = await runEffect(
-      upsertManagedComment(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      upsertManagedComment(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         planMarkdown: null,
         statusLine: "Planning",
       }),
@@ -169,7 +222,7 @@ describe("upsertManagedComment", () => {
 
     expect(linearMocks.createLinearComment).toHaveBeenCalledOnce();
     expect(linearMocks.updateLinearComment).not.toHaveBeenCalled();
-    expect((result as Record<string, unknown>).linearProgress).toMatchObject({
+    expect(result.linearProgress).toMatchObject({
       commentId: "new-comment-id",
     });
   });
@@ -192,10 +245,10 @@ describe("upsertManagedComment", () => {
     );
 
     await runEffect(
-      upsertManagedComment(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      upsertManagedComment(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         planMarkdown: "- [ ] step 1",
         statusLine: "Implementing",
       }),
@@ -211,10 +264,10 @@ describe("upsertManagedComment", () => {
     linearMocks.createLinearComment.mockReturnValue(Effect.succeed({ id: "c1", url: null }));
 
     await runEffect(
-      upsertManagedComment(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      upsertManagedComment(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         planMarkdown: null,
         statusLine: "Planning",
       }),
@@ -230,10 +283,10 @@ describe("upsertManagedComment", () => {
     linearMocks.createLinearComment.mockReturnValue(Effect.fail(new Error("Linear API error")));
 
     const result = await runEffect(
-      upsertManagedComment(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      upsertManagedComment(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         planMarkdown: null,
         statusLine: "Planning",
       }),
@@ -251,10 +304,10 @@ describe("upsertManagedComment", () => {
     deps.readLinearApiKey.mockReturnValue(Effect.succeed(null));
 
     const result = await runEffect(
-      upsertManagedComment(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      upsertManagedComment(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         planMarkdown: null,
         statusLine: "Planning",
       }),
@@ -285,10 +338,10 @@ describe("transitionLinearState", () => {
     );
 
     await runEffect(
-      transitionLinearState(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         stateName: "In Progress",
         reason: "test",
       }),
@@ -309,10 +362,10 @@ describe("transitionLinearState", () => {
     );
 
     await runEffect(
-      transitionLinearState(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         stateName: "In Progress",
         reason: "planning-started",
       }),
@@ -332,10 +385,10 @@ describe("transitionLinearState", () => {
     );
 
     await runEffect(
-      transitionLinearState(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         stateName: "To Do",
         reason: "no-change",
       }),
@@ -349,10 +402,10 @@ describe("transitionLinearState", () => {
     const deps = makeDeps();
 
     await runEffect(
-      transitionLinearState(deps as never, {
-        projectId: "project-1" as never,
-        workflow: makeWorkflow() as never,
-        run: run as never,
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
         stateName: null,
         reason: "noop",
       }),
@@ -369,10 +422,10 @@ describe("transitionLinearState", () => {
 
     await expect(
       runEffect(
-        transitionLinearState(deps as never, {
-          projectId: "project-1" as never,
-          workflow: makeWorkflow() as never,
-          run: run as never,
+        transitionLinearState(deps, {
+          projectId: ProjectId.make("project-1"),
+          workflow: makeWorkflow(),
+          run,
           stateName: "In Progress",
           reason: "test",
         }),
