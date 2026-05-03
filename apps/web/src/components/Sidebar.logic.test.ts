@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildSymphonySidebarRunsDigest,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
@@ -28,6 +29,7 @@ import {
   OrchestrationLatestTurn,
   ProjectId,
   type ServerProvider,
+  SymphonyIssueId,
   SymphonyRunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -494,6 +496,44 @@ describe("Symphony sidebar routing", () => {
       kind: "details",
       runId: SymphonyRunId.make("run-cloud"),
     });
+  });
+});
+
+describe("Symphony sidebar update digest", () => {
+  const baseRun = {
+    archivedAt: null,
+    executionTarget: "local",
+    issue: {
+      id: SymphonyIssueId.make("issue-bc-1"),
+      identifier: "BC-1",
+      title: "Stabilize Symphony updates",
+    },
+    lifecyclePhase: "implementing",
+    runId: SymphonyRunId.make("run-bc-1"),
+    status: "running",
+    threadId: ThreadId.make("thread-bc-1"),
+  } as const;
+
+  it("ignores fields that are not rendered in the sidebar", () => {
+    const noisyRun = {
+      ...baseRun,
+      currentStep: {
+        source: "symphony",
+        label: "Streaming another event",
+        detail: "High-frequency event timeline update",
+        updatedAt: "2026-05-02T12:00:00.000Z",
+      },
+    } as const;
+
+    expect(buildSymphonySidebarRunsDigest([noisyRun])).toBe(
+      buildSymphonySidebarRunsDigest([baseRun]),
+    );
+  });
+
+  it("changes when visible sidebar status changes", () => {
+    expect(buildSymphonySidebarRunsDigest([{ ...baseRun, lifecyclePhase: "reviewing" }])).not.toBe(
+      buildSymphonySidebarRunsDigest([baseRun]),
+    );
   });
 });
 

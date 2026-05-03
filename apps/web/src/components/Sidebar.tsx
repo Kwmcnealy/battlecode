@@ -161,6 +161,7 @@ import {
   resolveSymphonySidebarRunClickTarget,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  buildSymphonySidebarRunsDigest,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
@@ -296,15 +297,32 @@ function flattenSymphonyRuns(snapshot: SymphonySnapshot): SymphonyRun[] {
   });
 }
 
+interface SidebarSymphonyProjection {
+  digest: string;
+  runs: readonly SymphonyRun[];
+}
+
 interface SidebarSymphonySnapshotEntry {
   member: SidebarProjectGroupMember;
-  snapshot: SymphonySnapshot;
+  runs: readonly SymphonyRun[];
+}
+
+function buildSidebarSymphonyProjection(snapshot: SymphonySnapshot): SidebarSymphonyProjection {
+  const runs = flattenSymphonyRuns(snapshot).filter((run) => run.archivedAt === null);
+  return {
+    digest: buildSymphonySidebarRunsDigest(runs),
+    runs,
+  };
 }
 
 function useProjectSymphonySnapshots(
   members: readonly SidebarProjectGroupMember[],
 ): readonly SidebarSymphonySnapshotEntry[] {
-  const [snapshotsByKey, setSnapshotsByKey] = useState<Record<string, SymphonySnapshot>>({});
+  const [snapshotsByKey, setSnapshotsByKey] = useState<Record<string, SidebarSymphonyProjection>>(
+    {},
+  );
+  const membersRef = useRef(members);
+  membersRef.current = members;
   const memberKeys = useMemo(
     () =>
       members
@@ -317,8 +335,17 @@ function useProjectSymphonySnapshots(
     let disposed = false;
     const unsubscribes: Array<() => void> = [];
     setSnapshotsByKey({});
+    const updateProjection = (key: string, snapshot: SymphonySnapshot) => {
+      const nextProjection = buildSidebarSymphonyProjection(snapshot);
+      setSnapshotsByKey((current) => {
+        if (current[key]?.digest === nextProjection.digest) {
+          return current;
+        }
+        return { ...current, [key]: nextProjection };
+      });
+    };
 
-    for (const member of members) {
+    for (const member of membersRef.current) {
       const api = readEnvironmentApi(member.environmentId);
       if (!api) {
         continue;
@@ -328,13 +355,15 @@ function useProjectSymphonySnapshots(
         .getSnapshot({ projectId: member.id })
         .then((snapshot) => {
           if (!disposed) {
-            setSnapshotsByKey((current) => ({ ...current, [key]: snapshot }));
+            updateProjection(key, snapshot);
           }
         })
         .catch(() => undefined);
       unsubscribes.push(
         api.symphony.subscribe({ projectId: member.id }, (event) => {
-          setSnapshotsByKey((current) => ({ ...current, [key]: event.snapshot }));
+          if (!disposed) {
+            updateProjection(key, event.snapshot);
+          }
         }),
       );
     }
@@ -345,14 +374,14 @@ function useProjectSymphonySnapshots(
         unsubscribe();
       }
     };
-  }, [memberKeys, members]);
+  }, [memberKeys]);
 
   return useMemo(
     () =>
       members.flatMap((member) => {
         const key = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
-        const snapshot = snapshotsByKey[key];
-        return snapshot ? [{ member, snapshot }] : [];
+        const projection = snapshotsByKey[key];
+        return projection ? [{ member, runs: projection.runs }] : [];
       }),
     [members, snapshotsByKey],
   );
@@ -383,13 +412,10 @@ function SidebarSymphonySection({
   const runEntries = useMemo(
     () =>
       snapshotEntries.flatMap((entry) =>
-        flattenSymphonyRuns(entry.snapshot)
-          .filter((run) => run.archivedAt === null)
-          .map((run) => ({
-            member: entry.member,
-            snapshot: entry.snapshot,
-            run,
-          })),
+        entry.runs.map((run) => ({
+          member: entry.member,
+          run,
+        })),
       ),
     [snapshotEntries],
   );
@@ -483,12 +509,6 @@ function SidebarSymphonySection({
                     <span className="truncate text-[11px] text-sidebar-foreground/85">
                       {run.issue.title}
                     </span>
-                  </span>
-                  <span
-                    className="max-w-28 shrink truncate font-mono text-[9px] uppercase text-muted-foreground/65"
-                    title={run.currentStep?.label ?? undefined}
-                  >
-                    {run.currentStep?.label ?? formatLifecyclePhase(run.lifecyclePhase)}
                   </span>
                   <span
                     className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9px] uppercase ${

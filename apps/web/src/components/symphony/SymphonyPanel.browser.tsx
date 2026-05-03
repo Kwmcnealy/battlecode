@@ -316,7 +316,7 @@ describe("SymphonyPanel", () => {
       });
 
       await expect.element(page.getByText("Archived at")).toBeInTheDocument();
-      expect(document.body.textContent).toContain("Pull request merged");
+      await expect.element(page.getByText("Pull request merged")).toBeInTheDocument();
       await expect.element(page.getByText("Selected cloud run")).toBeInTheDocument();
     } finally {
       await screen.unmount();

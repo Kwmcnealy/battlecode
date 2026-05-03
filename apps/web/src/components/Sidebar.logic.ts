@@ -258,6 +258,31 @@ export function resolveSymphonySidebarRunClickTarget(
   };
 }
 
+export type SymphonySidebarRunDigestInput = Pick<
+  SymphonyRun,
+  "archivedAt" | "executionTarget" | "lifecyclePhase" | "runId" | "status" | "threadId"
+> & {
+  issue: Pick<SymphonyRun["issue"], "id" | "identifier" | "title">;
+};
+
+export function buildSymphonySidebarRunsDigest(
+  runs: readonly SymphonySidebarRunDigestInput[],
+): string {
+  return JSON.stringify(
+    runs.map((run) => ({
+      archivedAt: run.archivedAt,
+      executionTarget: run.executionTarget,
+      issueId: run.issue.id,
+      issueIdentifier: run.issue.identifier,
+      issueTitle: run.issue.title,
+      lifecyclePhase: run.lifecyclePhase,
+      runId: run.runId,
+      status: run.status,
+      threadId: run.threadId,
+    })),
+  );
+}
+
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];

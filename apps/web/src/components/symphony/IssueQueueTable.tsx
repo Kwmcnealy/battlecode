@@ -8,6 +8,7 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
+import { memo } from "react";
 import type { SymphonyRun } from "@t3tools/contracts";
 
 import { cn } from "../../lib/utils";
@@ -54,6 +55,275 @@ function getIssueQueueRowState(run: SymphonyRun) {
   };
 }
 
+function buildIssueQueueRowDigest(run: SymphonyRun): string {
+  return JSON.stringify({
+    branchName: run.branchName,
+    cloudLastMessage: run.cloudTask?.lastMessage ?? null,
+    cloudStatus: run.cloudTask?.status ?? null,
+    cloudTaskUrl: run.cloudTask?.taskUrl ?? null,
+    currentStepDetail: run.currentStep?.detail ?? null,
+    currentStepLabel: run.currentStep?.label ?? null,
+    executionTarget: run.executionTarget,
+    issueIdentifier: run.issue.identifier,
+    issueState: run.issue.state,
+    issueTitle: run.issue.title,
+    issueUrl: run.issue.url,
+    lastError: run.lastError,
+    lifecyclePhase: run.lifecyclePhase,
+    prUrl: run.pullRequest?.url ?? run.prUrl,
+    runId: run.runId,
+    status: run.status,
+    threadId: run.threadId,
+  });
+}
+
+interface IssueQueueRowProps {
+  busyAction: SymphonyAction | null;
+  isSelected: boolean;
+  onIssueAction: (
+    action: Extract<SymphonyAction, "stop" | "launch-local" | "launch-cloud" | "refresh-cloud">,
+    run: SymphonyRun,
+  ) => void;
+  onOpenLinkedThread: (run: SymphonyRun) => void;
+  onSelectRun: (run: SymphonyRun) => void;
+  run: SymphonyRun;
+}
+
+const IssueQueueRow = memo(
+  function IssueQueueRow({
+    busyAction,
+    isSelected,
+    onIssueAction,
+    onOpenLinkedThread,
+    onSelectRun,
+    run,
+  }: IssueQueueRowProps) {
+    const {
+      canRetry,
+      canLaunch,
+      canStop,
+      targetLabel,
+      taskHref,
+      canRefreshCloudStatus,
+      cloudMessage,
+    } = getIssueQueueRowState(run);
+
+    return (
+      <tr
+        role="button"
+        tabIndex={0}
+        className={cn(
+          "cursor-pointer border-t border-border/60 hover:bg-accent/35",
+          isSelected && "bg-primary/5",
+        )}
+        onClick={() => onSelectRun(run)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onSelectRun(run);
+        }}
+      >
+        <td className="max-w-[22rem] px-4 py-3">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="font-mono text-xs text-primary">{run.issue.identifier}</span>
+            <span className="truncate font-medium text-foreground" title={run.issue.title}>
+              {run.issue.title}
+            </span>
+          </div>
+        </td>
+        <td className="px-3 py-3 text-xs text-muted-foreground">{run.issue.state}</td>
+        <td className="px-3 py-3">
+          <Badge
+            variant="outline"
+            className={cn("whitespace-nowrap", PHASE_BADGE_CLASSNAME[run.lifecyclePhase])}
+          >
+            {formatLifecyclePhase(run.lifecyclePhase)}
+          </Badge>
+          <div className="mt-1 font-mono text-[10px] uppercase text-muted-foreground/70">
+            {formatStatus(run.status)}
+          </div>
+          {cloudMessage ? (
+            <div
+              title={cloudMessage}
+              className={cn(
+                "mt-1 line-clamp-2 max-w-[14rem] break-words text-[11px] leading-snug",
+                run.cloudTask?.status === "failed" || run.status === "failed"
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              {cloudMessage}
+            </div>
+          ) : null}
+        </td>
+        <td className="max-w-[15rem] px-3 py-3 text-xs text-muted-foreground">
+          <div className="line-clamp-2" title={run.currentStep?.detail ?? undefined}>
+            {run.currentStep?.label ?? "-"}
+          </div>
+        </td>
+        <td className="px-3 py-3">
+          <Badge variant="outline" className="whitespace-nowrap">
+            {targetLabel}
+          </Badge>
+        </td>
+        <td className="max-w-[12rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
+          {run.branchName ?? "-"}
+        </td>
+        <td className="max-w-[10rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
+          {run.executionTarget === "codex-cloud"
+            ? (run.cloudTask?.taskUrl ?? run.issue.url ?? "-")
+            : (run.threadId ?? "-")}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelectRun(run);
+              }}
+            >
+              <EyeIcon className="size-3" />
+              Details
+            </Button>
+            {run.executionTarget === "local" && run.threadId ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busyAction !== null}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenLinkedThread(run);
+                }}
+              >
+                <MessageSquareIcon className="size-3" />
+                Open Thread
+              </Button>
+            ) : null}
+            {run.executionTarget === "codex-cloud" ? (
+              <>
+                {(run.pullRequest?.url ?? run.prUrl) ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    render={
+                      <a
+                        href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    }
+                  >
+                    <GitPullRequestIcon className="size-3" />
+                    Open PR
+                  </Button>
+                ) : null}
+                {taskHref ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    render={
+                      <a
+                        href={taskHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    }
+                  >
+                    <ExternalLinkIcon className="size-3" />
+                    {run.cloudTask?.taskUrl ? "Open Codex Task" : "Open Linear Issue"}
+                  </Button>
+                ) : null}
+                {canRefreshCloudStatus ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={busyAction !== null}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onIssueAction("refresh-cloud", run);
+                    }}
+                  >
+                    <RefreshCwIcon className="size-3" />
+                    Refresh Cloud Status
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+            {run.executionTarget !== "codex-cloud" && (run.pullRequest?.url ?? run.prUrl) ? (
+              <Button
+                size="xs"
+                variant="outline"
+                render={
+                  <a
+                    href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                }
+              >
+                <GitPullRequestIcon className="size-3" />
+                Open PR
+              </Button>
+            ) : null}
+            {canLaunch ? (
+              <>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={busyAction !== null}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onIssueAction("launch-local", run);
+                  }}
+                >
+                  <PlayIcon className="size-3" />
+                  {canRetry ? "Retry Local" : "Run Local"}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={busyAction !== null}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onIssueAction("launch-cloud", run);
+                  }}
+                >
+                  <CloudIcon className="size-3" />
+                  {canRetry ? "Retry Cloud" : "Send to Cloud"}
+                </Button>
+              </>
+            ) : null}
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busyAction !== null || !canStop}
+              onClick={(event) => {
+                event.stopPropagation();
+                onIssueAction("stop", run);
+              }}
+            >
+              <SquareIcon className="size-3" />
+              Stop
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  },
+  (previous, next) =>
+    previous.busyAction === next.busyAction &&
+    previous.isSelected === next.isSelected &&
+    previous.onIssueAction === next.onIssueAction &&
+    previous.onOpenLinkedThread === next.onOpenLinkedThread &&
+    previous.onSelectRun === next.onSelectRun &&
+    buildIssueQueueRowDigest(previous.run) === buildIssueQueueRowDigest(next.run),
+);
+
 export function IssueQueueTable({
   runs,
   busyAction,
@@ -81,7 +351,7 @@ export function IssueQueueTable({
   }
 
   return (
-    <div className="overflow-auto border-b border-border/70">
+    <div className="min-h-0 flex-1 overflow-auto border-b border-border/70">
       <table className="w-full min-w-[920px] border-collapse text-left text-sm">
         <thead className="bg-muted/30 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
           <tr>
@@ -96,225 +366,17 @@ export function IssueQueueTable({
           </tr>
         </thead>
         <tbody>
-          {runs.map((run) => {
-            const {
-              canRetry,
-              canLaunch,
-              canStop,
-              targetLabel,
-              taskHref,
-              canRefreshCloudStatus,
-              cloudMessage,
-            } = getIssueQueueRowState(run);
-            return (
-              <tr
-                key={run.runId}
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  "cursor-pointer border-t border-border/60 hover:bg-accent/35",
-                  selectedRunId === run.runId && "bg-primary/5",
-                )}
-                onClick={() => onSelectRun(run)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  onSelectRun(run);
-                }}
-              >
-                <td className="max-w-[22rem] px-4 py-3">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-mono text-xs text-primary">{run.issue.identifier}</span>
-                    <span className="truncate font-medium text-foreground" title={run.issue.title}>
-                      {run.issue.title}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-xs text-muted-foreground">{run.issue.state}</td>
-                <td className="px-3 py-3">
-                  <Badge
-                    variant="outline"
-                    className={cn("whitespace-nowrap", PHASE_BADGE_CLASSNAME[run.lifecyclePhase])}
-                  >
-                    {formatLifecyclePhase(run.lifecyclePhase)}
-                  </Badge>
-                  <div className="mt-1 font-mono text-[10px] uppercase text-muted-foreground/70">
-                    {formatStatus(run.status)}
-                  </div>
-                  {cloudMessage ? (
-                    <div
-                      title={cloudMessage}
-                      className={cn(
-                        "mt-1 line-clamp-2 max-w-[14rem] break-words text-[11px] leading-snug",
-                        run.cloudTask?.status === "failed" || run.status === "failed"
-                          ? "text-destructive"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {cloudMessage}
-                    </div>
-                  ) : null}
-                </td>
-                <td className="max-w-[15rem] px-3 py-3 text-xs text-muted-foreground">
-                  <div className="line-clamp-2" title={run.currentStep?.detail ?? undefined}>
-                    {run.currentStep?.label ?? "-"}
-                  </div>
-                </td>
-                <td className="px-3 py-3">
-                  <Badge variant="outline" className="whitespace-nowrap">
-                    {targetLabel}
-                  </Badge>
-                </td>
-                <td className="max-w-[12rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
-                  {run.branchName ?? "-"}
-                </td>
-                <td className="max-w-[10rem] truncate px-3 py-3 font-mono text-xs text-muted-foreground">
-                  {run.executionTarget === "codex-cloud"
-                    ? (run.cloudTask?.taskUrl ?? run.issue.url ?? "-")
-                    : (run.threadId ?? "-")}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onSelectRun(run);
-                      }}
-                    >
-                      <EyeIcon className="size-3" />
-                      Details
-                    </Button>
-                    {run.executionTarget === "local" && run.threadId ? (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={busyAction !== null}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenLinkedThread(run);
-                        }}
-                      >
-                        <MessageSquareIcon className="size-3" />
-                        Open Thread
-                      </Button>
-                    ) : null}
-                    {run.executionTarget === "codex-cloud" ? (
-                      <>
-                        {(run.pullRequest?.url ?? run.prUrl) ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            render={
-                              <a
-                                href={run.pullRequest?.url ?? run.prUrl ?? undefined}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(event) => event.stopPropagation()}
-                              />
-                            }
-                          >
-                            <GitPullRequestIcon className="size-3" />
-                            Open PR
-                          </Button>
-                        ) : null}
-                        {taskHref ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            render={
-                              <a
-                                href={taskHref}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(event) => event.stopPropagation()}
-                              />
-                            }
-                          >
-                            <ExternalLinkIcon className="size-3" />
-                            {run.cloudTask?.taskUrl ? "Open Codex Task" : "Open Linear Issue"}
-                          </Button>
-                        ) : null}
-                        {canRefreshCloudStatus ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            disabled={busyAction !== null}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onIssueAction("refresh-cloud", run);
-                            }}
-                          >
-                            <RefreshCwIcon className="size-3" />
-                            Refresh Cloud Status
-                          </Button>
-                        ) : null}
-                      </>
-                    ) : null}
-                    {run.executionTarget !== "codex-cloud" &&
-                    (run.pullRequest?.url ?? run.prUrl) ? (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        render={
-                          <a
-                            href={run.pullRequest?.url ?? run.prUrl ?? undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                          />
-                        }
-                      >
-                        <GitPullRequestIcon className="size-3" />
-                        Open PR
-                      </Button>
-                    ) : null}
-                    {canLaunch ? (
-                      <>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={busyAction !== null}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onIssueAction("launch-local", run);
-                          }}
-                        >
-                          <PlayIcon className="size-3" />
-                          {canRetry ? "Retry Local" : "Run Local"}
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={busyAction !== null}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onIssueAction("launch-cloud", run);
-                          }}
-                        >
-                          <CloudIcon className="size-3" />
-                          {canRetry ? "Retry Cloud" : "Send to Cloud"}
-                        </Button>
-                      </>
-                    ) : null}
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={busyAction !== null || !canStop}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onIssueAction("stop", run);
-                      }}
-                    >
-                      <SquareIcon className="size-3" />
-                      Stop
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+          {runs.map((run) => (
+            <IssueQueueRow
+              key={run.runId}
+              run={run}
+              busyAction={busyAction}
+              isSelected={selectedRunId === run.runId}
+              onSelectRun={onSelectRun}
+              onIssueAction={onIssueAction}
+              onOpenLinkedThread={onOpenLinkedThread}
+            />
+          ))}
         </tbody>
       </table>
     </div>

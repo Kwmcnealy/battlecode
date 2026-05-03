@@ -6,7 +6,7 @@ import {
   MessageSquareIcon,
   TimerIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { SymphonyEvent, SymphonyRun } from "@t3tools/contracts";
 
 import { Badge } from "../ui/badge";
@@ -68,11 +68,15 @@ export function RunDetailsDrawer({
   onOpenChange: (open: boolean) => void;
   onOpenLinkedThread: () => void;
 }) {
-  const runEvents = run
-    ? events
-        .filter((event) => event.runId === run.runId || event.issueId === run.issue.id)
-        .toReversed()
-    : [];
+  const runEvents = useMemo(
+    () =>
+      run
+        ? events
+            .filter((event) => event.runId === run.runId || event.issueId === run.issue.id)
+            .toReversed()
+        : [],
+    [events, run],
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

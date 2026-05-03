@@ -1,6 +1,6 @@
 import { WorkflowIcon } from "lucide-react";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   EnvironmentId,
   ProjectId,
@@ -16,7 +16,6 @@ import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { IssueQueueTable } from "./IssueQueueTable";
 import { RunDetailsDrawer } from "./RunDetailsDrawer";
-import { SymphonyEventTimeline } from "./SymphonyEventTimeline";
 import type { SymphonyAction } from "./symphonyDisplay";
 import { SymphonyToolbar } from "./SymphonyToolbar";
 import { WorkflowStatus } from "./WorkflowStatus";
@@ -41,6 +40,8 @@ export function SymphonyPanel({
   const [busyAction, setBusyAction] = useState<SymphonyAction | null>(null);
   const [linkedThreadBusy, setLinkedThreadBusy] = useState(false);
   const [runView, setRunView] = useState<"active" | "archived">("active");
+  const pendingSnapshotRef = useRef<SymphonySnapshot | null>(null);
+  const snapshotFrameRef = useRef<number | null>(null);
   const api = useMemo(() => ensureEnvironmentApi(environmentId), [environmentId]);
   const projectKey = useMemo(
     () => scopedProjectKey(scopeProjectRef(environmentId, projectId)),
@@ -51,11 +52,39 @@ export function SymphonyPanel({
   );
   const setSelectedSymphonyRun = useUiStateStore((state) => state.setSelectedSymphonyRun);
 
+  const enqueueLiveSnapshot = useCallback((next: SymphonySnapshot) => {
+    pendingSnapshotRef.current = next;
+    if (snapshotFrameRef.current !== null) {
+      return;
+    }
+
+    snapshotFrameRef.current = window.requestAnimationFrame(() => {
+      snapshotFrameRef.current = null;
+      const pendingSnapshot = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
+      if (!pendingSnapshot) {
+        return;
+      }
+      startTransition(() => {
+        setSnapshot(pendingSnapshot);
+      });
+    });
+  }, []);
+
+  const commitSnapshotImmediately = useCallback((next: SymphonySnapshot) => {
+    if (snapshotFrameRef.current !== null) {
+      window.cancelAnimationFrame(snapshotFrameRef.current);
+      snapshotFrameRef.current = null;
+    }
+    pendingSnapshotRef.current = null;
+    setSnapshot(next);
+  }, []);
+
   const loadSnapshot = useCallback(async () => {
     const next = await api.symphony.getSnapshot({ projectId });
-    setSnapshot(next);
+    commitSnapshotImmediately(next);
     setError(null);
-  }, [api, projectId]);
+  }, [api, commitSnapshotImmediately, projectId]);
 
   useEffect(() => {
     let disposed = false;
@@ -63,14 +92,25 @@ export function SymphonyPanel({
       if (!disposed) setError(cause instanceof Error ? cause.message : "Failed to load Symphony.");
     });
     const unsubscribe = api.symphony.subscribe({ projectId }, (event) => {
-      setSnapshot(event.snapshot);
+      enqueueLiveSnapshot(event.snapshot);
       setError(null);
     });
     return () => {
       disposed = true;
       unsubscribe();
     };
-  }, [api, loadSnapshot, projectId]);
+  }, [api, enqueueLiveSnapshot, loadSnapshot, projectId]);
+
+  useEffect(
+    () => () => {
+      if (snapshotFrameRef.current !== null) {
+        window.cancelAnimationFrame(snapshotFrameRef.current);
+        snapshotFrameRef.current = null;
+      }
+      pendingSnapshotRef.current = null;
+    },
+    [],
+  );
 
   const runAction = useCallback(
     async (action: SymphonyAction) => {
@@ -84,7 +124,7 @@ export function SymphonyPanel({
               : action === "resume"
                 ? await api.symphony.resume({ projectId })
                 : await api.symphony.refresh({ projectId });
-        setSnapshot(next);
+        commitSnapshotImmediately(next);
         setError(null);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Symphony action failed.");
@@ -92,7 +132,7 @@ export function SymphonyPanel({
         setBusyAction(null);
       }
     },
-    [api, projectId],
+    [api, commitSnapshotImmediately, projectId],
   );
 
   const updateDefaultTarget = useCallback(
@@ -100,6 +140,11 @@ export function SymphonyPanel({
       setBusyAction("update-target");
       try {
         const settings = await api.symphony.updateExecutionDefault({ projectId, target });
+        if (snapshotFrameRef.current !== null) {
+          window.cancelAnimationFrame(snapshotFrameRef.current);
+          snapshotFrameRef.current = null;
+        }
+        pendingSnapshotRef.current = null;
         setSnapshot((current) => (current ? { ...current, settings } : current));
         setError(null);
       } catch (cause) {
@@ -133,7 +178,7 @@ export function SymphonyPanel({
                   target: "codex-cloud",
                 })
               : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
-        setSnapshot(next);
+        commitSnapshotImmediately(next);
         setError(null);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Symphony issue action failed.");
@@ -141,7 +186,7 @@ export function SymphonyPanel({
         setBusyAction(null);
       }
     },
-    [api, projectId],
+    [api, commitSnapshotImmediately, projectId],
   );
 
   const openLinkedThread = useCallback(
@@ -167,23 +212,48 @@ export function SymphonyPanel({
     [api, onOpenThread, projectId],
   );
 
-  const activeRuns = snapshot
-    ? [
-        ...snapshot.queues.pendingTarget,
-        ...snapshot.queues.running,
-        ...snapshot.queues.retrying,
-        ...snapshot.queues.eligible,
-        ...snapshot.queues.failed,
-        ...snapshot.queues.canceled,
-        ...snapshot.queues.completed,
-      ].filter((run) => run.archivedAt === null)
-    : [];
-  const archivedRuns = snapshot ? snapshot.queues.archived : [];
-  const allRuns = [...activeRuns, ...archivedRuns];
-  const visibleRuns = runView === "archived" ? archivedRuns : activeRuns;
-  const selectedRun = selectedRunId
-    ? (allRuns.find((run) => run.runId === selectedRunId) ?? null)
-    : null;
+  const { activeRuns, allRuns, archivedRuns } = useMemo(() => {
+    if (!snapshot) {
+      return {
+        activeRuns: [] as readonly SymphonyRun[],
+        allRuns: [] as readonly SymphonyRun[],
+        archivedRuns: [] as readonly SymphonyRun[],
+      };
+    }
+    const nextActiveRuns = [
+      ...snapshot.queues.pendingTarget,
+      ...snapshot.queues.running,
+      ...snapshot.queues.retrying,
+      ...snapshot.queues.eligible,
+      ...snapshot.queues.failed,
+      ...snapshot.queues.canceled,
+      ...snapshot.queues.completed,
+    ].filter((run) => run.archivedAt === null);
+    return {
+      activeRuns: nextActiveRuns,
+      archivedRuns: snapshot.queues.archived,
+      allRuns: [...nextActiveRuns, ...snapshot.queues.archived],
+    };
+  }, [snapshot]);
+  const visibleRuns = useMemo(
+    () => (runView === "archived" ? archivedRuns : activeRuns),
+    [activeRuns, archivedRuns, runView],
+  );
+  const selectedRun = useMemo(
+    () => (selectedRunId ? (allRuns.find((run) => run.runId === selectedRunId) ?? null) : null),
+    [allRuns, selectedRunId],
+  );
+
+  const selectRun = useCallback(
+    (run: SymphonyRun) => setSelectedSymphonyRun(projectKey, run.runId),
+    [projectKey, setSelectedSymphonyRun],
+  );
+  const handleOpenLinkedThread = useCallback(
+    (run: SymphonyRun) => {
+      void openLinkedThread(run);
+    },
+    [openLinkedThread],
+  );
 
   useEffect(() => {
     if (selectedRunId && snapshot && !selectedRun) {
@@ -255,11 +325,10 @@ export function SymphonyPanel({
             runs={visibleRuns}
             busyAction={busyAction}
             selectedRunId={selectedRunId}
-            onSelectRun={(run) => setSelectedSymphonyRun(projectKey, run.runId)}
+            onSelectRun={selectRun}
             onIssueAction={runIssueAction}
-            onOpenLinkedThread={(run) => void openLinkedThread(run)}
+            onOpenLinkedThread={handleOpenLinkedThread}
           />
-          <SymphonyEventTimeline snapshot={snapshot} />
           <RunDetailsDrawer
             run={selectedRun}
             events={snapshot.events}
