@@ -52,7 +52,6 @@ export function makeDefaultSettings(input: {
     workflowPath: defaultWorkflowPath(input.projectRoot),
     workflowStatus: workflowMissingStatus(),
     linearSecret: input.linearSecret,
-    executionDefaultTarget: "local",
     updatedAt: input.now,
   };
 }
