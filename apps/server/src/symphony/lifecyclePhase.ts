@@ -1,3 +1,5 @@
+import type { SymphonyLifecyclePhase } from "@t3tools/contracts";
+
 export const SYMPHONY_LIFECYCLE_PHASES = [
   "intake",
   "planning",
@@ -8,13 +10,10 @@ export const SYMPHONY_LIFECYCLE_PHASES = [
   "in-review",
   "fixing",
   "pr-ready",
-  "completed",
+  "done",
   "failed",
   "canceled",
-  "released",
-] as const;
-
-export type SymphonyLifecyclePhase = (typeof SYMPHONY_LIFECYCLE_PHASES)[number];
+] as const satisfies readonly SymphonyLifecyclePhase[];
 
 const LIFECYCLE_PHASE_LABELS: Record<SymphonyLifecyclePhase, string> = {
   intake: "Intake",
@@ -26,10 +25,9 @@ const LIFECYCLE_PHASE_LABELS: Record<SymphonyLifecyclePhase, string> = {
   "in-review": "In Review",
   fixing: "Fixing",
   "pr-ready": "PR Ready",
-  completed: "Completed",
+  done: "Done",
   failed: "Failed",
   canceled: "Canceled",
-  released: "Released",
 };
 
 const ACTIVE_LIFECYCLE_PHASES = new Set<SymphonyLifecyclePhase>([
