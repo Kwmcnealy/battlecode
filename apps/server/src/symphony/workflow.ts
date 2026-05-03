@@ -59,6 +59,17 @@ function parseFrontMatter(markdown: string): {
   };
 }
 
+function assertNoLegacyProjectSlug(raw: Record<string, unknown>): void {
+  const tracker = raw["tracker"];
+  if (isRecord(tracker) && "project_slug" in tracker && !("project_slug_id" in tracker)) {
+    throw new Error(
+      "WORKFLOW.md uses the deprecated `project_slug` key. " +
+        "Rename it to `project_slug_id`. " +
+        "Run the setup wizard (`Symphony → Settings → Reconfigure`) to update your configuration.",
+    );
+  }
+}
+
 export function parseWorkflowMarkdown(markdown: string): ParsedSymphonyWorkflow {
   const { configSource, body } = parseFrontMatter(markdown);
   const parsedConfig = configSource.trim().length > 0 ? parseYaml(configSource) : {};
@@ -68,8 +79,11 @@ export function parseWorkflowMarkdown(markdown: string): ParsedSymphonyWorkflow 
     throw new Error("WORKFLOW.md must include a prompt body after front matter.");
   }
 
+  const rawRecord = isRecord(parsedConfig) ? parsedConfig : {};
+  assertNoLegacyProjectSlug(rawRecord);
+
   const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)(
-    normalizeWorkflowKeys(isRecord(parsedConfig) ? parsedConfig : {}),
+    normalizeWorkflowKeys(rawRecord),
   );
 
   return {
@@ -101,7 +115,7 @@ export function defaultWorkflowPath(projectRoot: string): string {
 export const STARTER_WORKFLOW_TEMPLATE = `---
 tracker:
   kind: linear
-  project_slug: ""
+  project_slug_id: ""
   intake_states:
     - To Do
     - Todo
@@ -133,7 +147,13 @@ quality:
   simplification_prompt: "${DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT}"
   review_prompt: "${DEFAULT_SYMPHONY_REVIEW_PROMPT}"
 polling:
-  interval_ms: 30000
+  scheduler_interval_ms: 30000
+  reconciler_interval_ms: 60000
+  jitter: 0.1
+concurrency:
+  max: 3
+stall:
+  timeout_ms: 300000
 agent:
   max_concurrent_agents: 3
   max_turns: 20

@@ -103,7 +103,7 @@ export const SymphonyTrackerConfig = Schema.Struct({
   endpoint: TrimmedString.pipe(
     Schema.withDecodingDefault(Effect.succeed("https://api.linear.app/graphql")),
   ),
-  projectSlug: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  projectSlugId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   intakeStates: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(["To Do", "Todo"])),
@@ -143,9 +143,21 @@ export const SymphonyTrackerConfig = Schema.Struct({
 export type SymphonyTrackerConfig = typeof SymphonyTrackerConfig.Type;
 
 export const SymphonyPollingConfig = Schema.Struct({
-  intervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(30_000))),
+  schedulerIntervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(30_000))),
+  reconcilerIntervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(60_000))),
+  jitter: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.1))),
 });
 export type SymphonyPollingConfig = typeof SymphonyPollingConfig.Type;
+
+export const SymphonyConcurrencyConfig = Schema.Struct({
+  max: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(3))),
+});
+export type SymphonyConcurrencyConfig = typeof SymphonyConcurrencyConfig.Type;
+
+export const SymphonyStallConfig = Schema.Struct({
+  timeoutMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(300_000))),
+});
+export type SymphonyStallConfig = typeof SymphonyStallConfig.Type;
 
 export const SymphonyWorkspaceConfig = Schema.Struct({
   root: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -198,6 +210,8 @@ export type SymphonyQualityConfig = typeof SymphonyQualityConfig.Type;
 export const SymphonyWorkflowConfig = Schema.Struct({
   tracker: SymphonyTrackerConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   polling: SymphonyPollingConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  concurrency: SymphonyConcurrencyConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  stall: SymphonyStallConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   workspace: SymphonyWorkspaceConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   hooks: SymphonyHooksConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agent: SymphonyAgentConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),

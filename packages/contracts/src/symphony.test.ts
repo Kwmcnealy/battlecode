@@ -24,7 +24,7 @@ describe("Symphony contracts", () => {
     const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)({
       tracker: {
         kind: "linear",
-        projectSlug: "battlecode",
+        projectSlugId: "battlecode",
       },
     });
 
@@ -53,7 +53,11 @@ describe("Symphony contracts", () => {
       simplificationPrompt: DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
       reviewPrompt: DEFAULT_SYMPHONY_REVIEW_PROMPT,
     });
-    expect(config.polling.intervalMs).toBe(30_000);
+    expect(config.polling.schedulerIntervalMs).toBe(30_000);
+    expect(config.polling.reconcilerIntervalMs).toBe(60_000);
+    expect(config.polling.jitter).toBe(0.1);
+    expect(config.concurrency.max).toBe(3);
+    expect(config.stall.timeoutMs).toBe(300_000);
     expect(config.agent.maxConcurrentAgents).toBe(10);
     expect(config.codex.runtimeMode).toBe("full-access");
     expect("apiKeyRef" in config.tracker).toBe(false);
@@ -64,7 +68,7 @@ describe("Symphony contracts", () => {
     const config = Schema.decodeUnknownSync(SymphonyWorkflowConfig)({
       tracker: {
         kind: "linear",
-        projectSlug: "battlecode",
+        projectSlugId: "battlecode",
         intakeStates: ["Queued", "Ready"],
         activeStates: ["Todo", "In Progress", "Rework", "Merging"],
         reviewStates: ["Human Review"],

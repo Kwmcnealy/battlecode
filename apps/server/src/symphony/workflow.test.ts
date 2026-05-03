@@ -11,11 +11,11 @@ import {
 } from "./workflow.ts";
 
 describe("Symphony workflow parsing", () => {
-  it("parses YAML front matter and normalizes spec snake_case keys", () => {
+  it("parses YAML front matter with project_slug_id and normalizes snake_case keys", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: linear
-  project_slug: battlecode
+  project_slug_id: battlecode
   intake_states:
     - Backlog
     - Ready
@@ -31,7 +31,13 @@ tracker:
     done: Shipped
     canceled: Won't Do
 polling:
-  interval_ms: 5000
+  scheduler_interval_ms: 5000
+  reconciler_interval_ms: 10000
+  jitter: 0.05
+concurrency:
+  max: 5
+stall:
+  timeout_ms: 120000
 agent:
   max_concurrent_agents: 3
 hooks:
@@ -50,7 +56,7 @@ quality:
 Work on {{ issue.identifier }}.
 `);
 
-    expect(workflow.config.tracker.projectSlug).toBe("battlecode");
+    expect(workflow.config.tracker.projectSlugId).toBe("battlecode");
     expect(workflow.config.tracker.intakeStates).toEqual(["Backlog", "Ready"]);
     expect(workflow.config.tracker.reviewStates).toEqual(["QA"]);
     expect(workflow.config.tracker.doneStates).toEqual(["Shipped"]);
@@ -61,7 +67,11 @@ Work on {{ issue.identifier }}.
       done: "Shipped",
       canceled: "Won't Do",
     });
-    expect(workflow.config.polling.intervalMs).toBe(5000);
+    expect(workflow.config.polling.schedulerIntervalMs).toBe(5000);
+    expect(workflow.config.polling.reconcilerIntervalMs).toBe(10000);
+    expect(workflow.config.polling.jitter).toBe(0.05);
+    expect(workflow.config.concurrency.max).toBe(5);
+    expect(workflow.config.stall.timeoutMs).toBe(120000);
     expect(workflow.config.agent.maxConcurrentAgents).toBe(3);
     expect(workflow.config.hooks.afterCreate).toBe("echo ready\n");
     expect(workflow.config.codex.runtimeMode).toBe("approval-required");
@@ -77,7 +87,7 @@ Work on {{ issue.identifier }}.
   it("applies spec defaults when sections are omitted", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
-  project_slug: battlecode
+  project_slug_id: battlecode
 ---
 
 Run the issue.
@@ -99,7 +109,11 @@ Run the issue.
       simplificationPrompt: DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
       reviewPrompt: DEFAULT_SYMPHONY_REVIEW_PROMPT,
     });
-    expect(workflow.config.polling.intervalMs).toBe(30_000);
+    expect(workflow.config.polling.schedulerIntervalMs).toBe(30_000);
+    expect(workflow.config.polling.reconcilerIntervalMs).toBe(60_000);
+    expect(workflow.config.polling.jitter).toBe(0.1);
+    expect(workflow.config.concurrency.max).toBe(3);
+    expect(workflow.config.stall.timeoutMs).toBe(300_000);
     expect(workflow.config.agent.maxConcurrentAgents).toBe(10);
     expect(workflow.config.codex.runtimeMode).toBe("full-access");
   });
@@ -118,6 +132,11 @@ Run the issue.
       done: "Done",
       canceled: "Canceled",
     });
+    expect(workflow.config.polling.schedulerIntervalMs).toBe(30_000);
+    expect(workflow.config.polling.reconcilerIntervalMs).toBe(60_000);
+    expect(workflow.config.polling.jitter).toBe(0.1);
+    expect(workflow.config.concurrency.max).toBe(3);
+    expect(workflow.config.stall.timeoutMs).toBe(300_000);
     expect(workflow.config.pullRequest).toEqual({ baseBranch: "development" });
     expect(workflow.config.quality).toEqual({
       maxReviewFixLoops: 1,
@@ -133,10 +152,22 @@ Run the issue.
     expect(() =>
       parseWorkflowMarkdown(`---
 tracker:
-  project_slug: battlecode
+  project_slug_id: battlecode
 ---
 `),
     ).toThrow(/prompt body/i);
+  });
+
+  it("rejects legacy project_slug key with a clear migration error", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  project_slug: battlecode
+---
+
+Run the issue.
+`),
+    ).toThrow(/project_slug_id/i);
   });
 });
 
