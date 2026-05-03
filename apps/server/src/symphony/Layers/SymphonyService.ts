@@ -80,6 +80,7 @@ import {
   transitionLinearState,
   upsertManagedComment,
 } from "../linearWriter.ts";
+import { decideArchive } from "../reconciler.ts";
 import { classifyLinearState, resolveRunLifecycle } from "../runLifecycle.ts";
 import {
   buildContinuationPrompt,
@@ -1526,10 +1527,21 @@ const makeSymphonyService = Effect.gen(function* () {
               updatedAt: reconciledAt,
             }
           : lifecycle.currentStep;
-      const nextArchivedAt =
-        nextStatus === "completed" || nextStatus === "canceled"
-          ? (runWithBranch.archivedAt ?? reconciledAt)
-          : runWithBranch.archivedAt;
+      const archiveDecision = decideArchive({
+        run: {
+          runId: runWithBranch.runId,
+          issueId: runWithBranch.issue.id,
+          status: runWithBranch.status,
+          archivedAt: runWithBranch.archivedAt,
+          lastSeenLinearState: input.linearIssue?.state.name ?? null,
+        },
+        linearState: nextStatus,
+        doneStates: ["completed"],
+        canceledStates: ["canceled"],
+      });
+      const nextArchivedAt = archiveDecision.archive
+        ? (runWithBranch.archivedAt ?? reconciledAt)
+        : runWithBranch.archivedAt;
       const nextLifecyclePhase = preserveActiveLocalPhase
         ? runWithBranch.lifecyclePhase
         : nextStatus === "completed"
