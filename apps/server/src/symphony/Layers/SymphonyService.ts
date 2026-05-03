@@ -54,8 +54,6 @@ import {
   fetchLinearIssueComments,
   fetchLinearIssuesByIds,
   testLinearConnection as testLinearApiKey,
-  updateLinearComment,
-  updateLinearIssueState,
   type LinearIssueComment,
   type LinearIssueWorkflowContext,
 } from "../linear.ts";
@@ -78,9 +76,11 @@ import {
   extractReviewOutcome,
 } from "../phaseOutput.ts";
 import {
-  SYMPHONY_MANAGED_PROGRESS_MARKER,
-  renderManagedProgressComment,
-} from "../progressComment.ts";
+  MANAGED_COMMENT_MARKER,
+  appendOwnedCommentId,
+  transitionLinearState,
+  upsertManagedComment,
+} from "../linearWriter.ts";
 import { classifyLinearState, resolveRunLifecycle } from "../runLifecycle.ts";
 import {
   buildContinuationPrompt,
@@ -229,17 +229,6 @@ function monitoredLinearStateNames(tracker: SymphonyWorkflowConfig["tracker"]): 
   ]);
 }
 
-function appendOwnedCommentId(
-  progress: SymphonyRun["linearProgress"],
-  commentId: string | null,
-): SymphonyRun["linearProgress"] {
-  if (!commentId) return progress;
-  return {
-    ...progress,
-    ownedCommentIds: dedupeStrings([...progress.ownedCommentIds, commentId]),
-  };
-}
-
 function isSymphonyOwnedLinearComment(
   comment: LinearIssueComment,
   progress: SymphonyRun["linearProgress"],
@@ -248,8 +237,7 @@ function isSymphonyOwnedLinearComment(
   if (progress.ownedCommentIds.includes(comment.id)) return true;
   const body = comment.body?.trim() ?? "";
   return (
-    body.includes(SYMPHONY_MANAGED_PROGRESS_MARKER) ||
-    body.startsWith(SYMPHONY_MILESTONE_COMMENT_PREFIX)
+    body.includes(MANAGED_COMMENT_MARKER) || body.startsWith(SYMPHONY_MILESTONE_COMMENT_PREFIX)
   );
 }
 
@@ -1249,49 +1237,22 @@ const makeSymphonyService = Effect.gen(function* () {
       });
     });
 
+  const linearWriterDeps = {
+    readLinearApiKey,
+    emitProjectEvent,
+    upsertRun: (run: SymphonyRun) =>
+      repository
+        .upsertRun(run)
+        .pipe(Effect.mapError(toSymphonyError("Failed to persist Symphony progress comment."))),
+  };
+
   const transitionLinearRunState = (input: {
     readonly projectId: ProjectId;
     readonly workflow: { readonly config: SymphonyWorkflowConfig };
     readonly run: SymphonyRun;
     readonly stateName: string | null | undefined;
     readonly reason: string;
-  }): Effect.Effect<void, never> => {
-    const stateName = input.stateName?.trim();
-    if (!stateName) return Effect.void;
-    return Effect.gen(function* () {
-      const apiKey = yield* readLinearApiKey(input.projectId);
-      if (!apiKey) return;
-      const issues = yield* fetchLinearIssuesByIds({
-        endpoint: input.workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT,
-        apiKey,
-        issueIds: [input.run.issue.id],
-      });
-      const issue = issues.find((trackedIssue) => trackedIssue.issue.id === input.run.issue.id);
-      if (!issue) {
-        return;
-      }
-      const result = yield* updateLinearIssueState({
-        endpoint: input.workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT,
-        apiKey,
-        issue,
-        stateName,
-      });
-      if (result.changed) {
-        yield* emitProjectEvent({
-          projectId: input.projectId,
-          issueId: input.run.issue.id,
-          runId: input.run.runId,
-          type: "linear.state-updated",
-          message: `${input.run.issue.identifier} moved to ${result.stateName}`,
-          payload: {
-            stateId: result.stateId,
-            stateName: result.stateName,
-            reason: input.reason,
-          },
-        });
-      }
-    }).pipe(Effect.ignoreCause({ log: true }));
-  };
+  }): Effect.Effect<void, never> => transitionLinearState(linearWriterDeps, input);
 
   const updateManagedProgressComment = (input: {
     readonly projectId: ProjectId;
@@ -1301,70 +1262,7 @@ const makeSymphonyService = Effect.gen(function* () {
     readonly statusLine: string;
     readonly milestone?: string | null;
     readonly milestoneDetail?: string | null;
-  }): Effect.Effect<SymphonyRun, never> =>
-    Effect.gen(function* () {
-      const apiKey = yield* readLinearApiKey(input.projectId);
-      if (!apiKey) return input.run;
-
-      const updatedAt = nowIso();
-      const body = renderManagedProgressComment({
-        phase: input.run.lifecyclePhase,
-        lastUpdate: updatedAt,
-        executionTarget: input.run.executionTarget,
-        currentStep: input.run.currentStep?.label ?? input.statusLine,
-        pullRequestUrl: input.run.prUrl ?? input.run.pullRequest?.url ?? null,
-        planMarkdown: input.planMarkdown,
-        reviewFindings: input.run.qualityGate.lastReviewFindings,
-      });
-      const endpoint = input.workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT;
-      const comment =
-        input.run.linearProgress.commentId !== null
-          ? yield* updateLinearComment({
-              endpoint,
-              apiKey,
-              commentId: input.run.linearProgress.commentId,
-              body,
-            })
-          : yield* createLinearComment({
-              endpoint,
-              apiKey,
-              issueId: input.run.issue.id,
-              body,
-            });
-
-      const nextRun: SymphonyRun = {
-        ...input.run,
-        linearProgress: appendOwnedCommentId(
-          {
-            ...input.run.linearProgress,
-            commentId: comment.id,
-            commentUrl: comment.url,
-            lastRenderedHash: hashWorkflow(body),
-            lastUpdatedAt: updatedAt,
-            lastMilestoneAt: input.milestone ? updatedAt : input.run.linearProgress.lastMilestoneAt,
-          },
-          comment.id,
-        ),
-        updatedAt,
-      };
-      yield* repository
-        .upsertRun(nextRun)
-        .pipe(Effect.mapError(toSymphonyError("Failed to persist Symphony progress comment.")));
-      return nextRun;
-    }).pipe(
-      Effect.catch((error) =>
-        emitProjectEvent({
-          projectId: input.projectId,
-          issueId: input.run.issue.id,
-          runId: input.run.runId,
-          type: "linear.progress-warning",
-          message: `Linear progress comment update failed: ${error.message}`,
-        }).pipe(
-          Effect.as(input.run),
-          Effect.catch(() => Effect.succeed(input.run)),
-        ),
-      ),
-    );
+  }): Effect.Effect<SymphonyRun, never> => upsertManagedComment(linearWriterDeps, input);
 
   const fetchLinearIssueForRun = (input: {
     readonly projectId: ProjectId;
