@@ -817,6 +817,60 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
     }),
   );
 
+  it.effect("refreshes a known PR URL to closed, cancels the run, and archives it", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "review-ready",
+          executionTarget: "codex-cloud",
+          branchName: "symphony/bc-1",
+          prUrl: "https://github.com/t3/battlecode/pull/43",
+          pullRequest: {
+            number: 43,
+            title: "Cancel cloud lifecycle",
+            url: "https://github.com/t3/battlecode/pull/43",
+            baseBranch: "development",
+            headBranch: "symphony/bc-1",
+            state: "open",
+            updatedAt: CREATED_AT,
+          },
+        }),
+      );
+      githubMocks.getPullRequest.mockReturnValueOnce(
+        Effect.succeed({
+          number: 43,
+          title: "Cancel cloud lifecycle",
+          url: "https://github.com/t3/battlecode/pull/43",
+          baseRefName: "development",
+          headRefName: "symphony/bc-1",
+          state: "closed",
+          updatedAt: "2026-05-02T12:35:00.000Z",
+        }),
+      );
+
+      yield* service.refreshCloudStatus({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "canceled");
+      assert.strictEqual(run?.pullRequest?.state, "closed");
+      assert.notStrictEqual(run?.archivedAt, null);
+    }),
+  );
+
   it.effect("keeps lifecycle status unchanged and surfaces PR lookup warnings", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
@@ -1375,7 +1429,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         issueId: ISSUE_ID,
       });
       assert.strictEqual(run?.status, "canceled");
-      assert.strictEqual(run?.archivedAt, null);
+      assert.notStrictEqual(run?.archivedAt, null);
     }),
   );
 });

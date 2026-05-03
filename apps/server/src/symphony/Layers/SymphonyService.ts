@@ -1422,7 +1422,7 @@ const makeSymphonyService = Effect.gen(function* () {
             }
           : lifecycle.currentStep;
       const nextArchivedAt =
-        nextStatus === "completed"
+        nextStatus === "completed" || nextStatus === "canceled"
           ? (runWithBranch.archivedAt ?? reconciledAt)
           : runWithBranch.archivedAt;
       const nextLifecyclePhase = preserveActiveLocalPhase
