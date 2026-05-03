@@ -6,8 +6,6 @@ import {
   type SymphonyWorkflowConfig,
 } from "@t3tools/contracts";
 
-import { classifyCodexCloudReply } from "./codexCloud.ts";
-
 export const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -573,26 +571,6 @@ export function fetchLinearIssueComments(input: {
   );
 }
 
-function parseValidDateMillis(value: string | null): number | null {
-  if (!value) return null;
-  const millis = Date.parse(value);
-  return Number.isNaN(millis) ? null : millis;
-}
-
-function shouldSkipComment(input: {
-  readonly commentCreatedAt: string | null;
-  readonly delegatedAfter: string | null | undefined;
-}): boolean {
-  const delegatedAfterMillis = parseValidDateMillis(input.delegatedAfter ?? null);
-  const commentCreatedAtMillis = parseValidDateMillis(input.commentCreatedAt);
-
-  return (
-    delegatedAfterMillis !== null &&
-    commentCreatedAtMillis !== null &&
-    commentCreatedAtMillis < delegatedAfterMillis
-  );
-}
-
 export function detectLinearCodexTask(input: {
   readonly endpoint: string;
   readonly apiKey: string;
@@ -607,44 +585,8 @@ export function detectLinearCodexTask(input: {
       issueId: input.issueId,
     },
   }).pipe(
-    Effect.map((body) => {
-      const data = readNestedRecord(body, "data");
-      const issue = data ? readNestedRecord(data, "issue") : null;
-      const comments = issue ? readNestedRecord(issue, "comments") : null;
-      const nodes = comments ? readArray(comments.nodes) : [];
-      let firstFailedReply: LinearCodexTaskDetection | null = null;
-      for (const entry of nodes) {
-        const comment = readRecord(entry);
-        if (!comment) continue;
-        if (
-          shouldSkipComment({
-            commentCreatedAt: readString(comment.createdAt),
-            delegatedAfter: input.delegatedAfter,
-          })
-        ) {
-          continue;
-        }
-        const classification = classifyCodexCloudReply(readString(comment.body));
-        if (classification.status === "detected") {
-          return {
-            status: "detected",
-            taskUrl: classification.taskUrl,
-            linearCommentId: readString(comment.id),
-            message: classification.message,
-          };
-        }
-        if (classification.status === "failed" && !firstFailedReply) {
-          firstFailedReply = {
-            status: "failed",
-            taskUrl: classification.taskUrl,
-            linearCommentId: readString(comment.id),
-            message: classification.message,
-          };
-        }
-      }
-      if (firstFailedReply) {
-        return firstFailedReply;
-      }
+    Effect.map(() => {
+      // Codex Cloud reply classification removed; cloud delegation is no longer supported.
       return {
         status: "unknown",
         taskUrl: null,

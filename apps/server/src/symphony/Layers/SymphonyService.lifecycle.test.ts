@@ -532,7 +532,7 @@ const orchestrationState: OrchestrationMockState = {
 const layer = it.layer(makeLayer(projectRootRef, orchestrationState));
 
 layer("SymphonyService lifecycle reconciliation", (it) => {
-  it.effect("persists the computed cloud branch name when launching a Codex Cloud run", () =>
+  it.effect("fails a Codex Cloud run immediately (cloud no longer supported)", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
       projectRootRef.current = projectRoot;
@@ -555,8 +555,8 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         issueId: ISSUE_ID,
       });
       assert.strictEqual(run?.executionTarget, "codex-cloud");
-      assert.strictEqual(run?.status, "cloud-submitted");
-      assert.strictEqual(run?.branchName, "symphony/bc-1");
+      assert.strictEqual(run?.status, "failed");
+      assert.ok(run?.lastError?.includes("local-only"));
     }),
   );
 

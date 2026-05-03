@@ -688,7 +688,7 @@ describe("Symphony Linear helpers", () => {
     expect(requestBody.variables).toEqual({ issueId: "linear-issue-1" });
   });
 
-  it("detects Codex Cloud task links from Linear comments", async () => {
+  it("returns unknown for all Linear comments (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-old",
@@ -712,14 +712,14 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
-      taskUrl: "https://codex.openai.com/tasks/new",
-      linearCommentId: "comment-new",
-      status: "detected",
+      status: "unknown",
+      taskUrl: null,
+      linearCommentId: null,
       message: null,
     });
   });
 
-  it("detects Codex Cloud setup failures from Linear comments", async () => {
+  it("returns unknown for setup failure comments (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-setup",
@@ -738,14 +738,14 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
+      status: "unknown",
       taskUrl: null,
-      linearCommentId: "comment-setup",
-      status: "failed",
-      message: "No suitable environment or repository is available.",
+      linearCommentId: null,
+      message: null,
     });
   });
 
-  it("prefers post-delegation task links over earlier post-delegation setup failures", async () => {
+  it("returns unknown regardless of comment order (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-setup",
@@ -769,9 +769,9 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
-      taskUrl: "https://codex.openai.com/tasks/after-setup",
-      linearCommentId: "comment-task",
-      status: "detected",
+      status: "unknown",
+      taskUrl: null,
+      linearCommentId: null,
       message: null,
     });
   });

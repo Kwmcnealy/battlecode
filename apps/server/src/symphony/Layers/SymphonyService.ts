@@ -37,11 +37,6 @@ import { runProcess } from "../../processRunner.ts";
 import { SymphonyRepository } from "../Services/SymphonyRepository.ts";
 import { SymphonyService, type SymphonyServiceShape } from "../Services/SymphonyService.ts";
 import {
-  buildCodexCloudDelegationComment,
-  parseGitHubRepositoryFromRemoteUrl,
-  type CodexCloudRepositoryContext,
-} from "../codexCloud.ts";
-import {
   branchNameForIssue,
   commandId,
   eventId,
@@ -554,6 +549,11 @@ const emptyCodexCloudTask = (): SymphonyCloudTask => ({
   lastCheckedAt: null,
 });
 
+interface CodexCloudRepositoryContext {
+  readonly nameWithOwner: string;
+  readonly httpsUrl: string;
+}
+
 const submittedCodexCloudTask = (input: {
   readonly comment: { readonly id: string; readonly url: string | null };
   readonly repository: CodexCloudRepositoryContext;
@@ -707,25 +707,13 @@ const makeSymphonyService = Effect.gen(function* () {
       .pipe(Effect.mapError(toSymphonyError("Failed to save Symphony settings.")));
 
   const resolveCodexCloudRepository = (
-    projectRoot: string,
+    _projectRoot: string,
   ): Effect.Effect<CodexCloudRepositoryContext, SymphonyError> =>
-    Effect.gen(function* () {
-      const originUrl = yield* git
-        .readConfigValue(projectRoot, "remote.origin.url")
-        .pipe(Effect.mapError(toSymphonyError("Failed to read project Git remote.")));
-      if (!originUrl) {
-        return yield* new SymphonyError({
-          message: "Codex Cloud requires a GitHub origin remote for this project.",
-        });
-      }
-      const repository = parseGitHubRepositoryFromRemoteUrl(originUrl);
-      if (!repository) {
-        return yield* new SymphonyError({
-          message: `Codex Cloud requires a GitHub repository remote. Found: ${originUrl}`,
-        });
-      }
-      return repository;
-    });
+    Effect.fail(
+      new SymphonyError({
+        message: "Codex Cloud is no longer supported; this build is local-only.",
+      }),
+    );
 
   const appendEvent = (event: SymphonyEvent) =>
     repository.appendEvent(event).pipe(
@@ -2765,14 +2753,7 @@ const makeSymphonyService = Effect.gen(function* () {
       delegatedAt = nowIso();
       repositoryContext = yield* resolveCodexCloudRepository(input.projectRoot);
       const branchName = input.run.branchName ?? branchNameForIssue(input.run.issue.identifier);
-      const body = buildCodexCloudDelegationComment({
-        issue: input.run.issue,
-        repository: repositoryContext,
-        branchName,
-        workflowPath: input.workflowPath,
-        requestedModel: "GPT-5.5",
-        requestedReasoning: "high",
-      });
+      const body = `@Codex (Codex Cloud is no longer supported; this build is local-only.) Branch: ${branchName}`;
       createdComment = yield* createLinearComment({
         endpoint: input.workflow.config.tracker.endpoint || DEFAULT_LINEAR_ENDPOINT,
         apiKey,
