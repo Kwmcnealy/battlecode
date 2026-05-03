@@ -8,8 +8,11 @@ import {
   type OrchestrationCommand,
   type OrchestrationReadModel,
   type OrchestrationThread,
+  type SymphonyApplyConfigurationInput,
   type SymphonyEvent,
   type SymphonyIssue,
+  type SymphonyLinearProject,
+  type SymphonyLinearWorkflowState,
   type SymphonyRun,
 } from "@t3tools/contracts";
 import { Effect, FileSystem, Layer, Path, Stream } from "effect";
@@ -37,6 +40,8 @@ const linearMocks = vi.hoisted(() => ({
   fetchLinearCandidates: vi.fn(),
   fetchLinearIssueComments: vi.fn(),
   fetchLinearIssuesByIds: vi.fn(),
+  fetchLinearTeamsAndProjects: vi.fn(),
+  fetchLinearWorkflowStates: vi.fn(),
   testLinearConnection: vi.fn(),
   updateLinearComment: vi.fn(),
   updateLinearIssueState: vi.fn(),
@@ -51,6 +56,8 @@ vi.mock("../linear.ts", async (importOriginal) => {
     fetchLinearCandidates: linearMocks.fetchLinearCandidates,
     fetchLinearIssueComments: linearMocks.fetchLinearIssueComments,
     fetchLinearIssuesByIds: linearMocks.fetchLinearIssuesByIds,
+    fetchLinearTeamsAndProjects: linearMocks.fetchLinearTeamsAndProjects,
+    fetchLinearWorkflowStates: linearMocks.fetchLinearWorkflowStates,
     testLinearConnection: linearMocks.testLinearConnection,
     updateLinearComment: linearMocks.updateLinearComment,
     updateLinearIssueState: linearMocks.updateLinearIssueState,
@@ -460,6 +467,8 @@ beforeEach(() => {
   linearMocks.fetchLinearCandidates.mockReturnValue(Effect.succeed([]));
   linearMocks.fetchLinearIssueComments.mockReturnValue(Effect.succeed([]));
   linearMocks.fetchLinearIssuesByIds.mockReturnValue(Effect.succeed([]));
+  linearMocks.fetchLinearTeamsAndProjects.mockReturnValue(Effect.succeed([]));
+  linearMocks.fetchLinearWorkflowStates.mockReturnValue(Effect.succeed([]));
   linearMocks.testLinearConnection.mockReturnValue(Effect.succeed({}));
   linearMocks.updateLinearComment.mockReturnValue(
     Effect.succeed({
@@ -1474,6 +1483,109 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       const firstCount = countLinearLookupWarnings(firstSnapshot.events);
       assert.ok(firstCount > 0);
       assert.strictEqual(countLinearLookupWarnings(secondSnapshot.events), firstCount);
+    }),
+  );
+});
+
+layer("SymphonyService wizard RPCs", (it) => {
+  it.effect("fetchLinearProjects flattens teams.projects with team names", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const service = yield* SymphonyService;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+
+      const projects: SymphonyLinearProject[] = [
+        { id: "proj-1", name: "Battlecode Alpha", slugId: "battlecode-alpha", teamId: "team-1", teamName: "Team Alpha" },
+        { id: "proj-2", name: "Battlecode Beta", slugId: "battlecode-beta", teamId: "team-2", teamName: "Team Beta" },
+      ];
+      linearMocks.fetchLinearTeamsAndProjects.mockReturnValue(Effect.succeed(projects));
+
+      const result = yield* service.fetchLinearProjects({
+        projectId: PROJECT_ID,
+        apiKey: "lin_api_test",
+      });
+
+      assert.strictEqual(result.length, 2);
+      assert.strictEqual(result[0]?.name, "Battlecode Alpha");
+      assert.strictEqual(result[0]?.teamName, "Team Alpha");
+      assert.strictEqual(result[1]?.name, "Battlecode Beta");
+      assert.strictEqual(result[1]?.teamName, "Team Beta");
+    }),
+  );
+
+  it.effect("fetchLinearWorkflowStates returns workflow states from Linear", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const service = yield* SymphonyService;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+
+      // The mock returns pre-sorted states (sorting happens inside fetchLinearWorkflowStates in linear.ts).
+      const states: SymphonyLinearWorkflowState[] = [
+        { id: "s-1", name: "To Do", type: "unstarted", position: 1 },
+        { id: "s-2", name: "In Progress", type: "started", position: 2 },
+        { id: "s-3", name: "Done", type: "completed", position: 3 },
+      ];
+      linearMocks.fetchLinearWorkflowStates.mockReturnValue(Effect.succeed(states));
+
+      const result = yield* service.fetchLinearWorkflowStates({
+        projectId: PROJECT_ID,
+        apiKey: "lin_api_test",
+        teamId: "team-1",
+      });
+
+      assert.strictEqual(result.length, 3);
+      assert.strictEqual(result[0]?.name, "To Do");
+      assert.strictEqual(result[1]?.name, "In Progress");
+      assert.strictEqual(result[2]?.name, "Done");
+    }),
+  );
+
+  it.effect("applyConfiguration writes WORKFLOW.md and triggers reload", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const service = yield* SymphonyService;
+      const fs = yield* FileSystem.FileSystem;
+      const pathLib = yield* Path.Path;
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+
+      const applyInput: SymphonyApplyConfigurationInput = {
+        projectId: PROJECT_ID,
+        trackerProjectSlugId: "my-project",
+        trackerProjectName: "My Project",
+        trackerTeamId: "team-1",
+        states: {
+          intake: ["To Do"],
+          active: ["In Progress"],
+          review: ["In Review"],
+          done: ["Done"],
+          canceled: ["Canceled"],
+        },
+        validation: [],
+        prBaseBranch: "main",
+      };
+
+      const result = yield* service.applyConfiguration(applyInput);
+
+      assert.strictEqual(result.ok, true);
+
+      const workflowPath = pathLib.join(projectRoot, "WORKFLOW.md");
+      const written = yield* fs.readFileString(workflowPath);
+      assert.ok(written.includes("project_slug_id: my-project"));
+      assert.ok(written.includes("base_branch: main"));
+      assert.ok(written.includes("- To Do"));
+      assert.ok(written.includes("- In Progress"));
     }),
   );
 });

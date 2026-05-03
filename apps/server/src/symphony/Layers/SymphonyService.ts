@@ -2,11 +2,14 @@ import {
   ApprovalRequestId,
   OrchestrationEvent,
   ProjectId,
+  SymphonyApplyConfigurationInput,
   SymphonyError,
   SymphonyEvent,
   SymphonyIssueId,
   SymphonyRun,
   ThreadId,
+  type SymphonyLinearProject,
+  type SymphonyLinearWorkflowState,
   type SymphonyPullRequestSummary,
   type SymphonyRunProgress,
   type SymphonyRunStatus,
@@ -42,6 +45,8 @@ import {
   DEFAULT_LINEAR_ENDPOINT,
   fetchLinearCandidates,
   fetchLinearIssuesByIds,
+  fetchLinearTeamsAndProjects,
+  fetchLinearWorkflowStates as fetchLinearWorkflowStatesFromLinear,
   testLinearConnection as testLinearApiKey,
   type LinearIssueWorkflowContext,
 } from "../linear.ts";
@@ -3455,6 +3460,110 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.map((run) => ({ threadId: run?.threadId ?? null })),
     );
 
+  const fetchLinearProjects: SymphonyServiceShape["fetchLinearProjects"] = ({
+    projectId: _projectId,
+    apiKey,
+  }) =>
+    fetchLinearTeamsAndProjects({ apiKey }).pipe(
+      Effect.mapError(toSymphonyError("Failed to fetch Linear projects.")),
+    ) as Effect.Effect<readonly SymphonyLinearProject[], SymphonyError>;
+
+  const fetchLinearWorkflowStates: SymphonyServiceShape["fetchLinearWorkflowStates"] = ({
+    projectId: _projectId,
+    apiKey,
+    teamId,
+  }) =>
+    fetchLinearWorkflowStatesFromLinear({ apiKey, teamId }).pipe(
+      Effect.mapError(toSymphonyError("Failed to fetch Linear workflow states.")),
+    ) as Effect.Effect<readonly SymphonyLinearWorkflowState[], SymphonyError>;
+
+  const applyConfiguration: SymphonyServiceShape["applyConfiguration"] = (input) =>
+    Effect.gen(function* () {
+      const project = yield* readProject(input.projectId);
+      const settings = yield* loadSettings(input.projectId);
+      const workflowPath = path.isAbsolute(settings.workflowPath)
+        ? settings.workflowPath
+        : resolveWorkflowPath(project.workspaceRoot, settings.workflowPath);
+      const exists = yield* fs.exists(workflowPath).pipe(Effect.orElseSucceed(() => false));
+      const raw = exists
+        ? yield* fs
+            .readFileString(workflowPath)
+            .pipe(Effect.mapError(toSymphonyError(`Failed to read workflow at ${workflowPath}.`)))
+        : STARTER_WORKFLOW_TEMPLATE;
+
+      // Build the new YAML front matter from the wizard input.
+      const stateYamlList = (arr: readonly string[]) =>
+        arr.length === 0
+          ? "[]"
+          : "\n" + arr.map((s) => `    - ${s}`).join("\n");
+
+      const validationLines =
+        input.validation.length === 0
+          ? ""
+          : `\nvalidation:\n${input.validation.map((v) => `  - ${v}`).join("\n")}`;
+
+      const newFrontMatter = `tracker:
+  kind: linear
+  project_slug_id: ${input.trackerProjectSlugId}
+  intake_states:${stateYamlList(input.states.intake)}
+  active_states:${stateYamlList(input.states.active)}
+  review_states:${stateYamlList(input.states.review)}
+  done_states:${stateYamlList(input.states.done)}
+  canceled_states:${stateYamlList(input.states.canceled)}
+  terminal_states:${stateYamlList([...input.states.done, ...input.states.canceled])}
+pull_request:
+  base_branch: ${input.prBaseBranch || "development"}${validationLines}`;
+
+      const DEFAULT_PROMPT_BODY =
+        "You are working on Linear ticket {{ issue.identifier }}.\n\nIssue title: {{ issue.title }}\nIssue state: {{ issue.state }}\nIssue URL: {{ issue.url }}\n";
+      // Preserve the prompt body from the existing file, or use the default.
+      const promptBody = yield* Effect.try({
+        try: () => parseWorkflowMarkdown(raw).promptTemplate,
+        catch: () => new SymphonyError({ message: "Workflow parse failed; using default prompt." }),
+      }).pipe(Effect.orElseSucceed(() => DEFAULT_PROMPT_BODY));
+
+      const nextContent = `---\n${newFrontMatter}\n---\n\n${promptBody}\n`;
+      yield* fs
+        .writeFileString(workflowPath, nextContent)
+        .pipe(
+          Effect.mapError(toSymphonyError(`Failed to write workflow to ${workflowPath}.`)),
+        );
+
+      // Update settings to point to this path and mark as unvalidated so it
+      // gets revalidated on the next tick.
+      yield* saveSettings({
+        ...settings,
+        workflowPath,
+        workflowStatus: {
+          status: "unvalidated",
+          message: "Configuration applied via wizard. Validating…",
+          validatedAt: null,
+          configHash: null,
+        },
+        updatedAt: nowIso(),
+      });
+
+      yield* emitProjectEvent({
+        projectId: input.projectId,
+        type: "workflow.configuration-applied",
+        message: `Wizard applied configuration for Linear project ${input.trackerProjectSlugId}`,
+        payload: {
+          trackerProjectSlugId: input.trackerProjectSlugId,
+          trackerProjectName: input.trackerProjectName,
+          workflowPath,
+        },
+      });
+
+      // Attempt to reload by running validateWorkflow so the new config is
+      // immediately available without a server restart.
+      const reloaded = yield* validateWorkflow(input.projectId).pipe(
+        Effect.map(() => true),
+        Effect.catchTag("SymphonyError", () => Effect.succeed(false)),
+      );
+
+      return { ok: true as const, reloaded };
+    });
+
   const subscribe: SymphonyServiceShape["subscribe"] = ({ projectId }) =>
     Stream.concat(
       Stream.fromEffect(
@@ -3498,6 +3607,9 @@ const makeSymphonyService = Effect.gen(function* () {
     retryIssue,
     archiveIssue,
     openLinkedThread,
+    fetchLinearProjects,
+    fetchLinearWorkflowStates,
+    applyConfiguration,
   } satisfies SymphonyServiceShape;
 });
 

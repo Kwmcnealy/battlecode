@@ -472,3 +472,44 @@ export const SymphonyLaunchIssueInput = Schema.Struct({
   issueId: SymphonyIssueId,
 });
 export type SymphonyLaunchIssueInput = typeof SymphonyLaunchIssueInput.Type;
+
+export const SymphonyLinearProject = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  slugId: Schema.String,
+  teamId: Schema.String,
+  teamName: Schema.String,
+});
+export type SymphonyLinearProject = Schema.Schema.Type<typeof SymphonyLinearProject>;
+
+export const SymphonyLinearWorkflowState = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+  position: Schema.Number,
+});
+export type SymphonyLinearWorkflowState = Schema.Schema.Type<typeof SymphonyLinearWorkflowState>;
+
+export const SymphonyApplyConfigurationInput = Schema.Struct({
+  projectId: ProjectId,
+  trackerProjectSlugId: Schema.String,
+  trackerProjectName: Schema.String,
+  trackerTeamId: Schema.String,
+  states: Schema.Struct({
+    intake: Schema.Array(Schema.String),
+    active: Schema.Array(Schema.String),
+    review: Schema.Array(Schema.String),
+    done: Schema.Array(Schema.String),
+    canceled: Schema.Array(Schema.String),
+  }),
+  validation: Schema.Array(Schema.String),
+  prBaseBranch: Schema.String,
+});
+export type SymphonyApplyConfigurationInput = Schema.Schema.Type<
+  typeof SymphonyApplyConfigurationInput
+>;
+
+export const SYMPHONY_FETCH_LINEAR_PROJECTS = "symphony.fetchLinearProjects" as const;
+export const SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES =
+  "symphony.fetchLinearWorkflowStates" as const;
+export const SYMPHONY_APPLY_CONFIGURATION = "symphony.applyConfiguration" as const;

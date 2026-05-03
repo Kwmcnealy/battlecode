@@ -63,6 +63,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       archiveIssue: rpcClient.symphony.archiveIssue,
       openLinkedThread: rpcClient.symphony.openLinkedThread,
       launchIssue: rpcClient.symphony.launchIssue,
+      fetchLinearProjects: rpcClient.symphony.fetchLinearProjects,
+      fetchLinearWorkflowStates: rpcClient.symphony.fetchLinearWorkflowStates,
+      applyConfiguration: rpcClient.symphony.applyConfiguration,
       subscribe: (input, callback, options) =>
         rpcClient.symphony.subscribe(input, callback, options),
     },

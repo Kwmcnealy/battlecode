@@ -3,6 +3,8 @@ import {
   SymphonyError,
   SymphonyIssue,
   SymphonyIssueId,
+  type SymphonyLinearProject,
+  type SymphonyLinearWorkflowState,
   type SymphonyWorkflowConfig,
 } from "@t3tools/contracts";
 
@@ -927,4 +929,134 @@ export function fetchLinearCandidates(input: {
     );
 
   return fetchPage(null, []);
+}
+
+const LINEAR_TEAMS_AND_PROJECTS_QUERY = `
+query SymphonyTeamsAndProjects {
+  teams(first: 100) {
+    nodes {
+      id
+      name
+      projects(first: 100) {
+        nodes {
+          id
+          name
+          slugId
+        }
+      }
+    }
+  }
+}
+`;
+
+const LINEAR_TEAM_WORKFLOW_STATES_QUERY = `
+query SymphonyTeamWorkflowStates($teamId: String!) {
+  team(id: $teamId) {
+    states(first: 200) {
+      nodes {
+        id
+        name
+        type
+        position
+      }
+    }
+  }
+}
+`;
+
+export function fetchLinearTeamsAndProjects(input: {
+  readonly apiKey: string;
+  readonly endpoint?: string;
+}): Effect.Effect<readonly SymphonyLinearProject[], SymphonyError> {
+  const endpoint = input.endpoint ?? DEFAULT_LINEAR_ENDPOINT;
+  return linearGraphql({
+    endpoint,
+    apiKey: input.apiKey,
+    operationName: "SymphonyTeamsAndProjects",
+    query: LINEAR_TEAMS_AND_PROJECTS_QUERY,
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const teams = data ? readNestedRecord(data, "teams") : null;
+          const teamNodes = teams ? readArray(teams.nodes) : [];
+          const projects: SymphonyLinearProject[] = [];
+          for (const teamNode of teamNodes) {
+            const team = readRecord(teamNode);
+            if (!team) continue;
+            const teamId = readString(team.id);
+            const teamName = readString(team.name);
+            if (!teamId || !teamName) continue;
+            const teamProjects = readNestedRecord(team, "projects");
+            const projectNodes = teamProjects ? readArray(teamProjects.nodes) : [];
+            for (const projectNode of projectNodes) {
+              const project = readRecord(projectNode);
+              if (!project) continue;
+              const id = readString(project.id);
+              const name = readString(project.name);
+              const slugId = readString(project.slugId);
+              if (!id || !name || !slugId) continue;
+              projects.push({ id, name, slugId, teamId, teamName });
+            }
+          }
+          return projects;
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Failed to parse Linear teams and projects.",
+            cause,
+          }),
+      }),
+    ),
+  );
+}
+
+export function fetchLinearWorkflowStates(input: {
+  readonly apiKey: string;
+  readonly teamId: string;
+  readonly endpoint?: string;
+}): Effect.Effect<readonly SymphonyLinearWorkflowState[], SymphonyError> {
+  const endpoint = input.endpoint ?? DEFAULT_LINEAR_ENDPOINT;
+  return linearGraphql({
+    endpoint,
+    apiKey: input.apiKey,
+    operationName: "SymphonyTeamWorkflowStates",
+    query: LINEAR_TEAM_WORKFLOW_STATES_QUERY,
+    variables: { teamId: input.teamId },
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const team = data ? readNestedRecord(data, "team") : null;
+          const states = team ? readNestedRecord(team, "states") : null;
+          const nodes = states ? readArray(states.nodes) : [];
+          return nodes
+            .flatMap((node) => {
+              const record = readRecord(node);
+              if (!record) return [];
+              const id = readString(record.id);
+              const name = readString(record.name);
+              const type = readString(record.type);
+              const position = readNumber(record.position);
+              if (!id || !name || !type || position === null) return [];
+              return [{ id, name, type, position }];
+            })
+            .toSorted((a, b) => a.position - b.position);
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Failed to parse Linear workflow states.",
+            cause,
+          }),
+      }),
+    ),
+  );
 }

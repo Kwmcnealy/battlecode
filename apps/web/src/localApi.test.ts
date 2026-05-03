@@ -109,6 +109,9 @@ const rpcClientMock = {
     retryIssue: vi.fn(),
     archiveIssue: vi.fn(),
     openLinkedThread: vi.fn(),
+    fetchLinearProjects: vi.fn(),
+    fetchLinearWorkflowStates: vi.fn(),
+    applyConfiguration: vi.fn(),
     subscribe: vi.fn(() => () => undefined),
   },
 };

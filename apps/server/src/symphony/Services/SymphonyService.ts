@@ -1,7 +1,10 @@
 import type {
+  SymphonyApplyConfigurationInput,
   SymphonyError,
   SymphonyIssueActionInput,
   SymphonyLaunchIssueInput,
+  SymphonyLinearProject,
+  SymphonyLinearWorkflowState,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
@@ -11,6 +14,7 @@ import type {
   SymphonyUpdateWorkflowPathInput,
   ThreadId,
 } from "@t3tools/contracts";
+import type { ProjectId } from "@t3tools/contracts";
 import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -61,6 +65,21 @@ export interface SymphonyServiceShape {
   readonly launchIssue: (
     input: SymphonyLaunchIssueInput,
   ) => Effect.Effect<SymphonySnapshot, SymphonyError>;
+  readonly fetchLinearProjects: (input: {
+    readonly projectId: ProjectId;
+    readonly apiKey: string;
+  }) => Effect.Effect<readonly SymphonyLinearProject[], SymphonyError>;
+  readonly fetchLinearWorkflowStates: (input: {
+    readonly projectId: ProjectId;
+    readonly apiKey: string;
+    readonly teamId: string;
+  }) => Effect.Effect<readonly SymphonyLinearWorkflowState[], SymphonyError>;
+  readonly applyConfiguration: (
+    input: SymphonyApplyConfigurationInput,
+  ) => Effect.Effect<
+    { readonly ok: true; readonly reloaded: boolean } | { readonly ok: false; readonly error: string },
+    SymphonyError
+  >;
 }
 
 export class SymphonyService extends Context.Service<SymphonyService, SymphonyServiceShape>()(

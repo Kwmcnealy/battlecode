@@ -7,7 +7,13 @@ import {
   type LocalApi,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
+  SYMPHONY_APPLY_CONFIGURATION,
+  SYMPHONY_FETCH_LINEAR_PROJECTS,
+  SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES,
   SYMPHONY_WS_METHODS,
+  type SymphonyApplyConfigurationInput,
+  type SymphonyLinearProject,
+  type SymphonyLinearWorkflowState,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { applyGitStatusStreamEvent } from "@t3tools/shared/git";
@@ -141,6 +147,21 @@ export interface WsRpcClient {
     readonly archiveIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.archiveIssue>;
     readonly openLinkedThread: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.openLinkedThread>;
     readonly launchIssue: RpcUnaryMethod<typeof SYMPHONY_WS_METHODS.launchIssue>;
+    readonly fetchLinearProjects: (input: {
+      projectId: string;
+      apiKey: string;
+    }) => Promise<readonly SymphonyLinearProject[]>;
+    readonly fetchLinearWorkflowStates: (input: {
+      projectId: string;
+      apiKey: string;
+      teamId: string;
+    }) => Promise<readonly SymphonyLinearWorkflowState[]>;
+    readonly applyConfiguration: (
+      input: SymphonyApplyConfigurationInput,
+    ) => Promise<
+      | { ok: true; reloaded: boolean }
+      | { ok: false; error: string }
+    >;
   };
 }
 
@@ -312,6 +333,18 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[SYMPHONY_WS_METHODS.openLinkedThread](input)),
       launchIssue: (input) =>
         transport.request((client) => client[SYMPHONY_WS_METHODS.launchIssue](input)),
+      fetchLinearProjects: (input) =>
+        transport.request((client) => client[SYMPHONY_FETCH_LINEAR_PROJECTS](input)) as Promise<
+          readonly SymphonyLinearProject[]
+        >,
+      fetchLinearWorkflowStates: (input) =>
+        transport.request(
+          (client) => client[SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES](input),
+        ) as Promise<readonly SymphonyLinearWorkflowState[]>,
+      applyConfiguration: (input) =>
+        transport.request((client) =>
+          client[SYMPHONY_APPLY_CONFIGURATION](input),
+        ) as Promise<{ ok: true; reloaded: boolean } | { ok: false; error: string }>,
     },
   };
 }

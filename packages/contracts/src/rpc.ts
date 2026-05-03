@@ -78,10 +78,16 @@ import {
 } from "./server.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
+  SYMPHONY_APPLY_CONFIGURATION,
+  SYMPHONY_FETCH_LINEAR_PROJECTS,
+  SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES,
   SYMPHONY_WS_METHODS,
+  SymphonyApplyConfigurationInput,
   SymphonyError,
   SymphonyIssueActionInput,
   SymphonyLaunchIssueInput,
+  SymphonyLinearProject,
+  SymphonyLinearWorkflowState,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
@@ -484,6 +490,34 @@ export const WsSymphonyOpenLinkedThreadRpc = Rpc.make(SYMPHONY_WS_METHODS.openLi
   error: SymphonyError,
 });
 
+export const WsSymphonyFetchLinearProjectsRpc = Rpc.make(SYMPHONY_FETCH_LINEAR_PROJECTS, {
+  payload: Schema.Struct({ projectId: Schema.String, apiKey: Schema.String }),
+  success: Schema.Array(SymphonyLinearProject),
+  error: SymphonyError,
+});
+
+export const WsSymphonyFetchLinearWorkflowStatesRpc = Rpc.make(
+  SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES,
+  {
+    payload: Schema.Struct({
+      projectId: Schema.String,
+      apiKey: Schema.String,
+      teamId: Schema.String,
+    }),
+    success: Schema.Array(SymphonyLinearWorkflowState),
+    error: SymphonyError,
+  },
+);
+
+export const WsSymphonyApplyConfigurationRpc = Rpc.make(SYMPHONY_APPLY_CONFIGURATION, {
+  payload: SymphonyApplyConfigurationInput,
+  success: Schema.Union([
+    Schema.Struct({ ok: Schema.Literal(true), reloaded: Schema.Boolean }),
+    Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
+  ]),
+  error: SymphonyError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -540,4 +574,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSymphonyArchiveIssueRpc,
   WsSymphonyLaunchIssueRpc,
   WsSymphonyOpenLinkedThreadRpc,
+  WsSymphonyFetchLinearProjectsRpc,
+  WsSymphonyFetchLinearWorkflowStatesRpc,
+  WsSymphonyApplyConfigurationRpc,
 );

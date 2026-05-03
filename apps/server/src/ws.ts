@@ -20,6 +20,10 @@ import {
   FilesystemBrowseError,
   ThreadId,
   type TerminalEvent,
+  ProjectId,
+  SYMPHONY_APPLY_CONFIGURATION,
+  SYMPHONY_FETCH_LINEAR_PROJECTS,
+  SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES,
   SYMPHONY_WS_METHODS,
   SymphonyError,
   WS_METHODS,
@@ -955,6 +959,49 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               .pipe(
                 Effect.mapError((cause) =>
                   toSymphonyError(cause, "Failed to open Symphony linked thread"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_FETCH_LINEAR_PROJECTS]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_FETCH_LINEAR_PROJECTS,
+            symphony
+              .fetchLinearProjects({
+                projectId: ProjectId.make(input.projectId),
+                apiKey: input.apiKey,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to fetch Linear projects"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES,
+            symphony
+              .fetchLinearWorkflowStates({
+                projectId: ProjectId.make(input.projectId),
+                apiKey: input.apiKey,
+                teamId: input.teamId,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to fetch Linear workflow states"),
+                ),
+              ),
+            { "rpc.aggregate": "symphony" },
+          ),
+        [SYMPHONY_APPLY_CONFIGURATION]: (input) =>
+          observeRpcEffect(
+            SYMPHONY_APPLY_CONFIGURATION,
+            symphony
+              .applyConfiguration(input)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toSymphonyError(cause, "Failed to apply Symphony configuration"),
                 ),
               ),
             { "rpc.aggregate": "symphony" },
