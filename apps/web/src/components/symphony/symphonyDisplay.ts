@@ -11,6 +11,7 @@ export type SymphonyAction =
   | "refresh"
   | "stop"
   | "retry"
+  | "archive"
   | "launch-local"
   | "launch-cloud"
   | "refresh-cloud"

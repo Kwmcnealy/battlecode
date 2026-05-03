@@ -147,6 +147,49 @@ describe("IssueQueueTable", () => {
     }
   });
 
+  it("offers archive for inactive rows and forwards the archive action", async () => {
+    const onIssueAction = vi.fn();
+    const screen = await render(
+      <IssueQueueTable
+        runs={[makeRun({ status: "failed", lifecyclePhase: "failed" })]}
+        busyAction={null}
+        selectedRunId={null}
+        onSelectRun={vi.fn()}
+        onIssueAction={onIssueAction}
+        onOpenLinkedThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
+
+      expect(onIssueAction.mock.calls.map((call) => call[0])).toEqual(["archive"]);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("hides archive for active execution rows", async () => {
+    const screen = await render(
+      <IssueQueueTable
+        runs={[makeRun({ status: "running", lifecyclePhase: "implementing" })]}
+        busyAction={null}
+        selectedRunId={null}
+        onSelectRun={vi.fn()}
+        onIssueAction={vi.fn()}
+        onOpenLinkedThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Archive", exact: true }))
+        .not.toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("shows Codex task links for detected cloud runs", async () => {
     const screen = await render(
       <IssueQueueTable

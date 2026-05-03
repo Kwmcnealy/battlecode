@@ -158,26 +158,31 @@ export function SymphonyPanel({
 
   const runIssueAction = useCallback(
     async (
-      action: Extract<SymphonyAction, "stop" | "launch-local" | "launch-cloud" | "refresh-cloud">,
+      action: Extract<
+        SymphonyAction,
+        "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
+      >,
       run: SymphonyRun,
     ) => {
       setBusyAction(action);
       try {
-        const next = await (action === "stop"
-          ? api.symphony.stopIssue({ projectId, issueId: run.issue.id })
-          : action === "launch-local"
-            ? api.symphony.launchIssue({
-                projectId,
-                issueId: run.issue.id,
-                target: "local",
-              })
-            : action === "launch-cloud"
+        const next = await (action === "archive"
+          ? api.symphony.archiveIssue({ projectId, issueId: run.issue.id })
+          : action === "stop"
+            ? api.symphony.stopIssue({ projectId, issueId: run.issue.id })
+            : action === "launch-local"
               ? api.symphony.launchIssue({
                   projectId,
                   issueId: run.issue.id,
-                  target: "codex-cloud",
+                  target: "local",
                 })
-              : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
+              : action === "launch-cloud"
+                ? api.symphony.launchIssue({
+                    projectId,
+                    issueId: run.issue.id,
+                    target: "codex-cloud",
+                  })
+                : api.symphony.refreshCloudStatus({ projectId, issueId: run.issue.id }));
         commitSnapshotImmediately(next);
         setError(null);
       } catch (cause) {

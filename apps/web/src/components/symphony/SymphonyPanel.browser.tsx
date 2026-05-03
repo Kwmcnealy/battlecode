@@ -172,6 +172,7 @@ function makeEnvironmentApi(input: {
       pause: vi.fn(async () => input.snapshotRef.current),
       resume: vi.fn(async () => input.snapshotRef.current),
       refresh: vi.fn(async () => input.snapshotRef.current),
+      archiveIssue: vi.fn(async () => input.snapshotRef.current),
       stopIssue: vi.fn(async () => input.snapshotRef.current),
       retryIssue: vi.fn(async () => input.snapshotRef.current),
       openLinkedThread: vi.fn(async () => ({ threadId: null })),
@@ -318,6 +319,58 @@ describe("SymphonyPanel", () => {
       await expect.element(page.getByText("Archived at")).toBeInTheDocument();
       await expect.element(page.getByText("Pull request merged")).toBeInTheDocument();
       await expect.element(page.getByText("Selected cloud run")).toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("archives an inactive run from the active view", async () => {
+    const activeRun = makeRun("4", "Failed run to archive", {
+      status: "failed",
+      lifecyclePhase: "failed",
+      executionTarget: "local",
+      pullRequest: null,
+      prUrl: null,
+    });
+    const archivedRun = {
+      ...activeRun,
+      archivedAt: ARCHIVED_AT,
+    };
+    const snapshotRef = {
+      current: makeSnapshot({ activeRuns: [activeRun] }),
+    };
+    const api = makeEnvironmentApi({
+      snapshotRef,
+      onSubscribe: () => undefined,
+    });
+    vi.mocked(api.symphony.archiveIssue).mockImplementation(async () => {
+      snapshotRef.current = makeSnapshot({ archivedRuns: [archivedRun] });
+      return snapshotRef.current;
+    });
+    __setEnvironmentApiOverrideForTests(ENVIRONMENT_ID, api);
+
+    const screen = await render(
+      <SymphonyPanel
+        environmentId={ENVIRONMENT_ID}
+        projectId={PROJECT_ID}
+        projectName="Battlecode"
+        projectCwd="/repo/battlecode"
+        onOpenThread={vi.fn()}
+      />,
+    );
+
+    try {
+      await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
+      await userEvent.click(page.getByRole("button", { name: "Archive", exact: true }));
+
+      expect(api.symphony.archiveIssue).toHaveBeenCalledWith({
+        projectId: PROJECT_ID,
+        issueId: activeRun.issue.id,
+      });
+      expect(document.body.textContent).not.toContain("Failed run to archive");
+
+      await userEvent.click(page.getByRole("button", { name: /Archived/ }));
+      await expect.element(page.getByText("Failed run to archive")).toBeInTheDocument();
     } finally {
       await screen.unmount();
     }

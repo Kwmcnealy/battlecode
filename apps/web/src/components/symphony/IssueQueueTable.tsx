@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   CloudIcon,
   ExternalLinkIcon,
   EyeIcon,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { memo } from "react";
 import type { SymphonyRun } from "@t3tools/contracts";
+import { canArchiveSymphonyRun } from "@t3tools/shared/symphony";
 
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -45,6 +47,7 @@ function getIssueQueueRowState(run: SymphonyRun) {
 
   return {
     canRetry: RETRYABLE_STATUSES.has(run.status),
+    canArchive: run.archivedAt === null && canArchiveSymphonyRun(run),
     canLaunch: LAUNCHABLE_STATUSES.has(run.status),
     canStop: STOPPABLE_STATUSES.has(run.status),
     targetLabel: run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose",
@@ -58,6 +61,7 @@ function getIssueQueueRowState(run: SymphonyRun) {
 function buildIssueQueueRowDigest(run: SymphonyRun): string {
   return JSON.stringify({
     branchName: run.branchName,
+    archivedAt: run.archivedAt,
     cloudLastMessage: run.cloudTask?.lastMessage ?? null,
     cloudStatus: run.cloudTask?.status ?? null,
     cloudTaskUrl: run.cloudTask?.taskUrl ?? null,
@@ -81,7 +85,10 @@ interface IssueQueueRowProps {
   busyAction: SymphonyAction | null;
   isSelected: boolean;
   onIssueAction: (
-    action: Extract<SymphonyAction, "stop" | "launch-local" | "launch-cloud" | "refresh-cloud">,
+    action: Extract<
+      SymphonyAction,
+      "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
+    >,
     run: SymphonyRun,
   ) => void;
   onOpenLinkedThread: (run: SymphonyRun) => void;
@@ -100,6 +107,7 @@ const IssueQueueRow = memo(
   }: IssueQueueRowProps) {
     const {
       canRetry,
+      canArchive,
       canLaunch,
       canStop,
       targetLabel,
@@ -298,6 +306,20 @@ const IssueQueueRow = memo(
                 </Button>
               </>
             ) : null}
+            {canArchive ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busyAction !== null}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onIssueAction("archive", run);
+                }}
+              >
+                <ArchiveIcon className="size-3" />
+                Archive
+              </Button>
+            ) : null}
             <Button
               size="xs"
               variant="outline"
@@ -337,7 +359,10 @@ export function IssueQueueTable({
   selectedRunId: string | null;
   onSelectRun: (run: SymphonyRun) => void;
   onIssueAction: (
-    action: Extract<SymphonyAction, "stop" | "launch-local" | "launch-cloud" | "refresh-cloud">,
+    action: Extract<
+      SymphonyAction,
+      "archive" | "stop" | "launch-local" | "launch-cloud" | "refresh-cloud"
+    >,
     run: SymphonyRun,
   ) => void;
   onOpenLinkedThread: (run: SymphonyRun) => void;
