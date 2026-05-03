@@ -86,6 +86,7 @@ import {
 // from phaseOutput.ts, which reads proposedPlans and checklist messages.
 import { decideNextAction } from "../orchestrator.ts";
 import { decideArchive } from "../reconciler.ts";
+import { decideSchedulerActions } from "../scheduler.ts";
 import { classifyLinearState, resolveRunLifecycle } from "../runLifecycle.ts";
 import {
   buildContinuationPrompt,
@@ -289,17 +290,6 @@ function latestLinearCandidateCount(events: readonly SymphonyEvent[]): number | 
   const event = events.toReversed().find((item) => item.type === "linear.refreshed");
   const count = event?.payload.count;
   return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : null;
-}
-
-function shouldQueueIntakeRun(input: {
-  readonly run: SymphonyRun;
-  readonly issueState: string;
-  readonly tracker: SymphonyWorkflowConfig["tracker"];
-}): boolean {
-  if (!stateMatches(intakeStateNames(input.tracker), input.issueState)) {
-    return false;
-  }
-  return input.run.archivedAt !== null || input.run.status === "released";
 }
 
 function queueExistingIntakeRun(input: {
@@ -1840,31 +1830,89 @@ const makeSymphonyService = Effect.gen(function* () {
       const trackedLinearIssueById = new Map(
         trackedLinearIssues.map((issue) => [issue.issue.id, issue] as const),
       );
+      // Load existing runs for all candidate issues, then use decideSchedulerActions
+      // to determine what to create, archive, or update.
+      // TODO(phase-4): Pass actual lastSeenLinearState from the DB column added by
+      // Migration 032. For now, null is passed for all runs, which treats every
+      // failed/released run as eligible for re-engagement (equivalent to the prior
+      // shouldQueueIntakeRun behavior).
+      const existingRunsForCandidates = yield* Effect.forEach(
+        issues,
+        (issue) =>
+          repository
+            .getRunByIssue({ projectId, issueId: issue.id })
+            .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run."))),
+        { concurrency: 6 },
+      );
+      const existingRunsByCandidateMap = new Map(
+        existingRunsForCandidates
+          .filter((run): run is NonNullable<typeof run> => run !== null)
+          .map((run) => [run.issue.id, run] as const),
+      );
+      const runningCount = existingRunsBeforeRefresh.filter(
+        (run) => run.archivedAt === null && run.status === "running",
+      ).length;
+      const schedulerDecisions = decideSchedulerActions({
+        candidates: issues.map((issue) => ({
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          state: issue.state,
+        })),
+        existingRuns: [...existingRunsByCandidateMap.values()].map((run) => ({
+          runId: run.runId,
+          issueId: run.issue.id,
+          status: run.status,
+          archivedAt: run.archivedAt,
+          // TODO(phase-4): use run.lastSeenLinearState once Migration 032 is applied.
+          lastSeenLinearState: null,
+        })),
+        intakeStates: intakeStateNames(workflow.config.tracker),
+        capacity: workflow.config.agent.maxConcurrentAgents,
+        runningCount,
+      });
+
+      // Apply archive decisions from scheduler.
+      yield* Effect.forEach(
+        schedulerDecisions.archive,
+        ({ runId }) =>
+          Effect.gen(function* () {
+            const run = existingRunsBeforeRefresh.find((r) => r.runId === runId);
+            if (!run) return;
+            const archivedRun: SymphonyRun = {
+              ...run,
+              archivedAt: fetchedAt,
+              updatedAt: fetchedAt,
+            };
+            yield* repository
+              .upsertRun(archivedRun)
+              .pipe(Effect.mapError(toSymphonyError("Failed to archive Symphony run for re-queue.")));
+          }),
+        { concurrency: 4 },
+      );
+
+      // Upsert all candidate issues (create or update runs).
       yield* Effect.forEach(
         issues,
         (issue) =>
           Effect.gen(function* () {
-            const existing = yield* repository
-              .getRunByIssue({ projectId, issueId: issue.id })
-              .pipe(Effect.mapError(toSymphonyError("Failed to read Symphony run.")));
-            const shouldQueue =
-              existing !== null &&
-              shouldQueueIntakeRun({
-                run: existing,
-                issueState: issue.state,
-                tracker: workflow.config.tracker,
-              });
-            const nextRun = shouldQueue
-              ? queueExistingIntakeRun({ run: existing, issue, updatedAt: fetchedAt })
-              : {
-                  ...(existing ?? makeRun(projectId, issue, fetchedAt)),
-                  issue,
-                  updatedAt: fetchedAt,
-                };
+            const existing = existingRunsByCandidateMap.get(issue.id) ?? null;
+            const shouldCreate = schedulerDecisions.create.some((c) => c.issueId === issue.id);
+            // If the scheduler decided to create, re-queue the run via queueExistingIntakeRun
+            // (for existing runs) or make a fresh run (for truly new ones).
+            const wasArchived = existing !== null && existing.archivedAt !== null;
+            const nextRun =
+              shouldCreate && existing !== null
+                ? queueExistingIntakeRun({ run: existing, issue, updatedAt: fetchedAt })
+                : {
+                    ...(existing ?? makeRun(projectId, issue, fetchedAt)),
+                    issue,
+                    updatedAt: fetchedAt,
+                  };
             yield* repository
               .upsertRun(nextRun)
               .pipe(Effect.mapError(toSymphonyError("Failed to upsert Symphony run.")));
-            if (existing !== null && existing.archivedAt !== null && shouldQueue) {
+            if (wasArchived && shouldCreate) {
               yield* emitProjectEvent({
                 projectId,
                 issueId: issue.id,
@@ -1873,7 +1921,7 @@ const makeSymphonyService = Effect.gen(function* () {
                 message: `${issue.identifier} reactivated from Linear intake`,
                 payload: {
                   reason: "linear-intake",
-                  previousStatus: existing.status,
+                  previousStatus: existing?.status,
                   nextStatus: nextRun.status,
                 },
               });
