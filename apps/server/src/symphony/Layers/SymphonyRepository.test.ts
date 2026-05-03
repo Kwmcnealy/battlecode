@@ -64,8 +64,7 @@ layer("SymphonyRepositoryLive", (it) => {
       const lifecycleProjectId = ProjectId.make("project-symphony-lifecycle-metadata");
 
       const run = makeRepositoryRun(lifecycleProjectId, makeIssue("issue-lifecycle", "BC-0"), {
-        status: "running",
-        lifecyclePhase: "reviewing",
+        status: "implementing",
         linearProgress: {
           commentId: "comment-1",
           commentUrl: "https://linear.app/t3/issue/BC-0#comment-comment-1",
@@ -94,7 +93,7 @@ layer("SymphonyRepositoryLive", (it) => {
         issueId: run.issue.id,
       })) as SymphonyRun | null;
       assert.notStrictEqual(persisted, null);
-      assert.strictEqual(persisted?.lifecyclePhase, "reviewing");
+      assert.strictEqual(persisted?.status, "implementing");
       assert.deepStrictEqual(persisted?.linearProgress, run.linearProgress);
       assert.deepStrictEqual(persisted?.qualityGate, run.qualityGate);
     }),
@@ -126,13 +125,13 @@ layer("SymphonyRepositoryLive", (it) => {
 
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-running", "BC-2"), {
-          status: "running",
+          status: "implementing",
           threadId: ThreadId.make("symphony-thread-project-symphony-issue-running"),
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-review-ready", "BC-3"), {
-          status: "review-ready",
+          status: "in-review",
         }),
       );
       yield* repository.upsertRun(
@@ -148,7 +147,7 @@ layer("SymphonyRepositoryLive", (it) => {
       );
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-eligible", "BC-6"), {
-          status: "eligible",
+          status: "intake",
         }),
       );
       yield* repository.upsertRun(
@@ -168,8 +167,8 @@ layer("SymphonyRepositoryLive", (it) => {
       assert.deepStrictEqual(monitoredRuns.map((run) => run.status).toSorted(), [
         "canceled",
         "completed",
-        "review-ready",
-        "running",
+        "implementing",
+        "in-review",
       ]);
       assert.deepStrictEqual(monitoredRuns.map((run) => run.issue.identifier).toSorted(), [
         "BC-2",
@@ -187,23 +186,23 @@ layer("SymphonyRepositoryLive", (it) => {
 
       yield* repository.upsertRun(
         makeRepositoryRun(PROJECT_ID, makeIssue("issue-review", "BC-6"), {
-          status: "review-ready",
+          status: "in-review",
         }),
       );
       yield* repository.upsertRun(
         makeRepositoryRun(OTHER_PROJECT_ID, makeIssue("issue-archived-other", "BC-7"), {
-          status: "review-ready",
+          status: "in-review",
           archivedAt: "2026-05-02T12:20:00.000Z",
         }),
       );
 
       const activeProjectIds = yield* repository.listProjectIdsWithRunsInStatuses({
-        statuses: ["review-ready"],
+        statuses: ["in-review"],
       });
       assert.deepStrictEqual(activeProjectIds, [PROJECT_ID]);
 
       const allProjectIds = yield* repository.listProjectIdsWithRunsInStatuses({
-        statuses: ["review-ready"],
+        statuses: ["in-review"],
         includeArchived: true,
       });
       assert.deepStrictEqual(allProjectIds, [OTHER_PROJECT_ID, PROJECT_ID].toSorted());

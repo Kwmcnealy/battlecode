@@ -86,8 +86,8 @@ export function RunDetailsDrawer({
               </SheetDescription>
             </div>
             {run ? (
-              <Badge variant="outline" className={PHASE_BADGE_CLASSNAME[run.lifecyclePhase]}>
-                {formatLifecyclePhase(run.lifecyclePhase)}
+              <Badge variant="outline" className={PHASE_BADGE_CLASSNAME[run.status]}>
+                {formatLifecyclePhase(run.status)}
               </Badge>
             ) : null}
           </div>
@@ -144,10 +144,7 @@ export function RunDetailsDrawer({
                 <DetailRow label="PR URL" value={run.pullRequest?.url ?? run.prUrl} />
                 <DetailRow label="PR state" value={run.pullRequest?.state ?? null} />
                 <DetailRow label="Linear state" value={run.issue.state} />
-                <DetailRow
-                  label="Lifecycle phase"
-                  value={formatLifecyclePhase(run.lifecyclePhase)}
-                />
+                <DetailRow label="Status" value={formatLifecyclePhase(run.status)} />
                 <DetailRow label="Progress comment" value={run.linearProgress.commentUrl} />
                 <DetailRow label="Review summary" value={run.qualityGate.lastReviewSummary} />
                 <DetailRow label="Review fixes" value={String(run.qualityGate.reviewFixLoops)} />

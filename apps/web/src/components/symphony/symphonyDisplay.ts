@@ -1,6 +1,5 @@
 import type {
   SymphonyEvent,
-  SymphonyLifecyclePhase,
   SymphonyQueueSnapshot,
   SymphonyRun,
   SymphonyRunStatus,
@@ -18,36 +17,23 @@ export type SymphonyAction =
   | "launch";
 
 export const STATUS_BADGE_CLASSNAME: Record<SymphonyRunStatus, string> = {
-  "target-pending": "border-primary/50 bg-primary/10 text-primary",
-  eligible: "border-info/50 bg-info/10 text-info",
-  running: "border-success/50 bg-success/10 text-success",
-  "retry-queued": "border-warning/50 bg-warning/10 text-warning",
-  "review-ready": "border-warning/50 bg-warning/10 text-warning",
+  intake: "border-primary/50 bg-primary/10 text-primary",
+  planning: "border-primary/50 bg-primary/10 text-primary",
+  implementing: "border-success/50 bg-success/10 text-success",
+  "in-review": "border-info/50 bg-info/10 text-info",
   completed: "border-success/50 bg-success/10 text-success",
   failed: "border-destructive/50 bg-destructive/10 text-destructive",
   canceled: "border-muted-foreground/30 bg-muted/40 text-muted-foreground",
-  released: "border-success/50 bg-success/10 text-success",
 };
 
-export const PHASE_BADGE_CLASSNAME: Record<SymphonyLifecyclePhase, string> = {
-  intake: "border-muted-foreground/30 bg-muted/40 text-muted-foreground",
-  planning: "border-primary/50 bg-primary/10 text-primary",
-  implementing: "border-success/50 bg-success/10 text-success",
-  simplifying: "border-warning/50 bg-warning/10 text-warning",
-  reviewing: "border-warning/50 bg-warning/10 text-warning",
-  fixing: "border-warning/50 bg-warning/10 text-warning",
-  "pr-ready": "border-primary/50 bg-primary/10 text-primary",
-  "in-review": "border-info/50 bg-info/10 text-info",
-  done: "border-success/50 bg-success/10 text-success",
-  canceled: "border-muted-foreground/30 bg-muted/40 text-muted-foreground",
-  failed: "border-destructive/50 bg-destructive/10 text-destructive",
-};
+/** Alias kept for backwards compat with existing call sites that used PHASE_BADGE_CLASSNAME. */
+export const PHASE_BADGE_CLASSNAME: Record<SymphonyRunStatus, string> = STATUS_BADGE_CLASSNAME;
 
 const QUEUE_KEYS = [
-  "pendingTarget",
-  "running",
-  "retrying",
-  "eligible",
+  "intake",
+  "planning",
+  "implementing",
+  "in-review",
   "failed",
   "canceled",
   "completed",
@@ -67,7 +53,12 @@ export interface SymphonyDiagnosticsDisplay {
   readonly errorTitle: string | null;
 }
 
-export function formatLifecyclePhase(value: SymphonyLifecyclePhase): string {
+/** @deprecated Use formatRunStatus. */
+export function formatLifecyclePhase(value: SymphonyRunStatus): string {
+  return formatRunStatus(value);
+}
+
+export function formatRunStatus(value: SymphonyRunStatus): string {
   return value
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -119,10 +110,10 @@ function reconcileQueues(
   nextQueues: SymphonyQueueSnapshot,
 ): SymphonyQueueSnapshot {
   return {
-    pendingTarget: reconcileQueueRuns(currentQueues.pendingTarget, nextQueues.pendingTarget),
-    running: reconcileQueueRuns(currentQueues.running, nextQueues.running),
-    retrying: reconcileQueueRuns(currentQueues.retrying, nextQueues.retrying),
-    eligible: reconcileQueueRuns(currentQueues.eligible, nextQueues.eligible),
+    intake: reconcileQueueRuns(currentQueues.intake, nextQueues.intake),
+    planning: reconcileQueueRuns(currentQueues.planning, nextQueues.planning),
+    implementing: reconcileQueueRuns(currentQueues.implementing, nextQueues.implementing),
+    "in-review": reconcileQueueRuns(currentQueues["in-review"], nextQueues["in-review"]),
     failed: reconcileQueueRuns(currentQueues.failed, nextQueues.failed),
     canceled: reconcileQueueRuns(currentQueues.canceled, nextQueues.canceled),
     completed: reconcileQueueRuns(currentQueues.completed, nextQueues.completed),

@@ -49,13 +49,11 @@ function makeRunWithStatus(status: SymphonyRun["status"]): SymphonyRun {
 describe("Symphony run model", () => {
   it("groups runs into the dashboard queues", () => {
     const queues = queueRuns([
-      makeRunWithStatus("target-pending"),
-      makeRunWithStatus("eligible"),
-      makeRunWithStatus("running"),
-      makeRunWithStatus("retry-queued"),
-      makeRunWithStatus("review-ready"),
+      makeRunWithStatus("intake"),
+      makeRunWithStatus("planning"),
+      makeRunWithStatus("implementing"),
+      makeRunWithStatus("in-review"),
       makeRunWithStatus("completed"),
-      makeRunWithStatus("released"),
       makeRunWithStatus("failed"),
       makeRunWithStatus("canceled"),
       {
@@ -64,25 +62,20 @@ describe("Symphony run model", () => {
       },
     ]);
 
-    expect(queues.pendingTarget).toHaveLength(1);
-    expect(queues.eligible).toHaveLength(1);
-    expect(queues.running.map((run) => run.status)).toEqual(["running"]);
-    expect(queues.retrying).toHaveLength(1);
-    expect(queues.completed.map((run) => run.status)).toEqual([
-      "review-ready",
-      "completed",
-      "released",
-    ]);
+    expect(queues.intake).toHaveLength(1);
+    expect(queues.planning).toHaveLength(1);
+    expect(queues.implementing.map((run) => run.status)).toEqual(["implementing"]);
+    expect(queues["in-review"]).toHaveLength(1);
+    expect(queues.completed.map((run) => run.status)).toEqual(["completed"]);
     expect(queues.failed).toHaveLength(1);
     expect(queues.canceled).toHaveLength(1);
     expect(queues.archived.map((run) => run.status)).toEqual(["completed"]);
   });
 
-  it("creates new runs with target-pending status", () => {
+  it("creates new runs with intake status", () => {
     const run = makeRun(PROJECT_ID, makeIssue(), CREATED_AT);
 
-    expect(run.status).toBe("target-pending");
-    expect(run.lifecyclePhase).toBe("intake");
+    expect(run.status).toBe("intake");
     expect(run.linearProgress).toEqual({
       commentId: null,
       commentUrl: null,

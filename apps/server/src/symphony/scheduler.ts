@@ -69,14 +69,11 @@ export interface SchedulerDecisions {
 /**
  * Run statuses that indicate an actively managed run that should not be
  * preempted by the scheduler.
- *
- * NOTE: This uses the current 11-value SymphonyRunStatus enum. Phase 4.6 will
- * collapse it to 7 values; at that point ACTIVE_STATUSES should be updated.
  */
 const ACTIVE_STATUSES: ReadonlySet<SymphonyRunStatus> = new Set<SymphonyRunStatus>([
-  "running",
-  "retry-queued",
-  "review-ready",
+  "planning",
+  "implementing",
+  "in-review",
 ]);
 
 /**

@@ -1,16 +1,12 @@
-import type { SymphonyLifecyclePhase, SymphonyRun, SymphonyRunStatus } from "@t3tools/contracts";
+import type { SymphonyRun, SymphonyRunStatus } from "@t3tools/contracts";
 
 export const SYMPHONY_ACTIVE_ARCHIVE_ERROR_MESSAGE =
   "Cannot archive a run while Symphony is actively working on it. Stop it first.";
 
-const ARCHIVE_BLOCKED_STATUSES = new Set<SymphonyRunStatus>(["running", "retry-queued"]);
-
-const ARCHIVE_BLOCKED_PHASES = new Set<SymphonyLifecyclePhase>([
+const ARCHIVE_BLOCKED_STATUSES = new Set<SymphonyRunStatus>([
   "planning",
   "implementing",
-  "simplifying",
-  "reviewing",
-  "fixing",
+  "in-review",
 ]);
 
 export interface SymphonyArchiveEligibility {
@@ -19,12 +15,12 @@ export interface SymphonyArchiveEligibility {
 }
 
 export function getSymphonyArchiveEligibility(
-  run: Pick<SymphonyRun, "archivedAt" | "lifecyclePhase" | "status">,
+  run: Pick<SymphonyRun, "archivedAt" | "status">,
 ): SymphonyArchiveEligibility {
   if (run.archivedAt !== null) {
     return { canArchive: true, reason: null };
   }
-  if (ARCHIVE_BLOCKED_STATUSES.has(run.status) || ARCHIVE_BLOCKED_PHASES.has(run.lifecyclePhase)) {
+  if (ARCHIVE_BLOCKED_STATUSES.has(run.status)) {
     return {
       canArchive: false,
       reason: SYMPHONY_ACTIVE_ARCHIVE_ERROR_MESSAGE,
@@ -33,8 +29,6 @@ export function getSymphonyArchiveEligibility(
   return { canArchive: true, reason: null };
 }
 
-export function canArchiveSymphonyRun(
-  run: Pick<SymphonyRun, "archivedAt" | "lifecyclePhase" | "status">,
-): boolean {
+export function canArchiveSymphonyRun(run: Pick<SymphonyRun, "archivedAt" | "status">): boolean {
   return getSymphonyArchiveEligibility(run).canArchive;
 }

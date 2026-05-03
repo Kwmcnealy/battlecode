@@ -35,8 +35,7 @@ function makeRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
     },
-    status: "target-pending",
-    lifecyclePhase: "intake",
+    status: "intake",
     workspacePath: null,
     branchName: null,
     threadId: null,
@@ -101,7 +100,6 @@ describe("IssueQueueTable", () => {
 
     try {
       await expect.element(page.getByText("Intake")).toBeInTheDocument();
-      await expect.element(page.getByText("Target Pending")).toBeInTheDocument();
       await userEvent.click(page.getByRole("button", { name: "Run", exact: true }));
 
       expect(onIssueAction.mock.calls.map((call) => call[0])).toEqual(["launch"]);
@@ -138,7 +136,7 @@ describe("IssueQueueTable", () => {
     const onIssueAction = vi.fn();
     const screen = await render(
       <IssueQueueTable
-        runs={[makeRun({ status: "failed", lifecyclePhase: "failed" })]}
+        runs={[makeRun({ status: "failed" })]}
         busyAction={null}
         selectedRunId={null}
         onSelectRun={vi.fn()}
@@ -159,7 +157,7 @@ describe("IssueQueueTable", () => {
   it("hides archive for active execution rows", async () => {
     const screen = await render(
       <IssueQueueTable
-        runs={[makeRun({ status: "running", lifecyclePhase: "implementing" })]}
+        runs={[makeRun({ status: "implementing" })]}
         busyAction={null}
         selectedRunId={null}
         onSelectRun={vi.fn()}
@@ -183,8 +181,7 @@ describe("IssueQueueTable", () => {
       <IssueQueueTable
         runs={[
           makeRun({
-            status: "running",
-            lifecyclePhase: "implementing",
+            status: "implementing",
             threadId: ThreadId.make("thread-1"),
           }),
         ]}

@@ -66,7 +66,7 @@ function makeIssue(overrides: Partial<SymphonyIssue> = {}): SymphonyIssue {
 function makeLifecycleRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
   return {
     ...makeRun(PROJECT_ID, makeIssue(), CREATED_AT),
-    status: "running",
+    status: "implementing",
     ...overrides,
   };
 }
@@ -112,7 +112,7 @@ describe("Symphony run lifecycle", () => {
       thread: makeCompletedThread(),
     });
 
-    expect(result.status).toBe("running");
+    expect(result.status).toBe("implementing");
     expect(result.currentStep.label).toBe("Turn completed; waiting for PR or Linear review");
   });
 
@@ -124,7 +124,7 @@ describe("Symphony run lifecycle", () => {
       pullRequest: makePullRequest("open"),
     });
 
-    expect(result.status).toBe("review-ready");
+    expect(result.status).toBe("in-review");
     expect(result.currentStep.source).toBe("github");
   });
 
@@ -194,7 +194,7 @@ describe("Symphony run lifecycle", () => {
       linear: { stateName: "Human Review", updatedAt: CREATED_AT },
     });
 
-    expect(result.status).toBe("review-ready");
+    expect(result.status).toBe("in-review");
     expect(result.currentStep.label).toBe("Linear review state");
   });
 

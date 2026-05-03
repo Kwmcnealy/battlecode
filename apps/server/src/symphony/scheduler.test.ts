@@ -91,7 +91,7 @@ describe("scheduler.decideSchedulerActions", () => {
   it("is no-op when there is already an active run for the issue", () => {
     const result = decideSchedulerActions({
       candidates: [makeIssue("1", "In Progress")],
-      existingRuns: [makeRun("1", "running", null, "Todo")],
+      existingRuns: [makeRun("1", "implementing", null, "Todo")],
       intakeStates: ["Todo"],
       capacity: 3,
       runningCount: 1,
@@ -127,10 +127,10 @@ describe("scheduler.decideSchedulerActions", () => {
     expect(result.create[0]?.issueId).toBe("1");
   });
 
-  it("review-ready runs are treated as active (no re-create)", () => {
+  it("in-review runs are treated as active (no re-create)", () => {
     const result = decideSchedulerActions({
       candidates: [makeIssue("1", "Todo")],
-      existingRuns: [makeRun("1", "review-ready", null, null)],
+      existingRuns: [makeRun("1", "in-review", null, null)],
       intakeStates: ["Todo"],
       capacity: 3,
       runningCount: 1,

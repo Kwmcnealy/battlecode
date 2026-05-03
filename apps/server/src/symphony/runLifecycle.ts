@@ -203,7 +203,7 @@ export function deriveRunProgress(
   }
   return progress({
     source: "symphony",
-    label: input.status === "target-pending" ? "Waiting for target selection" : "Queued",
+    label: input.status === "intake" ? "In intake queue" : "Queued",
     detail: null,
     updatedAt: now,
   });
@@ -224,7 +224,7 @@ export function resolveRunLifecycle(input: RunLifecycleInput): RunLifecycleResul
       : prClassification === "closed" || linearClassification === "canceled"
         ? "canceled"
         : prClassification === "review" || linearClassification === "review"
-          ? "review-ready"
+          ? "in-review"
           : threadClassification === "failed"
             ? "failed"
             : input.run.status;

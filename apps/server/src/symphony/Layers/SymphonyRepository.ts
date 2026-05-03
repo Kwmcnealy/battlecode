@@ -4,7 +4,6 @@ import {
   SymphonyEvent,
   SymphonyIssue,
   SymphonyIssueId,
-  SymphonyLifecyclePhase,
   SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
   SymphonyQualityGateState,
@@ -44,7 +43,6 @@ interface RunRow {
   readonly projectId: string;
   readonly issue: string;
   readonly status: string;
-  readonly lifecyclePhase: string | null;
   readonly workspacePath: string | null;
   readonly branchName: string | null;
   readonly threadId: string | null;
@@ -90,7 +88,6 @@ interface ProjectIdRow {
 
 const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValidation);
 const decodeSecretStatus = Schema.decodeUnknownSync(SymphonySecretStatus);
-const decodeLifecyclePhase = Schema.decodeUnknownSync(SymphonyLifecyclePhase);
 const decodeLinearProgress = Schema.decodeUnknownSync(SymphonyLinearProgressComment);
 const decodePullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary);
 const decodeQualityGate = Schema.decodeUnknownSync(SymphonyQualityGateState);
@@ -200,11 +197,6 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       decodeRunAttemptArray,
       attemptsJson,
     );
-    const lifecyclePhase = yield* decodeWith(
-      "SymphonyRepository.run.lifecyclePhase.decode",
-      decodeLifecyclePhase,
-      row.lifecyclePhase ?? "intake",
-    );
     const pullRequest =
       pullRequestJson === null
         ? null
@@ -236,7 +228,6 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       projectId: yield* decodeProjectId(row.projectId),
       issue,
       status: row.status,
-      lifecyclePhase,
       workspacePath: row.workspacePath,
       branchName: row.branchName,
       threadId: row.threadId,
@@ -368,7 +359,6 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
-        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -428,7 +418,6 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
-        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -463,7 +452,6 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
-        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -496,7 +484,6 @@ const makeRepository = Effect.gen(function* () {
         project_id AS "projectId",
         issue_json AS "issue",
         status,
-        lifecycle_phase AS "lifecyclePhase",
         workspace_path AS "workspacePath",
         branch_name AS "branchName",
         thread_id AS "threadId",
@@ -531,7 +518,6 @@ const makeRepository = Effect.gen(function* () {
         issue_identifier,
         issue_json,
         status,
-        lifecycle_phase,
         workspace_path,
         branch_name,
         thread_id,
@@ -554,7 +540,6 @@ const makeRepository = Effect.gen(function* () {
         ${run.issue.identifier},
         ${JSON.stringify(run.issue)},
         ${run.status},
-        ${run.lifecyclePhase ?? "intake"},
         ${run.workspacePath},
         ${run.branchName},
         ${run.threadId},
@@ -574,7 +559,6 @@ const makeRepository = Effect.gen(function* () {
         issue_identifier = excluded.issue_identifier,
         issue_json = excluded.issue_json,
         status = excluded.status,
-        lifecycle_phase = excluded.lifecycle_phase,
         workspace_path = excluded.workspace_path,
         branch_name = excluded.branch_name,
         thread_id = excluded.thread_id,

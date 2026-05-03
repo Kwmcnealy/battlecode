@@ -73,10 +73,10 @@ export function SymphonyToolbar({
           Refresh Issues
         </Button>
         <div className="ms-auto flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
-          <span>{snapshot.totals.pendingTarget} pending target</span>
-          <span>{snapshot.totals.running} running</span>
-          <span>{snapshot.totals.eligible} eligible</span>
-          <span>{snapshot.totals.retrying} retrying</span>
+          <span>{snapshot.totals.intake} intake</span>
+          <span>{snapshot.totals.planning} planning</span>
+          <span>{snapshot.totals.implementing} implementing</span>
+          <span>{snapshot.totals["in-review"]} in-review</span>
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/60 px-4 py-2 text-[11px] text-muted-foreground">

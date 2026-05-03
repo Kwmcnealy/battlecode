@@ -138,14 +138,11 @@ export function blockerIsTerminal(
 export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queues"] {
   const activeRuns = runs.filter((run) => run.archivedAt === null);
   return {
-    pendingTarget: activeRuns.filter((run) => run.status === "target-pending"),
-    eligible: activeRuns.filter((run) => run.status === "eligible"),
-    running: activeRuns.filter((run) => run.status === "running"),
-    retrying: activeRuns.filter((run) => run.status === "retry-queued"),
-    completed: activeRuns.filter(
-      (run) =>
-        run.status === "review-ready" || run.status === "completed" || run.status === "released",
-    ),
+    intake: activeRuns.filter((run) => run.status === "intake"),
+    planning: activeRuns.filter((run) => run.status === "planning"),
+    implementing: activeRuns.filter((run) => run.status === "implementing"),
+    "in-review": activeRuns.filter((run) => run.status === "in-review"),
+    completed: activeRuns.filter((run) => run.status === "completed"),
     failed: activeRuns.filter((run) => run.status === "failed"),
     canceled: activeRuns.filter((run) => run.status === "canceled"),
     archived: runs.filter((run) => run.archivedAt !== null),
@@ -154,10 +151,10 @@ export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queue
 
 export function buildTotals(queues: SymphonySnapshot["queues"]): SymphonySnapshot["totals"] {
   return {
-    pendingTarget: queues.pendingTarget.length,
-    eligible: queues.eligible.length,
-    running: queues.running.length,
-    retrying: queues.retrying.length,
+    intake: queues.intake.length,
+    planning: queues.planning.length,
+    implementing: queues.implementing.length,
+    "in-review": queues["in-review"].length,
     completed: queues.completed.length,
     failed: queues.failed.length,
     canceled: queues.canceled.length,
@@ -187,8 +184,7 @@ export function makeRun(
     runId: runId(projectId, issue.id),
     projectId,
     issue,
-    status: "target-pending",
-    lifecyclePhase: "intake",
+    status: "intake",
     workspacePath: null,
     branchName: branchNameForIssue(issue.identifier),
     threadId: null,

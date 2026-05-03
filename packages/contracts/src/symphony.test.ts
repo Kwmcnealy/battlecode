@@ -4,7 +4,6 @@ import { Schema } from "effect";
 import {
   DEFAULT_SYMPHONY_REVIEW_PROMPT,
   DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
-  SymphonyLifecyclePhase,
   SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
   SymphonyQualityGateState,
@@ -114,9 +113,6 @@ describe("Symphony contracts", () => {
   });
 
   it("decodes lifecycle metadata with empty-object defaults", () => {
-    expect(Schema.is(SymphonyLifecyclePhase)("waiting-cloud")).toBe(false);
-    expect(Schema.is(SymphonyLifecyclePhase)("implementing")).toBe(true);
-    expect(Schema.is(SymphonyLifecyclePhase)("unknown")).toBe(false);
     expect(Schema.decodeUnknownSync(SymphonyLinearProgressComment)({})).toEqual({
       commentId: null,
       commentUrl: null,
@@ -186,20 +182,20 @@ describe("Symphony contracts", () => {
         updatedAt: "2026-04-30T12:00:00.000Z",
       },
       queues: {
-        pendingTarget: [],
-        eligible: [],
-        running: [],
-        retrying: [],
+        intake: [],
+        planning: [],
+        implementing: [],
+        "in-review": [],
         completed: [],
         failed: [],
         canceled: [],
         archived: [],
       },
       totals: {
-        pendingTarget: 0,
-        eligible: 0,
-        running: 0,
-        retrying: 0,
+        intake: 0,
+        planning: 0,
+        implementing: 0,
+        "in-review": 0,
         completed: 0,
         failed: 0,
         canceled: 0,
@@ -279,7 +275,7 @@ describe("Symphony contracts", () => {
         createdAt: null,
         updatedAt: null,
       },
-      status: "eligible",
+      status: "intake",
       workspacePath: null,
       branchName: null,
       threadId: null,
@@ -291,8 +287,7 @@ describe("Symphony contracts", () => {
       updatedAt: "2026-04-30T12:00:00.000Z",
     });
 
-    expect(run.status).toBe("eligible");
-    expect(run.lifecyclePhase).toBe("intake");
+    expect(run.status).toBe("intake");
     expect(run.linearProgress).toEqual({
       commentId: null,
       commentUrl: null,
@@ -351,7 +346,7 @@ describe("Symphony contracts", () => {
         createdAt: null,
         updatedAt: null,
       },
-      status: "review-ready",
+      status: "in-review",
       workspacePath: "/repo/.worktrees/symphony/app-456",
       branchName: "symphony/app-456",
       threadId: null,
@@ -365,7 +360,7 @@ describe("Symphony contracts", () => {
       updatedAt: "2026-05-02T12:00:00.000Z",
     });
 
-    expect(run.status).toBe("review-ready");
+    expect(run.status).toBe("in-review");
     expect(run.pullRequest?.state).toBe("open");
     expect(run.currentStep?.source).toBe("github");
   });
@@ -392,10 +387,10 @@ describe("Symphony contracts", () => {
         updatedAt: "2026-05-02T12:00:00.000Z",
       },
       queues: {
-        pendingTarget: [],
-        eligible: [],
-        running: [],
-        retrying: [],
+        intake: [],
+        planning: [],
+        implementing: [],
+        "in-review": [],
         completed: [],
         failed: [],
         canceled: [],
@@ -447,10 +442,10 @@ describe("Symphony contracts", () => {
         ],
       },
       totals: {
-        pendingTarget: 0,
-        eligible: 0,
-        running: 0,
-        retrying: 0,
+        intake: 0,
+        planning: 0,
+        implementing: 0,
+        "in-review": 0,
         completed: 0,
         failed: 0,
         canceled: 0,

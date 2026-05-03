@@ -22,15 +22,14 @@ import {
 } from "./symphonyDisplay";
 import { SymphonyEmptyState } from "./SymphonyEmptyState";
 
-const RETRYABLE_STATUSES = new Set<SymphonyRun["status"]>(["failed", "canceled", "released"]);
-const STOPPABLE_STATUSES = new Set<SymphonyRun["status"]>(["eligible", "running", "retry-queued"]);
-const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>([
-  "target-pending",
-  "eligible",
-  "failed",
-  "canceled",
-  "released",
+const RETRYABLE_STATUSES = new Set<SymphonyRun["status"]>(["failed", "canceled"]);
+const STOPPABLE_STATUSES = new Set<SymphonyRun["status"]>([
+  "intake",
+  "planning",
+  "implementing",
+  "in-review",
 ]);
+const LAUNCHABLE_STATUSES = new Set<SymphonyRun["status"]>(["intake", "failed", "canceled"]);
 
 function getIssueQueueRowState(run: SymphonyRun) {
   return {
@@ -52,7 +51,6 @@ function buildIssueQueueRowDigest(run: SymphonyRun): string {
     issueTitle: run.issue.title,
     issueUrl: run.issue.url,
     lastError: run.lastError,
-    lifecyclePhase: run.lifecyclePhase,
     prUrl: run.pullRequest?.url ?? run.prUrl,
     runId: run.runId,
     status: run.status,
@@ -110,13 +108,10 @@ const IssueQueueRow = memo(
         <td className="px-3 py-3">
           <Badge
             variant="outline"
-            className={cn("whitespace-nowrap", PHASE_BADGE_CLASSNAME[run.lifecyclePhase])}
+            className={cn("whitespace-nowrap", PHASE_BADGE_CLASSNAME[run.status])}
           >
-            {formatLifecyclePhase(run.lifecyclePhase)}
+            {formatLifecyclePhase(run.status)}
           </Badge>
-          <div className="mt-1 font-mono text-[10px] uppercase text-muted-foreground/70">
-            {formatStatus(run.status)}
-          </div>
         </td>
         <td className="max-w-[15rem] px-3 py-3 text-xs text-muted-foreground">
           <div className="line-clamp-2" title={run.currentStep?.detail ?? undefined}>

@@ -130,7 +130,7 @@ export function upsertManagedComment(
 
     const updatedAt = nowIso();
     const body = renderManagedProgressComment({
-      phase: input.run.lifecyclePhase,
+      phase: input.run.status,
       lastUpdate: updatedAt,
       currentStep: input.run.currentStep?.label ?? input.statusLine,
       pullRequestUrl: input.run.prUrl ?? input.run.pullRequest?.url ?? null,

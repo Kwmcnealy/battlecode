@@ -279,10 +279,10 @@ function isSymphonyThread(thread: Pick<SidebarThreadSummary, "id">): boolean {
 
 function flattenSymphonyRuns(snapshot: SymphonySnapshot): SymphonyRun[] {
   const runs = [
-    ...snapshot.queues.pendingTarget,
-    ...snapshot.queues.running,
-    ...snapshot.queues.retrying,
-    ...snapshot.queues.eligible,
+    ...snapshot.queues.intake,
+    ...snapshot.queues.planning,
+    ...snapshot.queues.implementing,
+    ...snapshot.queues["in-review"],
     ...snapshot.queues.failed,
     ...snapshot.queues.canceled,
     ...snapshot.queues.completed,
@@ -512,10 +512,10 @@ function SidebarSymphonySection({
                   </span>
                   <span
                     className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9px] uppercase ${
-                      PHASE_BADGE_CLASSNAME[run.lifecyclePhase]
+                      PHASE_BADGE_CLASSNAME[run.status]
                     }`}
                   >
-                    {formatLifecyclePhase(run.lifecyclePhase)}
+                    {formatLifecyclePhase(run.status)}
                   </span>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>

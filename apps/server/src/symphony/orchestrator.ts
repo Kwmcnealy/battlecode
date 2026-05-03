@@ -1,15 +1,11 @@
 /**
  * Pure orchestrator logic for Symphony runs.
  *
- * Given a run's lifecycle phase and thread output, decides the next action.
+ * Given a run's status and thread output, decides the next action.
  * Side-effect free. The Effect Layer that wraps this calls into:
  *  - parsePlanFromOutput / parsePRUrlFromOutput from threadOutputParser.ts
  *  - linearWriter for any Linear-side write
  *  - codexAppServerManager to drive the next turn
- *
- * NOTE: The plan's spec uses `status: "planning" | "implementing"`, but the
- * actual contracts use `SymphonyLifecyclePhase` for phase-level state. This
- * module uses `lifecyclePhase` accordingly.
  *
  * NOTE(phase-4): The marker-based plan/PR-URL protocol (SYMPHONY_PLAN_BEGIN,
  * SYMPHONY_PR_URL) is the target format for Phase 4's prompt redesign.
@@ -19,7 +15,7 @@
  * once the prompts emit these markers consistently.
  */
 
-import type { SymphonyLifecyclePhase, SymphonyRunStatus } from "@t3tools/contracts";
+import type { SymphonyRunStatus } from "@t3tools/contracts";
 
 import { parsePlanFromOutput, parsePRUrlFromOutput } from "./threadOutputParser.ts";
 
@@ -28,15 +24,10 @@ export interface OrchestratorInput {
     readonly runId: string;
     readonly issueId: string;
     /**
-     * The high-level run status (e.g. "running", "review-ready").
-     * Use `lifecyclePhase` for fine-grained phase-level decisions.
+     * The run status drives the orchestrator's phase-transition logic.
+     * "planning" → expect a plan marker; "implementing" → expect a PR URL marker.
      */
     readonly status: SymphonyRunStatus;
-    /**
-     * The phase-level state (e.g. "planning", "implementing", "reviewing").
-     * This is what drives the orchestrator's phase-transition logic.
-     */
-    readonly lifecyclePhase: SymphonyLifecyclePhase;
     readonly archivedAt: string | null;
     readonly lastSeenLinearState: string | null;
   };
@@ -65,7 +56,7 @@ export function decideNextAction(input: OrchestratorInput): OrchestratorAction {
     return { action: "wait", reason: "turn_streaming" };
   }
 
-  if (input.run.lifecyclePhase === "planning") {
+  if (input.run.status === "planning") {
     const plan = parsePlanFromOutput(input.threadOutput);
     if (plan === null) {
       return { action: "fail", reason: "no_parseable_plan" };
@@ -73,7 +64,7 @@ export function decideNextAction(input: OrchestratorInput): OrchestratorAction {
     return { action: "advance-to-implementing", plan };
   }
 
-  if (input.run.lifecyclePhase === "implementing") {
+  if (input.run.status === "implementing") {
     const prUrl = parsePRUrlFromOutput(input.threadOutput);
     if (prUrl === null) {
       return { action: "fail", reason: "no_pr_url" };

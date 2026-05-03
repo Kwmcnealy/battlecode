@@ -409,50 +409,37 @@ describe("Symphony sidebar routing", () => {
   it("treats only live execution states as active", () => {
     expect(
       symphonyRunIsSidebarActive({
-        status: "review-ready",
-        lifecyclePhase: "in-review",
+        status: "in-review",
         archivedAt: null,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       symphonyRunIsSidebarActive({
-        status: "running",
-        lifecyclePhase: "simplifying",
+        status: "implementing",
         archivedAt: null,
       }),
     ).toBe(true);
     expect(
       symphonyRunIsSidebarActive({
         status: "failed",
-        lifecyclePhase: "failed",
         archivedAt: null,
       }),
     ).toBe(false);
     expect(
       symphonyRunIsSidebarActive({
-        status: "target-pending",
-        lifecyclePhase: "planning",
+        status: "planning",
         archivedAt: null,
       }),
     ).toBe(true);
     expect(
       symphonyRunIsSidebarActive({
-        status: "retry-queued",
-        lifecyclePhase: "fixing",
-        archivedAt: null,
-      }),
-    ).toBe(true);
-    expect(
-      symphonyRunIsSidebarActive({
-        status: "target-pending",
-        lifecyclePhase: "intake",
+        status: "intake",
         archivedAt: null,
       }),
     ).toBe(false);
     expect(
       symphonyRunIsSidebarActive({
-        status: "running",
-        lifecyclePhase: "simplifying",
+        status: "implementing",
         archivedAt: "2026-05-02T12:00:00.000Z",
       }),
     ).toBe(false);
@@ -491,9 +478,8 @@ describe("Symphony sidebar update digest", () => {
       identifier: "BC-1",
       title: "Stabilize Symphony updates",
     },
-    lifecyclePhase: "implementing",
     runId: SymphonyRunId.make("run-bc-1"),
-    status: "running",
+    status: "implementing" as const,
     threadId: ThreadId.make("thread-bc-1"),
   } as const;
 
@@ -514,7 +500,7 @@ describe("Symphony sidebar update digest", () => {
   });
 
   it("changes when visible sidebar status changes", () => {
-    expect(buildSymphonySidebarRunsDigest([{ ...baseRun, lifecyclePhase: "reviewing" }])).not.toBe(
+    expect(buildSymphonySidebarRunsDigest([{ ...baseRun, status: "planning" as const }])).not.toBe(
       buildSymphonySidebarRunsDigest([baseRun]),
     );
   });

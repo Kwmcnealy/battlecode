@@ -518,7 +518,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* runMigrations();
       yield* insertProjectionProject(projectRoot);
       yield* configureWorkflowSettings;
-      yield* repository.upsertRun(makeServiceRun({ status: "target-pending" }));
+      yield* repository.upsertRun(makeServiceRun({ status: "intake" }));
 
       yield* service.launchIssue({
         projectId: PROJECT_ID,
@@ -529,7 +529,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "running");
+      assert.strictEqual(run?.status, "implementing");
     }),
   );
 
@@ -546,7 +546,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "failed",
-          lifecyclePhase: "failed",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           currentStep: {
@@ -578,7 +577,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         issueId: ISSUE_ID,
       });
       assert.strictEqual(run?.status, "failed");
-      assert.strictEqual(run?.lifecyclePhase, "failed");
       assert.strictEqual(run?.currentStep?.label, "Codex turn failed");
       assert.strictEqual(run?.attempts.length, 1);
       assert.strictEqual(run?.lastError, "lint failed");
@@ -601,8 +599,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
-          lifecyclePhase: "implementing",
+          status: "implementing",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
         }),
@@ -642,7 +639,6 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* repository.upsertRun(
         makeServiceRun({
           status: "failed",
-          lifecyclePhase: "failed",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           archivedAt,
@@ -686,8 +682,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "released",
-          lifecyclePhase: "intake",
+          status: "canceled",
           pullRequest: {
             number: 7,
             title: "Old PR",
@@ -710,12 +705,11 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         issueId: ISSUE_ID,
       });
       assert.strictEqual(run?.archivedAt, null);
-      assert.strictEqual(run?.status, "target-pending");
-      assert.strictEqual(run?.lifecyclePhase, "intake");
+      assert.strictEqual(run?.status, "intake");
       assert.strictEqual(run?.pullRequest, null);
       assert.strictEqual(run?.prUrl, null);
       assert.strictEqual(run?.lastError, null);
-      assert.strictEqual(snapshot.queues.pendingTarget.length, 1);
+      assert.strictEqual(snapshot.queues.intake.length, 1);
       assert.strictEqual(snapshot.totals.archived, 0);
       assert.ok(snapshot.events.some((event) => event.type === "run.reactivated"));
     }),
@@ -738,7 +732,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "target-pending",
+          status: "intake",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -800,7 +794,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "target-pending",
+          status: "intake",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -851,7 +845,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
+          status: "implementing",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -882,7 +876,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "running");
+      assert.strictEqual(run?.status, "implementing");
       assert.strictEqual(run?.attempts.length, 2);
       assert.strictEqual(run?.lastError, null);
     }),
@@ -915,7 +909,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "eligible");
+      assert.strictEqual(run?.status, "intake");
       assert.strictEqual(run?.lastError, null);
     }),
   );
@@ -938,7 +932,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
+          status: "implementing",
           branchName: "symphony/bc-1",
           threadId: thread.id,
           workspacePath: projectRoot,
@@ -951,7 +945,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "running");
+      assert.strictEqual(run?.status, "implementing");
       assert.strictEqual(run?.archivedAt, null);
     }),
   );
@@ -993,8 +987,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: intakeIssueId,
       });
-      assert.strictEqual(run?.status, "running");
-      assert.strictEqual(run?.lifecyclePhase, "planning");
+      assert.strictEqual(run?.status, "planning");
     }),
   );
 
@@ -1037,8 +1030,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
-          lifecyclePhase: "planning",
+          status: "planning",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1077,8 +1069,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "running");
-      assert.strictEqual(run?.lifecyclePhase, "implementing");
+      assert.strictEqual(run?.status, "implementing");
       assert.strictEqual(run?.linearProgress.commentId, "comment-1");
     }),
   );
@@ -1122,8 +1113,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
-          lifecyclePhase: "reviewing",
+          status: "implementing",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1161,8 +1151,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "review-ready");
-      assert.strictEqual(run?.lifecyclePhase, "in-review");
+      assert.strictEqual(run?.status, "in-review");
       assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
       assert.strictEqual(run?.pullRequest?.baseBranch, "development");
       assert.strictEqual(run?.qualityGate.lastReviewSummary, "tests cover the workflow");
@@ -1208,8 +1197,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
-          lifecyclePhase: "reviewing",
+          status: "implementing",
           workspacePath: projectRoot,
           branchName: "symphony/bc-1",
           threadId: thread.id,
@@ -1254,8 +1242,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "review-ready");
-      assert.strictEqual(run?.lifecyclePhase, "in-review");
+      assert.strictEqual(run?.status, "in-review");
       assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
     }),
   );
@@ -1289,8 +1276,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       const baseRun = makeServiceRun();
       yield* repository.upsertRun({
         ...baseRun,
-        status: "running",
-        lifecyclePhase: "fixing",
+        status: "implementing",
         workspacePath: projectRoot,
         branchName: "symphony/bc-1",
         threadId: thread.id,
@@ -1367,8 +1353,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       const baseRun = makeServiceRun();
       yield* repository.upsertRun({
         ...baseRun,
-        status: "running",
-        lifecyclePhase: "reviewing",
+        status: "implementing",
         workspacePath: projectRoot,
         branchName: "symphony/bc-1",
         threadId: thread.id,
@@ -1412,7 +1397,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "review-ready",
+          status: "in-review",
           branchName: "symphony/bc-1",
         }),
       );
@@ -1424,11 +1409,11 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "review-ready");
+      assert.strictEqual(run?.status, "in-review");
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "review-ready",
+          status: "in-review",
           branchName: "symphony/bc-1",
         }),
       );
@@ -1445,7 +1430,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "review-ready",
+          status: "in-review",
           branchName: "symphony/bc-1",
           archivedAt: null,
         }),
@@ -1478,7 +1463,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* configureWorkflowSettings;
       yield* repository.upsertRun(
         makeServiceRun({
-          status: "running",
+          status: "implementing",
           branchName: "symphony/bc-1",
         }),
       );

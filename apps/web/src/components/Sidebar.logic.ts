@@ -225,19 +225,10 @@ export function resolveSidebarNewThreadSeedContext(input: {
 }
 
 export function symphonyRunIsSidebarActive(
-  run: Pick<SymphonyRun, "status" | "lifecyclePhase" | "archivedAt">,
+  run: Pick<SymphonyRun, "status" | "archivedAt">,
 ): boolean {
   if (run.archivedAt !== null) return false;
-  return (
-    run.lifecyclePhase === "planning" ||
-    run.lifecyclePhase === "implementing" ||
-    run.lifecyclePhase === "simplifying" ||
-    run.lifecyclePhase === "reviewing" ||
-    run.lifecyclePhase === "fixing" ||
-    run.lifecyclePhase === "pr-ready" ||
-    run.status === "running" ||
-    run.status === "retry-queued"
-  );
+  return run.status === "planning" || run.status === "implementing" || run.status === "in-review";
 }
 
 export function resolveSymphonySidebarRunClickTarget(
@@ -257,7 +248,7 @@ export function resolveSymphonySidebarRunClickTarget(
 
 export type SymphonySidebarRunDigestInput = Pick<
   SymphonyRun,
-  "archivedAt" | "lifecyclePhase" | "runId" | "status" | "threadId"
+  "archivedAt" | "runId" | "status" | "threadId"
 > & {
   issue: Pick<SymphonyRun["issue"], "id" | "identifier" | "title">;
 };
@@ -271,7 +262,6 @@ export function buildSymphonySidebarRunsDigest(
       issueId: run.issue.id,
       issueIdentifier: run.issue.identifier,
       issueTitle: run.issue.title,
-      lifecyclePhase: run.lifecyclePhase,
       runId: run.runId,
       status: run.status,
       threadId: run.threadId,

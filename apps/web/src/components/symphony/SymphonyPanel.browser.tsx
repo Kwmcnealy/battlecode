@@ -49,8 +49,7 @@ function makeRun(id: string, title: string, overrides: Partial<SymphonyRun> = {}
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
     },
-    status: "review-ready",
-    lifecyclePhase: "in-review",
+    status: "in-review",
     workspacePath: null,
     branchName: `symphony/bc-${id}`,
     threadId: null,
@@ -139,20 +138,20 @@ function makeSnapshot(input: {
     status: "idle",
     settings: makeSettings(),
     queues: {
-      pendingTarget: [],
-      eligible: [],
-      running: activeRuns,
-      retrying: [],
+      intake: [],
+      planning: [],
+      implementing: activeRuns,
+      "in-review": [],
       completed: [],
       failed: [],
       canceled: [],
       archived: archivedRuns,
     },
     totals: {
-      pendingTarget: 0,
-      eligible: 0,
-      running: activeRuns.length,
-      retrying: 0,
+      intake: 0,
+      planning: 0,
+      implementing: activeRuns.length,
+      "in-review": 0,
       completed: 0,
       failed: 0,
       canceled: 0,
@@ -212,7 +211,6 @@ describe("SymphonyPanel", () => {
     const activeRun = makeRun("1", "Active run");
     const archivedRun = makeRun("2", "Archived run", {
       status: "completed",
-      lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 2,
@@ -269,7 +267,6 @@ describe("SymphonyPanel", () => {
     const activeRun = makeRun("3", "Selected run");
     const archivedRun = makeRun("3", "Selected run", {
       status: "completed",
-      lifecyclePhase: "done",
       archivedAt: ARCHIVED_AT,
       pullRequest: {
         number: 3,
@@ -332,7 +329,6 @@ describe("SymphonyPanel", () => {
   it("archives an inactive run from the active view", async () => {
     const activeRun = makeRun("4", "Failed run to archive", {
       status: "failed",
-      lifecyclePhase: "failed",
       pullRequest: null,
       prUrl: null,
     });

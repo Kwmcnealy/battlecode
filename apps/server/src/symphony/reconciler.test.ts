@@ -6,7 +6,7 @@ function makeRun(overrides: Partial<ReconcilerInput["run"]>): ReconcilerInput["r
   return {
     runId: "run_1",
     issueId: "iss_1",
-    status: "review-ready",
+    status: "in-review",
     archivedAt: null,
     lastSeenLinearState: "In Review",
     ...overrides,
@@ -54,7 +54,7 @@ describe("reconciler.decideArchive", () => {
 
   it("returns no-op when Linear state is not terminal", () => {
     const result = decideArchive({
-      run: makeRun({ status: "review-ready" }),
+      run: makeRun({ status: "in-review" }),
       linearState: "In Review",
       doneStates: ["Done"],
       canceledStates: ["Canceled"],

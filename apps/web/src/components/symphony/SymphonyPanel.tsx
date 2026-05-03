@@ -181,10 +181,10 @@ export function SymphonyPanel({
       };
     }
     const nextActiveRuns = [
-      ...snapshot.queues.pendingTarget,
-      ...snapshot.queues.running,
-      ...snapshot.queues.retrying,
-      ...snapshot.queues.eligible,
+      ...snapshot.queues.intake,
+      ...snapshot.queues.planning,
+      ...snapshot.queues.implementing,
+      ...snapshot.queues["in-review"],
       ...snapshot.queues.failed,
       ...snapshot.queues.canceled,
       ...snapshot.queues.completed,

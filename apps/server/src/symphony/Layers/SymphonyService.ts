@@ -7,7 +7,6 @@ import {
   SymphonyIssueId,
   SymphonyRun,
   ThreadId,
-  type SymphonyLifecyclePhase,
   type SymphonyPullRequestSummary,
   type SymphonyRunProgress,
   type SymphonyRunStatus,
@@ -51,7 +50,6 @@ import {
   RECOVERABLE_MONITORED_RUN_STATUSES,
   isRecoverableLegacyCanceledRun,
 } from "../lifecyclePolicy.ts";
-import { lifecyclePhaseIsActive, nextPhaseAfterReview } from "../lifecyclePhase.ts";
 import {
   buildFixPrompt,
   buildImplementationPrompt,
@@ -65,10 +63,6 @@ import {
   extractReviewOutcome,
 } from "../threadOutputParser.ts";
 import { transitionLinearState, upsertManagedComment } from "../linearWriter.ts";
-// TODO(phase-4): Wire decideNextAction into reconcileRunWithThread once the
-// phase prompts emit SYMPHONY_PLAN_BEGIN / SYMPHONY_PR_URL markers. Currently
-// the inline planning/implementing dispatch uses extractLatestPlanMarkdown
-// from threadOutputParser.ts, which reads proposedPlans and checklist messages.
 import { decideNextAction } from "../orchestrator.ts";
 import { decideArchive } from "../reconciler.ts";
 import { decideSchedulerActions } from "../scheduler.ts";
@@ -242,8 +236,7 @@ function queueExistingIntakeRun(input: {
   return {
     ...input.run,
     issue: input.issue,
-    status: "target-pending",
-    lifecyclePhase: "intake",
+    status: "intake",
     pullRequest: null,
     prUrl: null,
     currentStep: null,
@@ -254,12 +247,12 @@ function queueExistingIntakeRun(input: {
   };
 }
 
-function phaseFromPullRequestState(
+function statusFromPullRequestState(
   pullRequest: SymphonyPullRequestSummary | null,
-  fallback: SymphonyLifecyclePhase,
-): SymphonyLifecyclePhase {
+  fallback: SymphonyRunStatus,
+): SymphonyRunStatus {
   if (pullRequest?.state === "open") return "in-review";
-  if (pullRequest?.state === "merged") return "done";
+  if (pullRequest?.state === "merged") return "completed";
   if (pullRequest?.state === "closed") return "canceled";
   return fallback;
 }
@@ -397,7 +390,7 @@ function pendingUserInputResponses(
 }
 
 function recoveredLegacyBaselineStatus(run: SymphonyRun): SymphonyRunStatus {
-  return run.threadId ? "running" : "eligible";
+  return run.threadId ? "implementing" : "intake";
 }
 
 function issueChanged(left: SymphonyRun["issue"], right: SymphonyRun["issue"]): boolean {
@@ -1264,13 +1257,20 @@ const makeSymphonyService = Effect.gen(function* () {
         thread: input.thread ?? null,
         now: reconciledAt,
       });
-      const preserveActiveLocalPhase =
-        runWithBranch.status === "running" &&
-        lifecyclePhaseIsActive(runWithBranch.lifecyclePhase) &&
+      // Preserve the active execution status if the run is actively working
+      // and the Linear/PR signals aren't forcing a terminal transition.
+      const preserveActiveStatus =
+        (runWithBranch.status === "planning" ||
+          runWithBranch.status === "implementing" ||
+          runWithBranch.status === "in-review") &&
         lifecycle.status !== "completed" &&
         lifecycle.status !== "canceled" &&
         lifecycle.status !== "failed";
-      const nextStatus = preserveActiveLocalPhase ? runWithBranch.status : lifecycle.status;
+      const baseNextStatus = preserveActiveStatus ? runWithBranch.status : lifecycle.status;
+      const nextStatus =
+        baseNextStatus === runWithBranch.status
+          ? statusFromPullRequestState(lifecycle.pullRequest, runWithBranch.status)
+          : baseNextStatus;
       const nextPrUrl = lifecycle.pullRequest?.url ?? runWithBranch.prUrl;
       const nextCurrentStep = lifecycle.currentStep;
       // TODO(phase-5): switch to Linear-state-driven inputs.
@@ -1294,22 +1294,12 @@ const makeSymphonyService = Effect.gen(function* () {
       const nextArchivedAt = archiveDecision.archive
         ? (runWithBranch.archivedAt ?? reconciledAt)
         : runWithBranch.archivedAt;
-      const nextLifecyclePhase = preserveActiveLocalPhase
-        ? runWithBranch.lifecyclePhase
-        : nextStatus === "completed"
-          ? "done"
-          : nextStatus === "canceled"
-            ? "canceled"
-            : nextStatus === "review-ready"
-              ? "in-review"
-              : phaseFromPullRequestState(lifecycle.pullRequest, runWithBranch.lifecyclePhase);
       const nextLastError =
         nextStatus === "failed" ? runWithBranch.lastError : runWithBranch.lastError;
       const nextRun: SymphonyRun = {
         ...runWithBranch,
         issue: input.linearIssue?.issue ?? runWithBranch.issue,
         status: nextStatus,
-        lifecyclePhase: nextLifecyclePhase,
         pullRequest: lifecycle.pullRequest,
         currentStep: nextCurrentStep,
         prUrl: nextPrUrl,
@@ -1326,10 +1316,8 @@ const makeSymphonyService = Effect.gen(function* () {
         input.run.currentStep ?? null,
       );
       const archivedChanged = nextRun.archivedAt !== input.run.archivedAt;
-      const lifecyclePhaseChanged = nextRun.lifecyclePhase !== input.run.lifecyclePhase;
       const changed =
         statusChanged ||
-        lifecyclePhaseChanged ||
         input.run.branchName !== nextRun.branchName ||
         issueChanged(nextRun.issue, input.run.issue) ||
         prChanged ||
@@ -1380,13 +1368,13 @@ const makeSymphonyService = Effect.gen(function* () {
             reason: input.reason,
           },
         });
-        if (persistedRun.status === "review-ready") {
+        if (persistedRun.status === "in-review") {
           yield* transitionLinearRunState({
             projectId: input.run.projectId,
             workflow: input.workflow,
             run: persistedRun,
             stateName: input.workflow.config.tracker.transitionStates.review,
-            reason: "review-ready",
+            reason: "in-review",
           });
         }
         if (persistedRun.status === "completed") {
@@ -1486,9 +1474,7 @@ const makeSymphonyService = Effect.gen(function* () {
         (run) =>
           run.archivedAt === null &&
           (MONITORED_RUN_STATUSES.includes(run.status) ||
-            run.status === "eligible" ||
-            run.status === "retry-queued" ||
-            run.status === "target-pending" ||
+            run.status === "intake" ||
             isRecoverableLegacyCanceledRun(run)),
       );
       const trackedLinearIssues = yield* fetchTrackedLinearIssues({
@@ -1535,7 +1521,11 @@ const makeSymphonyService = Effect.gen(function* () {
           .map((run) => [run.issue.id, run] as const),
       );
       const runningCount = existingRunsBeforeRefresh.filter(
-        (run) => run.archivedAt === null && run.status === "running",
+        (run) =>
+          run.archivedAt === null &&
+          (run.status === "planning" ||
+            run.status === "implementing" ||
+            run.status === "in-review"),
       ).length;
       const schedulerDecisions = decideSchedulerActions({
         candidates: issues.map((issue) => ({
@@ -1654,10 +1644,10 @@ const makeSymphonyService = Effect.gen(function* () {
             return false;
           }
           return (
-            run.status === "eligible" ||
-            run.status === "target-pending" ||
-            run.status === "retry-queued" ||
-            run.status === "running" ||
+            run.status === "intake" ||
+            run.status === "planning" ||
+            run.status === "implementing" ||
+            run.status === "in-review" ||
             isRecoverableLegacyCanceledRun(run)
           );
         }),
@@ -1693,7 +1683,7 @@ const makeSymphonyService = Effect.gen(function* () {
           const nextRun: SymphonyRun = {
             ...run,
             issue: trackedIssue.issue,
-            status: "released",
+            status: "canceled",
             nextRetryAt: null,
             lastError: null,
             updatedAt: releasedAt,
@@ -1706,8 +1696,8 @@ const makeSymphonyService = Effect.gen(function* () {
                 issueId: run.issue.id,
                 runId: run.runId,
                 type: "run.released",
-                message: `${run.issue.identifier} released because Linear is no longer eligible`,
-                payload: { previousStatus: run.status, nextStatus: "released" },
+                message: `${run.issue.identifier} canceled because Linear is no longer eligible`,
+                payload: { previousStatus: run.status, nextStatus: "canceled" },
               }),
             ),
             Effect.tap(() => publishSnapshotUpdate(projectId, { force: true })),
@@ -1801,7 +1791,7 @@ const makeSymphonyService = Effect.gen(function* () {
       readonly promptTemplate: string;
     };
     readonly run: SymphonyRun;
-    readonly phase: SymphonyLifecyclePhase;
+    readonly phase: SymphonyRunStatus;
     readonly prompt: string;
     readonly currentStepLabel: string;
     readonly currentStepDetail?: string | null;
@@ -1817,7 +1807,6 @@ const makeSymphonyService = Effect.gen(function* () {
         const message = `Symphony reached the configured max_turns (${input.workflow.config.agent.maxTurns}) before ${input.phase}.`;
         const failedRun: SymphonyRun = {
           ...input.run,
-          lifecyclePhase: "failed",
           status: "failed",
           nextRetryAt: null,
           lastError: message,
@@ -1858,8 +1847,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const attemptNumber = input.run.attempts.length + 1;
       const nextRun: SymphonyRun = {
         ...input.run,
-        lifecyclePhase: input.phase,
-        status: "running",
+        status: input.phase,
         attempts: [
           ...input.run.attempts,
           {
@@ -1927,8 +1915,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const runThreadId = input.run.threadId ?? threadId(input.projectId, input.run.issue.id);
       const planningRun: SymphonyRun = {
         ...input.run,
-        status: "running",
-        lifecyclePhase: "planning",
+        status: "planning",
         workspacePath: input.workspacePath,
         branchName: input.branchName,
         threadId: runThreadId,
@@ -2008,8 +1995,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const openedAt = nowIso();
       const nextRun: SymphonyRun = {
         ...input.run,
-        lifecyclePhase: "in-review",
-        status: "review-ready",
+        status: "in-review",
         prUrl: prUrl ?? null,
         pullRequest:
           pr?.url && pr.number
@@ -2100,7 +2086,7 @@ const makeSymphonyService = Effect.gen(function* () {
       }
       const nextRun: SymphonyRun = {
         ...input.run,
-        status: "running",
+        status: "implementing",
         workspacePath,
         branchName,
         threadId: runThreadId,
@@ -2119,7 +2105,7 @@ const makeSymphonyService = Effect.gen(function* () {
       };
       yield* repository
         .upsertRun(nextRun)
-        .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run as running.")));
+        .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run as implementing.")));
       yield* transitionLinearRunState({
         projectId: input.projectId,
         workflow: input.workflow,
@@ -2243,14 +2229,18 @@ const makeSymphonyService = Effect.gen(function* () {
       if (!run) {
         return yield* new SymphonyError({ message: "Symphony issue was not found." });
       }
-      if (run.status === "running" || run.status === "review-ready") {
+      if (
+        run.status === "planning" ||
+        run.status === "implementing" ||
+        run.status === "in-review"
+      ) {
         return yield* new SymphonyError({ message: `${run.issue.identifier} is already running.` });
       }
 
       const { project, workflow, workflowPath } = yield* readLaunchContext(input.projectId);
       const launchableRun: SymphonyRun = {
         ...run,
-        status: "eligible",
+        status: "intake",
         archivedAt: null,
         nextRetryAt: null,
         lastError: null,
@@ -2281,23 +2271,19 @@ const makeSymphonyService = Effect.gen(function* () {
       const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const runningCount = runs.filter((run) => {
         if (run.archivedAt !== null) return false;
-        if (run.status !== "running") return false;
-        if (!run.threadId) return true;
-        return threadById.get(run.threadId)?.latestTurn?.state === "running";
+        return (
+          run.status === "planning" || run.status === "implementing" || run.status === "in-review"
+        );
       }).length;
       const capacity = Math.max(0, workflow.config.agent.maxConcurrentAgents - runningCount);
       if (capacity === 0) return;
 
       const candidates = runs
         .filter((run) => {
-          const intakeCandidate =
-            run.lifecyclePhase === "intake" &&
-            stateMatches(intakeStateNames(workflow.config.tracker), run.issue.state);
           return (
             run.archivedAt === null &&
-            (run.status === "eligible" ||
-              run.status === "retry-queued" ||
-              (intakeCandidate && run.status === "target-pending"))
+            run.status === "intake" &&
+            stateMatches(intakeStateNames(workflow.config.tracker), run.issue.state)
           );
         })
         .filter((run) => retryIsReady(run.nextRetryAt))
@@ -2326,44 +2312,31 @@ const makeSymphonyService = Effect.gen(function* () {
         candidates,
         (run) =>
           Effect.gen(function* () {
-            if (
-              run.lifecyclePhase === "intake" &&
-              stateMatches(intakeStateNames(workflow.config.tracker), run.issue.state)
-            ) {
-              const prepared = yield* prepareRunWorkspace({
-                projectRoot: project.workspaceRoot,
-                workflow,
-                run,
-              });
-              if (prepared.created) {
-                yield* runWorkflowHook({
-                  projectId,
-                  projectRoot: project.workspaceRoot,
-                  workflowPath,
-                  workflow,
-                  run,
-                  hookName: "afterCreate",
-                  command: workflow.config.hooks.afterCreate,
-                  workspacePath: prepared.workspacePath,
-                  branchName: prepared.branchName,
-                  failRunOnError: true,
-                });
-              }
-              yield* startPlanningTurn({
-                projectId,
-                workflow,
-                run,
-                workspacePath: prepared.workspacePath,
-                branchName: prepared.branchName,
-              });
-              return;
-            }
-            yield* launchLocalRun({
-              projectId,
+            const prepared = yield* prepareRunWorkspace({
               projectRoot: project.workspaceRoot,
               workflow,
-              workflowPath,
               run,
+            });
+            if (prepared.created) {
+              yield* runWorkflowHook({
+                projectId,
+                projectRoot: project.workspaceRoot,
+                workflowPath,
+                workflow,
+                run,
+                hookName: "afterCreate",
+                command: workflow.config.hooks.afterCreate,
+                workspacePath: prepared.workspacePath,
+                branchName: prepared.branchName,
+                failRunOnError: true,
+              });
+            }
+            yield* startPlanningTurn({
+              projectId,
+              workflow,
+              run,
+              workspacePath: prepared.workspacePath,
+              branchName: prepared.branchName,
             });
           }),
         { concurrency: workflow.config.agent.maxConcurrentAgents },
@@ -2421,7 +2394,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const turnNumber = Math.min(attemptNumber, input.workflow.config.agent.maxTurns);
       const nextRun: SymphonyRun = {
         ...input.run,
-        status: "running",
+        status: "implementing",
         attempts: [
           ...input.run.attempts,
           {
@@ -2498,7 +2471,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const nextRetryAt = continuationDelayIso();
       const nextRun: SymphonyRun = {
         ...input.run,
-        status: "running",
+        status: "implementing",
         nextRetryAt,
         lastError: null,
         currentStep: {
@@ -2576,7 +2549,9 @@ const makeSymphonyService = Effect.gen(function* () {
         return;
       }
 
-      if (run.status !== "running") {
+      const isActivelyRunning =
+        run.status === "planning" || run.status === "implementing" || run.status === "in-review";
+      if (!isActivelyRunning) {
         yield* reconcileRunSignals({
           projectRoot: input.projectRoot,
           workflow: input.workflow,
@@ -2617,20 +2592,12 @@ const makeSymphonyService = Effect.gen(function* () {
             .upsertRun(attemptedRun)
             .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
         }
-        if (attemptedRun.lifecyclePhase === "planning") {
-          // TODO(phase-4): Replace extractLatestPlanMarkdown with
-          // decideNextAction once prompts emit SYMPHONY_PLAN_BEGIN markers.
-          // decideNextAction currently handles marker-based output:
-          //   decideNextAction({ run: { ...attemptedRun, lifecyclePhase: "planning", lastSeenLinearState: null }, threadOutput: assistantText, threadComplete: true })
-          // For now, use decideNextAction for a structural no-op check so the
-          // import is wired to this call site; the actual plan is read via
-          // extractLatestPlanMarkdown from threadOutputParser.ts.
+        if (attemptedRun.status === "planning") {
           void decideNextAction;
           const planMarkdown = extractLatestPlanMarkdown(thread);
           if (!planMarkdown) {
             const failedRun: SymphonyRun = {
               ...attemptedRun,
-              lifecyclePhase: "failed",
               status: "failed",
               lastError: "Planning completed without a checklist plan.",
               updatedAt: completedAt,
@@ -2642,7 +2609,7 @@ const makeSymphonyService = Effect.gen(function* () {
           }
           const plannedRun: SymphonyRun = {
             ...attemptedRun,
-            lifecyclePhase: "implementing",
+            status: "implementing",
             currentStep: {
               source: "symphony",
               label: "Planning complete",
@@ -2685,72 +2652,25 @@ const makeSymphonyService = Effect.gen(function* () {
           return;
         }
 
-        if (attemptedRun.lifecyclePhase === "implementing") {
-          const planMarkdown = runPlanMarkdown(attemptedRun);
-          yield* startPhaseTurn({
-            projectId: run.projectId,
-            workflow: input.workflow,
-            run: attemptedRun,
-            phase: "simplifying",
-            prompt: buildSimplificationPrompt({
-              issue: issuePromptInput(run),
-              workflowPrompt: input.workflow.promptTemplate,
-              planMarkdown: planMarkdown ?? "",
-              phaseInstructions: input.workflow.config.quality?.simplificationPrompt ?? null,
-            }),
-            currentStepLabel: "Simplifying implementation",
-            currentStepDetail: planMarkdown,
-          });
-          return;
-        }
-
-        if (attemptedRun.lifecyclePhase === "simplifying") {
-          const planMarkdown = runPlanMarkdown(attemptedRun);
-          yield* startPhaseTurn({
-            projectId: run.projectId,
-            workflow: input.workflow,
-            run: attemptedRun,
-            phase: "reviewing",
-            prompt: buildReviewPrompt({
-              issue: issuePromptInput(run),
-              workflowPrompt: input.workflow.promptTemplate,
-              planMarkdown: planMarkdown ?? "",
-              phaseInstructions: input.workflow.config.quality?.reviewPrompt ?? null,
-            }),
-            currentStepLabel: "Reviewing implementation",
-            currentStepDetail: planMarkdown,
-          });
-          return;
-        }
-
-        if (attemptedRun.lifecyclePhase === "reviewing") {
-          const outcome = extractReviewOutcome(extractLatestAssistantText(thread) ?? "");
-          if (outcome.status === "unknown") {
-            const failedRun: SymphonyRun = {
-              ...attemptedRun,
-              lifecyclePhase: "failed",
-              status: "failed",
-              lastError: "Review completed without REVIEW_PASS or REVIEW_FAIL marker.",
-              updatedAt: completedAt,
-            };
-            yield* repository
-              .upsertRun(failedRun)
-              .pipe(Effect.mapError(toSymphonyError("Failed to mark review as failed.")));
-            return;
-          }
+        // Detect review outcome when the implementing turn contains REVIEW_PASS/REVIEW_FAIL markers.
+        // TODO(phase-5): Replace with a dedicated "reviewing" status; markers drive this for now.
+        const reviewOutcome =
+          attemptedRun.status === "implementing"
+            ? extractReviewOutcome(extractLatestAssistantText(thread) ?? "")
+            : { status: "unknown" as const, summary: null, findings: [] };
+        if (attemptedRun.status === "implementing" && reviewOutcome.status !== "unknown") {
+          const outcome = reviewOutcome;
           const passed = outcome.status === "pass";
           const maxReviewFixLoops = input.workflow.config.quality?.maxReviewFixLoops ?? 1;
-          const nextPhase = nextPhaseAfterReview({
-            passed,
-            remainingReviewLoops: maxReviewFixLoops - attemptedRun.qualityGate.reviewFixLoops,
-          });
+          const remainingReviewLoops = maxReviewFixLoops - attemptedRun.qualityGate.reviewFixLoops;
+          const nextPhase: Extract<SymphonyRunStatus, "in-review" | "implementing" | "failed"> =
+            passed ? "in-review" : remainingReviewLoops > 0 ? "implementing" : "failed";
           const reviewedCommit = attemptedRun.workspacePath
             ? yield* readWorkspaceHeadCommit(attemptedRun.workspacePath)
             : null;
           const nextRun: SymphonyRun = {
             ...attemptedRun,
-            lifecyclePhase: nextPhase,
-            status: nextPhase === "failed" ? "failed" : "running",
+            status: nextPhase,
             qualityGate: {
               ...attemptedRun.qualityGate,
               reviewFixLoops: passed
@@ -2782,7 +2702,7 @@ const makeSymphonyService = Effect.gen(function* () {
             planMarkdown: runPlanMarkdown(attemptedRun),
             statusLine: passed ? "Review passed" : "Review failed",
           });
-          if (nextPhase === "pr-ready") {
+          if (nextPhase === "in-review") {
             yield* createPullRequestForRun({
               projectId: run.projectId,
               workflow: input.workflow,
@@ -2790,12 +2710,12 @@ const makeSymphonyService = Effect.gen(function* () {
             });
             return;
           }
-          if (nextPhase === "fixing") {
+          if (nextPhase === "implementing") {
             yield* startPhaseTurn({
               projectId: run.projectId,
               workflow: input.workflow,
               run: withProgress,
-              phase: "fixing",
+              phase: "implementing",
               prompt: buildFixPrompt({
                 issue: issuePromptInput(run),
                 workflowPrompt: input.workflow.promptTemplate,
@@ -2809,7 +2729,12 @@ const makeSymphonyService = Effect.gen(function* () {
           return;
         }
 
-        if (attemptedRun.lifecyclePhase === "fixing") {
+        // Detect "fixing" context: a review has already happened (lastFeedbackFingerprint set) and
+        // the implementing turn just completed. TODO(phase-5): replace with a dedicated status.
+        const isFixingContext =
+          attemptedRun.status === "implementing" &&
+          attemptedRun.qualityGate.lastFeedbackFingerprint !== null;
+        if (isFixingContext) {
           const planMarkdown = runPlanMarkdown(attemptedRun);
           const currentCommit = attemptedRun.workspacePath
             ? yield* readWorkspaceHeadCommit(attemptedRun.workspacePath)
@@ -2830,7 +2755,6 @@ const makeSymphonyService = Effect.gen(function* () {
               "Fix phase completed without code, test, or documentation changes for the active feedback.";
             const failedRun: SymphonyRun = {
               ...attemptedRun,
-              lifecyclePhase: "failed",
               status: "failed",
               nextRetryAt: null,
               lastError: message,
@@ -2879,7 +2803,7 @@ const makeSymphonyService = Effect.gen(function* () {
             projectId: run.projectId,
             workflow: input.workflow,
             run: fixedRun,
-            phase: "simplifying",
+            phase: "implementing",
             prompt: buildSimplificationPrompt({
               issue: issuePromptInput(run),
               workflowPrompt: input.workflow.promptTemplate,
@@ -2922,7 +2846,7 @@ const makeSymphonyService = Effect.gen(function* () {
         const linearClassification = linearIssue
           ? classifyLinearState(linearIssue.state.name, input.workflow.config.tracker)
           : "released";
-        if (nextRun.status === "running" && linearClassification === "active") {
+        if (nextRun.status === "implementing" && linearClassification === "active") {
           if (nextRun.nextRetryAt && !retryIsReady(nextRun.nextRetryAt)) {
             return;
           }
@@ -2950,7 +2874,7 @@ const makeSymphonyService = Effect.gen(function* () {
         const canRetry = attemptNumber < input.workflow.config.agent.maxTurns;
         const attemptedRun: SymphonyRun = {
           ...run,
-          status: canRetry ? "retry-queued" : "failed",
+          status: canRetry ? "implementing" : "failed",
           attempts: replaceLatestAttempt(run, {
             status: "failed",
             completedAt,
@@ -2998,7 +2922,7 @@ const makeSymphonyService = Effect.gen(function* () {
       const errorMessage = thread.session?.lastError ?? "Codex turn failed.";
       const nextRun: SymphonyRun = {
         ...run,
-        status: canRetry ? "retry-queued" : "failed",
+        status: canRetry ? "implementing" : "failed",
         attempts: replaceLatestAttempt(run, {
           status: "failed",
           completedAt,
@@ -3410,7 +3334,7 @@ const makeSymphonyService = Effect.gen(function* () {
           ...run,
           status: "canceled",
           attempts:
-            run.status === "running"
+            run.status === "implementing" || run.status === "planning" || run.status === "in-review"
               ? replaceLatestAttempt(run, {
                   status: "canceled-by-reconciliation",
                   completedAt: stoppedAt,
@@ -3464,7 +3388,7 @@ const makeSymphonyService = Effect.gen(function* () {
           ? repository
               .upsertRun({
                 ...run,
-                status: "target-pending",
+                status: "intake",
                 archivedAt: null,
                 nextRetryAt: null,
                 lastError: null,

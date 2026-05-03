@@ -3,8 +3,9 @@ import type { SymphonyRun, SymphonyRunStatus } from "@t3tools/contracts";
 export const LINEAR_INELIGIBLE_LEGACY_ERROR = "Linear issue is no longer eligible for Symphony.";
 
 export const ACTIVE_MONITORED_RUN_STATUSES: readonly SymphonyRunStatus[] = [
-  "running",
-  "review-ready",
+  "planning",
+  "implementing",
+  "in-review",
   "completed",
 ];
 

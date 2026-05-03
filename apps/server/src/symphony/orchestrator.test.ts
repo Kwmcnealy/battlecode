@@ -6,8 +6,7 @@ function makeRun(overrides: Partial<OrchestratorInput["run"]>): OrchestratorInpu
   return {
     runId: "run_1",
     issueId: "iss_1",
-    status: "running",
-    lifecyclePhase: "planning",
+    status: "planning",
     archivedAt: null,
     lastSeenLinearState: "In Progress",
     ...overrides,
@@ -17,7 +16,7 @@ function makeRun(overrides: Partial<OrchestratorInput["run"]>): OrchestratorInpu
 describe("orchestrator.decideNextAction", () => {
   it("transitions planning -> implementing when plan markers found", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "planning" }),
+      run: makeRun({ status: "planning" }),
       threadOutput: "SYMPHONY_PLAN_BEGIN\n- [ ] Step 1\nSYMPHONY_PLAN_END",
       threadComplete: true,
     });
@@ -29,7 +28,7 @@ describe("orchestrator.decideNextAction", () => {
 
   it("fails the run when planning ends with no plan markers", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "planning" }),
+      run: makeRun({ status: "planning" }),
       threadOutput: "I implemented something but forgot the plan.",
       threadComplete: true,
     });
@@ -41,7 +40,7 @@ describe("orchestrator.decideNextAction", () => {
 
   it("transitions implementing -> in-review when PR URL marker found", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "implementing" }),
+      run: makeRun({ status: "implementing" }),
       threadOutput: "Done!\nSYMPHONY_PR_URL: https://github.com/owner/repo/pull/42",
       threadComplete: true,
     });
@@ -53,7 +52,7 @@ describe("orchestrator.decideNextAction", () => {
 
   it("fails the run when implementing ends with no PR URL", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "implementing" }),
+      run: makeRun({ status: "implementing" }),
       threadOutput: "I tried but couldn't.",
       threadComplete: true,
     });
@@ -65,16 +64,16 @@ describe("orchestrator.decideNextAction", () => {
 
   it("returns no-op while turn is still streaming", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "planning" }),
+      run: makeRun({ status: "planning" }),
       threadOutput: "SYMPHONY_PLAN_BEGIN\n- [ ] partial...",
       threadComplete: false,
     });
     expect(result).toEqual({ action: "wait", reason: "turn_streaming" });
   });
 
-  it("returns wait for unrecognized phase", () => {
+  it("returns wait for unrecognized status", () => {
     const result = decideNextAction({
-      run: makeRun({ lifecyclePhase: "reviewing" }),
+      run: makeRun({ status: "in-review" }),
       threadOutput: "some output",
       threadComplete: true,
     });
