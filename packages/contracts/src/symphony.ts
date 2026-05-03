@@ -30,8 +30,6 @@ export const SYMPHONY_WS_METHODS = {
   archiveIssue: "symphony.archiveIssue",
   openLinkedThread: "symphony.openLinkedThread",
   launchIssue: "symphony.launchIssue",
-  updateExecutionDefault: "symphony.updateExecutionDefault",
-  refreshCloudStatus: "symphony.refreshCloudStatus",
 } as const;
 
 export const SymphonyIssueId = TrimmedNonEmptyString.pipe(Schema.brand("SymphonyIssueId"));
@@ -59,8 +57,6 @@ export const SymphonyRunStatus = Schema.Literals([
   "eligible",
   "running",
   "retry-queued",
-  "cloud-submitted",
-  "cloud-running",
   "review-ready",
   "completed",
   "failed",
@@ -73,7 +69,6 @@ export const SymphonyLifecyclePhase = Schema.Literals([
   "intake",
   "planning",
   "implementing",
-  "waiting-cloud",
   "simplifying",
   "reviewing",
   "fixing",
@@ -84,44 +79,6 @@ export const SymphonyLifecyclePhase = Schema.Literals([
   "failed",
 ]);
 export type SymphonyLifecyclePhase = typeof SymphonyLifecyclePhase.Type;
-
-export const SymphonyExecutionTarget = Schema.Literals(["local", "codex-cloud"]);
-export type SymphonyExecutionTarget = typeof SymphonyExecutionTarget.Type;
-
-export const SymphonyCloudTaskStatus = Schema.Literals([
-  "submitted",
-  "detected",
-  "completed",
-  "failed",
-  "unknown",
-]);
-export type SymphonyCloudTaskStatus = typeof SymphonyCloudTaskStatus.Type;
-
-export const SymphonyCloudTask = Schema.Struct({
-  provider: Schema.Literal("codex-cloud-linear"),
-  status: SymphonyCloudTaskStatus,
-  taskUrl: Schema.NullOr(Schema.String),
-  linearCommentId: Schema.NullOr(Schema.String),
-  linearCommentUrl: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  repository: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  repositoryUrl: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  lastMessage: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  delegatedAt: Schema.NullOr(IsoDateTime),
-  lastCheckedAt: Schema.NullOr(IsoDateTime),
-});
-export type SymphonyCloudTask = typeof SymphonyCloudTask.Type;
 
 export const SymphonyAttemptStatus = Schema.Literals([
   "launching-agent-process",
@@ -277,9 +234,6 @@ export const SymphonySettings = Schema.Struct({
   workflowPath: TrimmedString,
   workflowStatus: SymphonyWorkflowValidation,
   linearSecret: SymphonySecretStatus,
-  executionDefaultTarget: SymphonyExecutionTarget.pipe(
-    Schema.withDecodingDefault(Effect.succeed("local" as const)),
-  ),
   updatedAt: IsoDateTime,
 });
 export type SymphonySettings = typeof SymphonySettings.Type;
@@ -328,7 +282,7 @@ export const SymphonyPullRequestSummary = Schema.Struct({
 export type SymphonyPullRequestSummary = typeof SymphonyPullRequestSummary.Type;
 
 export const SymphonyRunProgress = Schema.Struct({
-  source: Schema.Literals(["symphony", "linear", "local-thread", "codex-cloud", "github"]),
+  source: Schema.Literals(["symphony", "linear", "local-thread", "github"]),
   label: TrimmedNonEmptyString,
   detail: Schema.NullOr(Schema.String),
   updatedAt: IsoDateTime,
@@ -388,12 +342,6 @@ export const SymphonyRun = Schema.Struct({
   branchName: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
   prUrl: Schema.NullOr(Schema.String),
-  executionTarget: Schema.NullOr(SymphonyExecutionTarget).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  cloudTask: Schema.NullOr(SymphonyCloudTask).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
   pullRequest: Schema.NullOr(SymphonyPullRequestSummary).pipe(
     Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -528,12 +476,5 @@ export type SymphonyIssueActionInput = typeof SymphonyIssueActionInput.Type;
 export const SymphonyLaunchIssueInput = Schema.Struct({
   projectId: ProjectId,
   issueId: SymphonyIssueId,
-  target: SymphonyExecutionTarget,
 });
 export type SymphonyLaunchIssueInput = typeof SymphonyLaunchIssueInput.Type;
-
-export const SymphonyUpdateExecutionDefaultInput = Schema.Struct({
-  projectId: ProjectId,
-  target: SymphonyExecutionTarget,
-});
-export type SymphonyUpdateExecutionDefaultInput = typeof SymphonyUpdateExecutionDefaultInput.Type;

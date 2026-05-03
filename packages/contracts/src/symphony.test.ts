@@ -4,7 +4,6 @@ import { Schema } from "effect";
 import {
   DEFAULT_SYMPHONY_REVIEW_PROMPT,
   DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT,
-  SymphonyCloudTask,
   SymphonyLifecyclePhase,
   SymphonyLinearProgressComment,
   SymphonyPullRequestSummary,
@@ -15,7 +14,6 @@ import {
   SymphonySnapshot,
   SymphonySnapshotDiagnostics,
   SymphonySettings,
-  SymphonyUpdateExecutionDefaultInput,
   SymphonyWorkflowConfig,
   SYMPHONY_WS_METHODS,
 } from "./symphony.ts";
@@ -112,7 +110,8 @@ describe("Symphony contracts", () => {
   });
 
   it("decodes lifecycle metadata with empty-object defaults", () => {
-    expect(Schema.is(SymphonyLifecyclePhase)("waiting-cloud")).toBe(true);
+    expect(Schema.is(SymphonyLifecyclePhase)("waiting-cloud")).toBe(false);
+    expect(Schema.is(SymphonyLifecyclePhase)("implementing")).toBe(true);
     expect(Schema.is(SymphonyLifecyclePhase)("unknown")).toBe(false);
     expect(Schema.decodeUnknownSync(SymphonyLinearProgressComment)({})).toEqual({
       commentId: null,
@@ -258,36 +257,14 @@ describe("Symphony contracts", () => {
     expect(diagnostics.errorSummary.count).toBe(1);
   });
 
-  it("accepts Symphony execution target and Codex Cloud task metadata", () => {
-    const cloudTask = Schema.decodeUnknownSync(SymphonyCloudTask)({
-      provider: "codex-cloud-linear",
-      status: "submitted",
-      taskUrl: null,
-      linearCommentId: "comment-1",
-      linearCommentUrl: "https://linear.app/t3/issue/APP-1#comment-comment-1",
-      repository: "openai/codex",
-      repositoryUrl: "https://github.com/openai/codex",
-      lastMessage: "No suitable environment or repository is available.",
-      delegatedAt: "2026-04-30T12:00:00.000Z",
-      lastCheckedAt: "2026-04-30T12:00:00.000Z",
-    });
-    expect(
-      Schema.decodeUnknownSync(SymphonyCloudTask)({
-        provider: "codex-cloud-linear",
-        status: "submitted",
-        taskUrl: null,
-        linearCommentId: "comment-1",
-        delegatedAt: "2026-04-30T12:00:00.000Z",
-        lastCheckedAt: "2026-04-30T12:00:00.000Z",
-      }).linearCommentUrl,
-    ).toBeNull();
+  it("accepts a local run with defaults", () => {
     const run = Schema.decodeUnknownSync(SymphonyRun)({
       runId: "run-1",
       projectId: ProjectId.make("project-symphony"),
       issue: {
         id: "issue-1",
         identifier: "BC-123",
-        title: "Implement local and cloud routing",
+        title: "Implement local routing",
         description: null,
         priority: null,
         state: "Todo",
@@ -298,13 +275,11 @@ describe("Symphony contracts", () => {
         createdAt: null,
         updatedAt: null,
       },
-      status: "cloud-submitted",
+      status: "eligible",
       workspacePath: null,
       branchName: null,
       threadId: null,
       prUrl: null,
-      executionTarget: "codex-cloud",
-      cloudTask,
       attempts: [],
       nextRetryAt: null,
       lastError: null,
@@ -312,9 +287,7 @@ describe("Symphony contracts", () => {
       updatedAt: "2026-04-30T12:00:00.000Z",
     });
 
-    expect(run.executionTarget).toBe("codex-cloud");
-    expect(run.cloudTask?.provider).toBe("codex-cloud-linear");
-    expect(run.status).toBe("cloud-submitted");
+    expect(run.status).toBe("eligible");
     expect(run.lifecyclePhase).toBe("intake");
     expect(run.linearProgress).toEqual({
       commentId: null,
@@ -379,8 +352,6 @@ describe("Symphony contracts", () => {
       branchName: "symphony/app-456",
       threadId: null,
       prUrl: pullRequest.url,
-      executionTarget: "local",
-      cloudTask: null,
       pullRequest,
       currentStep,
       attempts: [],
@@ -414,7 +385,6 @@ describe("Symphony contracts", () => {
           lastTestedAt: null,
           lastError: null,
         },
-        executionDefaultTarget: "local",
         updatedAt: "2026-05-02T12:00:00.000Z",
       },
       queues: {
@@ -448,8 +418,6 @@ describe("Symphony contracts", () => {
             branchName: "symphony/bc-789",
             threadId: null,
             prUrl: "https://github.com/t3/battlecode/pull/789",
-            executionTarget: "codex-cloud",
-            cloudTask: null,
             pullRequest: {
               number: 789,
               title: "Archive completed run",
@@ -494,15 +462,6 @@ describe("Symphony contracts", () => {
     expect(snapshot.totals.archived).toBe(1);
   });
 
-  it("accepts execution default updates", () => {
-    const input = Schema.decodeUnknownSync(SymphonyUpdateExecutionDefaultInput)({
-      projectId: ProjectId.make("project-symphony"),
-      target: "codex-cloud",
-    });
-
-    expect(input.target).toBe("codex-cloud");
-  });
-
   it("accepts archive issue action input", () => {
     const input = Schema.decodeUnknownSync(SymphonyIssueActionInput)({
       projectId: ProjectId.make("project-symphony"),
@@ -517,9 +476,9 @@ describe("Symphony contracts", () => {
     expect(SYMPHONY_WS_METHODS.setLinearApiKey).toBe("symphony.setLinearApiKey");
     expect(SYMPHONY_WS_METHODS.subscribe).toBe("symphony.subscribe");
     expect(SYMPHONY_WS_METHODS.launchIssue).toBe("symphony.launchIssue");
-    expect(SYMPHONY_WS_METHODS.updateExecutionDefault).toBe("symphony.updateExecutionDefault");
-    expect(SYMPHONY_WS_METHODS.refreshCloudStatus).toBe("symphony.refreshCloudStatus");
     expect(SYMPHONY_WS_METHODS.archiveIssue).toBe("symphony.archiveIssue");
+    expect("refreshCloudStatus" in SYMPHONY_WS_METHODS).toBe(false);
+    expect("updateExecutionDefault" in SYMPHONY_WS_METHODS).toBe(false);
     expect("applyLinearMutation" in SYMPHONY_WS_METHODS).toBe(false);
   });
 });
