@@ -6,14 +6,11 @@ export const SYMPHONY_ACTIVE_ARCHIVE_ERROR_MESSAGE =
 const ARCHIVE_BLOCKED_STATUSES = new Set<SymphonyRunStatus>([
   "running",
   "retry-queued",
-  "cloud-submitted",
-  "cloud-running",
 ]);
 
 const ARCHIVE_BLOCKED_PHASES = new Set<SymphonyLifecyclePhase>([
   "planning",
   "implementing",
-  "waiting-cloud",
   "simplifying",
   "reviewing",
   "fixing",

@@ -44,7 +44,7 @@ describe("Symphony archive eligibility", () => {
   });
 
   it("blocks active execution statuses", () => {
-    for (const status of ["running", "retry-queued", "cloud-submitted", "cloud-running"] as const) {
+    for (const status of ["running", "retry-queued"] as const) {
       expect(
         getSymphonyArchiveEligibility(
           runState({
@@ -63,7 +63,6 @@ describe("Symphony archive eligibility", () => {
     for (const lifecyclePhase of [
       "planning",
       "implementing",
-      "waiting-cloud",
       "simplifying",
       "reviewing",
       "fixing",
