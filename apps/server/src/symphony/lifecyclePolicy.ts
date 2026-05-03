@@ -4,8 +4,6 @@ export const LINEAR_INELIGIBLE_LEGACY_ERROR = "Linear issue is no longer eligibl
 
 export const ACTIVE_MONITORED_RUN_STATUSES: readonly SymphonyRunStatus[] = [
   "running",
-  "cloud-submitted",
-  "cloud-running",
   "review-ready",
   "completed",
 ];
