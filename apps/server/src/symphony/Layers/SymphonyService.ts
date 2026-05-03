@@ -64,10 +64,7 @@ import {
   extractLatestPlanMarkdown,
   extractReviewOutcome,
 } from "../phaseOutput.ts";
-import {
-  transitionLinearState,
-  upsertManagedComment,
-} from "../linearWriter.ts";
+import { transitionLinearState, upsertManagedComment } from "../linearWriter.ts";
 // TODO(phase-4): Wire decideNextAction into reconcileRunWithThread once the
 // phase prompts emit SYMPHONY_PLAN_BEGIN / SYMPHONY_PR_URL markers. Currently
 // the inline planning/implementing dispatch uses extractLatestPlanMarkdown

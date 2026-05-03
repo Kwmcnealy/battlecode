@@ -8,6 +8,62 @@ import {
 
 export const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 
+// ---------------------------------------------------------------------------
+// API key classification
+// ---------------------------------------------------------------------------
+
+export type LinearApiKeyClassification =
+  | { readonly kind: "personal"; readonly token: string }
+  | {
+      readonly kind: "personal-with-bearer-prefix";
+      readonly token: string;
+      readonly warning: string;
+    }
+  | { readonly kind: "oauth-token"; readonly token: null; readonly error: string }
+  | { readonly kind: "empty"; readonly token: null };
+
+const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+export function classifyLinearApiKey(raw: string): LinearApiKeyClassification {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { kind: "empty", token: null };
+
+  if (trimmed.startsWith("Bearer ")) {
+    const stripped = trimmed.slice("Bearer ".length).trim();
+    return {
+      kind: "personal-with-bearer-prefix",
+      token: stripped,
+      warning:
+        'The "Bearer " prefix is for OAuth tokens. Personal API keys are sent as the raw token. The prefix has been stripped automatically. If authentication still fails, re-generate your key in Linear settings via the wizard.',
+    };
+  }
+
+  if (JWT_SHAPE.test(trimmed)) {
+    return {
+      kind: "oauth-token",
+      token: null,
+      error:
+        "This looks like an OAuth/JWT token. Symphony requires a personal API key (lin_api_*). Generate one in Linear settings and enter it in the Symphony wizard.",
+    };
+  }
+
+  return { kind: "personal", token: trimmed };
+}
+
+function resolveApiToken(
+  rawKey: string,
+): { ok: true; value: string } | { ok: false; error: string } {
+  const classified = classifyLinearApiKey(rawKey);
+  if (classified.kind === "empty") {
+    return { ok: false, error: "Linear API key is empty. Configure one in the Symphony wizard." };
+  }
+  if (classified.kind === "oauth-token") {
+    return { ok: false, error: classified.error };
+  }
+  // For bearer-prefix: use the stripped token (classification already warned).
+  return { ok: true, value: classified.token };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -281,12 +337,17 @@ function linearGraphql(input: {
   readonly query: string;
   readonly variables?: Record<string, unknown>;
 }): Effect.Effect<Record<string, unknown>, SymphonyError> {
+  const tokenResult = resolveApiToken(input.apiKey);
+  if (!tokenResult.ok) {
+    return Effect.fail(new SymphonyError({ message: tokenResult.error }));
+  }
+  const token = tokenResult.value;
   return Effect.tryPromise({
     try: async () => {
       const response = await fetch(input.endpoint, {
         method: "POST",
         headers: {
-          authorization: input.apiKey,
+          authorization: token,
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -330,11 +391,6 @@ function linearGraphql(input: {
   });
 }
 
-function truncateLinearDetail(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 500 ? `${normalized.slice(0, 497)}...` : normalized;
-}
-
 function formatLinearGraphqlErrors(operationName: string | undefined, errors: unknown): string {
   const errorDetails = readArray(errors).flatMap((entry) => {
     const error = readRecord(entry);
@@ -358,7 +414,7 @@ function formatLinearGraphqlErrors(operationName: string | undefined, errors: un
     return [`${message}${extensionDetail ? ` (${extensionDetail})` : ""}`];
   });
   const detail = errorDetails.length > 0 ? errorDetails.join("; ") : JSON.stringify(errors);
-  return truncateLinearDetail(`Linear ${operationName ?? "GraphQL"} failed: ${detail}`);
+  return `Linear ${operationName ?? "GraphQL"} failed: ${detail}`;
 }
 
 function formatLinearRateLimitHeaders(headers: Headers): string {
@@ -369,7 +425,19 @@ function formatLinearRateLimitHeaders(headers: Headers): string {
   return details.join(", ");
 }
 
-function formatLinearHttpError(
+// Known Linear GraphQL field names that have historically changed across API versions.
+const KNOWN_DEPRECATED_LINEAR_FIELDS = ["branchName", "inverseRelations", "slugId"] as const;
+
+/**
+ * Formats an HTTP error response from the Linear GraphQL API into a diagnostic string.
+ *
+ * - Logs the full response body (no truncation) so 400 errors are fully visible.
+ * - Annotates GRAPHQL_VALIDATION_FAILED errors that mention known deprecated fields
+ *   with a schema-drift hint.
+ *
+ * Exported for testing.
+ */
+export function formatLinearHttpError(
   operationName: string | undefined,
   response: Response,
   body: unknown,
@@ -377,14 +445,28 @@ function formatLinearHttpError(
 ): string {
   const record = readRecord(body);
   const errors = record ? readArray(record.errors) : [];
-  const detail =
-    errors.length > 0
-      ? formatLinearGraphqlErrors(operationName, errors)
-      : truncateLinearDetail(rawBody);
+  const detail = errors.length > 0 ? formatLinearGraphqlErrors(operationName, errors) : rawBody; // full body, no truncation
   const rateLimitDetail = formatLinearRateLimitHeaders(response.headers);
-  return `Linear ${operationName ?? "GraphQL"} request failed with HTTP ${response.status}${
-    detail ? `: ${detail}` : ""
-  }${rateLimitDetail ? `; rate limit: ${rateLimitDetail}` : ""}`;
+
+  const parts: string[] = [
+    `Linear ${operationName ?? "GraphQL"} request failed with HTTP ${response.status}`,
+  ];
+  if (detail) parts.push(detail);
+  if (rateLimitDetail) parts.push(`rate limit: ${rateLimitDetail}`);
+
+  // Schema-drift hint: if the body mentions GRAPHQL_VALIDATION_FAILED and a known field name,
+  // we might be running against a newer Linear API that dropped that field.
+  const isValidationError = rawBody.includes("GRAPHQL_VALIDATION_FAILED");
+  const offendingField = isValidationError
+    ? KNOWN_DEPRECATED_LINEAR_FIELDS.find((field) => rawBody.includes(field))
+    : undefined;
+  if (offendingField && isValidationError) {
+    parts.push(
+      `hint: Linear's GraphQL schema may have changed; the field "${offendingField}" is referenced in this Symphony build's queries. This Symphony build may be incompatible with the current Linear API version; please update Symphony.`,
+    );
+  }
+
+  return parts.join("; ");
 }
 
 function normalizeLinearWorkflowTeam(value: unknown): LinearWorkflowTeam | null {

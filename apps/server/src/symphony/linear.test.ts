@@ -2,11 +2,13 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  classifyLinearApiKey,
   createLinearComment,
   detectLinearCodexTask,
   fetchLinearIssueComments,
   fetchLinearCandidates,
   fetchLinearIssuesByIds,
+  formatLinearHttpError,
   normalizeLinearIssue,
   resolveLinearWorkflowStateId,
   updateLinearComment,
@@ -809,5 +811,135 @@ describe("Symphony Linear helpers", () => {
       linearCommentId: null,
       message: null,
     });
+  });
+});
+
+describe("Linear API key classification", () => {
+  it("accepts a personal API key (lin_api_*) as-is", () => {
+    const result = classifyLinearApiKey("lin_api_abc123");
+    expect(result).toEqual({ kind: "personal", token: "lin_api_abc123" });
+  });
+
+  it("strips the Bearer prefix and includes a warning", () => {
+    const result = classifyLinearApiKey("Bearer lin_api_abc123");
+    expect(result.kind).toBe("personal-with-bearer-prefix");
+    if (result.kind === "personal-with-bearer-prefix") {
+      expect(result.token).toBe("lin_api_abc123");
+      expect(result.warning).toContain("Bearer");
+    }
+  });
+
+  it("flags a JWT-shaped token as OAuth and includes an error", () => {
+    const result = classifyLinearApiKey(
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+    );
+    expect(result.kind).toBe("oauth-token");
+    if (result.kind === "oauth-token") {
+      expect(result.token).toBeNull();
+      expect(result.error).toContain("OAuth");
+    }
+  });
+
+  it("returns empty for an empty string", () => {
+    const result = classifyLinearApiKey("");
+    expect(result).toEqual({ kind: "empty", token: null });
+  });
+
+  it("returns empty for a whitespace-only string", () => {
+    const result = classifyLinearApiKey("   ");
+    expect(result).toEqual({ kind: "empty", token: null });
+  });
+
+  it("fails the GraphQL request when the key is empty", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toThrow(/empty/i);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails the GraphQL request when the key is a JWT token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toThrow(/OAuth/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Linear error body logging", () => {
+  it("includes the full response body in the error message without truncation", async () => {
+    const longBody = "X".repeat(5000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(longBody, { status: 400, statusText: "Bad Request" })),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_abc",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toSatisfy((e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      return message.includes(longBody);
+    });
+  });
+});
+
+describe("Linear schema-deprecation hints", () => {
+  it("annotates GRAPHQL_VALIDATION_FAILED errors referencing branchName with a schema-drift hint", () => {
+    const body = JSON.stringify({
+      errors: [
+        {
+          message: 'Cannot query field "branchName" on type "Issue"',
+          extensions: { code: "GRAPHQL_VALIDATION_FAILED" },
+        },
+      ],
+    });
+    const fakeResponse = new Response(body, { status: 400 });
+    const message = formatLinearHttpError(
+      "SymphonyCandidateIssues",
+      fakeResponse,
+      JSON.parse(body),
+      body,
+    );
+    expect(message).toContain("Linear's GraphQL schema may have changed");
+    expect(message).toContain("branchName");
+  });
+
+  it("does not add a hint when the error is unrelated to known fields", () => {
+    const body = JSON.stringify({
+      errors: [{ message: "Unauthorized", extensions: { code: "UNAUTHORIZED" } }],
+    });
+    const fakeResponse = new Response(body, { status: 401 });
+    const message = formatLinearHttpError(
+      "SymphonyCandidateIssues",
+      fakeResponse,
+      JSON.parse(body),
+      body,
+    );
+    expect(message).not.toContain("schema may have changed");
   });
 });
