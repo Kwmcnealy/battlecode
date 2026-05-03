@@ -30,6 +30,17 @@ export interface GitHubRepositoryCloneUrls {
   readonly sshUrl: string;
 }
 
+export interface GitHubPullRequestFeedbackSignal {
+  readonly kind: "review" | "issue-comment" | "review-comment";
+  readonly id: string;
+  readonly state: string | null;
+  readonly body: string;
+  readonly authorLogin: string | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly url: string | null;
+}
+
 /**
  * GitHubCliShape - Service API for executing GitHub CLI commands.
  */
@@ -60,6 +71,14 @@ export interface GitHubCliShape {
     readonly cwd: string;
     readonly reference: string;
   }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+  /**
+   * List review, issue-comment, and inline review-comment feedback for a pull request.
+   */
+  readonly listPullRequestFeedbackSignals: (input: {
+    readonly cwd: string;
+    readonly reference: string;
+  }) => Effect.Effect<readonly GitHubPullRequestFeedbackSignal[], GitHubCliError>;
 
   /**
    * Resolve clone URLs for a GitHub repository.

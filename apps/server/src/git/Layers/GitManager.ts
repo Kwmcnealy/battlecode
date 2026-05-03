@@ -1203,6 +1203,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     modelSelection: ModelSelection,
     cwd: string,
     fallbackBranch: string | null,
+    baseBranchOverride: string | undefined,
     emit: GitActionProgressEmitter,
   ) {
     const details = yield* gitCore.statusDetails(cwd);
@@ -1237,7 +1238,9 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       };
     }
 
-    const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
+    const baseBranch =
+      baseBranchOverride ??
+      (yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext));
     yield* emit({
       kind: "phase_started",
       phase: "pr",
@@ -1675,7 +1678,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
               .pipe(
                 Effect.tap(() => Ref.set(currentPhase, Option.some("pr"))),
                 Effect.flatMap(() =>
-                  runPrStep(modelSelection, input.cwd, currentBranch, progress.emit),
+                  runPrStep(
+                    modelSelection,
+                    input.cwd,
+                    currentBranch,
+                    input.baseBranch,
+                    progress.emit,
+                  ),
                 ),
               )
           : { status: "skipped_not_requested" as const };
