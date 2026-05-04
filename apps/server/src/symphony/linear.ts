@@ -542,7 +542,7 @@ export function createLinearComment(input: {
           const data = readNestedRecord(body, "data");
           const commentCreate = data ? readNestedRecord(data, "commentCreate") : null;
           if (commentCreate?.success !== true) {
-            throw new Error("Linear did not create the Symphony cloud delegation comment.");
+            throw new Error("Linear did not create the Symphony progress comment.");
           }
           const comment = readRecord(commentCreate.comment);
           const id = comment ? readString(comment.id) : null;
@@ -670,7 +670,7 @@ export function detectLinearCodexTask(input: {
     },
   }).pipe(
     Effect.map(() => {
-      // Codex Cloud reply classification removed; cloud delegation is no longer supported.
+      // Cloud delegation was removed; this function returns a stub result.
       return {
         status: "unknown",
         taskUrl: null,

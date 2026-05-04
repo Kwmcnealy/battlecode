@@ -102,8 +102,7 @@ export function SymphonySettingsPanel() {
         }
       },
       saveApiKey: async (key) => {
-        const next = await api.symphony.setLinearApiKey({ projectId, key });
-        setSettings(next);
+        await api.symphony.setLinearApiKey({ projectId, key });
       },
       fetchProjects: (key) => api.symphony.fetchLinearProjects({ projectId, apiKey: key }),
       fetchStates: (key, project) =>

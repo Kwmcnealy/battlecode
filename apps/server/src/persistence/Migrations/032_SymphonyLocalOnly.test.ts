@@ -5,10 +5,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
-function hasColumn(columns: readonly { readonly name: string }[], columnName: string): boolean {
-  return columns.some((column) => column.name === columnName);
-}
-
 // Each "layer" call creates a fresh in-memory DB for its test group.
 
 it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()))(

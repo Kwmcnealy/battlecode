@@ -2,7 +2,6 @@ import {
   ApprovalRequestId,
   OrchestrationEvent,
   ProjectId,
-  SymphonyApplyConfigurationInput,
   SymphonyError,
   SymphonyEvent,
   SymphonyIssueId,
@@ -59,7 +58,6 @@ import {
   buildFixPrompt,
   buildImplementationPrompt,
   buildPlanningPrompt,
-  buildReviewPrompt,
   buildSimplificationPrompt,
 } from "../prompts.ts";
 import {
@@ -107,12 +105,7 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const NON_INTERACTIVE_USER_INPUT_RESPONSE =
   "Continue if possible. If this cannot be answered non-interactively, record the blocker clearly in the thread.";
 
-type ReconcileReason =
-  | "scheduler"
-  | "manual-refresh"
-  | "cloud-refresh"
-  | "thread-event"
-  | "candidate-refresh";
+type ReconcileReason = "scheduler" | "manual-refresh" | "thread-event" | "candidate-refresh";
 
 interface ReconciledRunResult {
   readonly run: SymphonyRun;
@@ -2271,8 +2264,6 @@ const makeSymphonyService = Effect.gen(function* () {
       const runs = yield* repository
         .listRuns(projectId)
         .pipe(Effect.mapError(toSymphonyError("Failed to load Symphony runs.")));
-      const readModel = yield* orchestrationEngine.getReadModel();
-      const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const runningCount = runs.filter((run) => {
         if (run.archivedAt !== null) return false;
         // Only planning + implementing consume a Codex turn slot.

@@ -5,10 +5,7 @@ export type SymphonySettingsBusyAction =
   | "load"
   | "save-workflow"
   | "create-workflow"
-  | "validate-workflow"
-  | "set-key"
-  | "test-key"
-  | "delete-key";
+  | "validate-workflow";
 
 export function statusBadgeClassName(status: SymphonySettings["workflowStatus"]["status"]) {
   if (status === "valid") return "border-success/50 bg-success/10 text-success";

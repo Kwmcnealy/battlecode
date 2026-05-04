@@ -17,7 +17,6 @@ import { Button } from "../ui/button";
 import {
   PHASE_BADGE_CLASSNAME,
   formatLifecyclePhase,
-  formatStatus,
   type SymphonyAction,
 } from "./symphonyDisplay";
 import { SymphonyEmptyState } from "./SymphonyEmptyState";
