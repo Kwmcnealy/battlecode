@@ -101,6 +101,10 @@ export function SymphonySettingsPanel() {
           return { ok: false, error: cause instanceof Error ? cause.message : "Validation failed" };
         }
       },
+      saveApiKey: async (key) => {
+        const next = await api.symphony.setLinearApiKey({ projectId, key });
+        setSettings(next);
+      },
       fetchProjects: (key) => api.symphony.fetchLinearProjects({ projectId, apiKey: key }),
       fetchStates: (key, project) =>
         api.symphony.fetchLinearWorkflowStates({ projectId, apiKey: key, teamId: project.teamId }),

@@ -9,6 +9,7 @@ import { WizardProgress } from "./WizardProgress.tsx";
 
 export interface SettingsWizardApi {
   readonly validateKey: (key: string) => Promise<{ ok: boolean; error?: string }>;
+  readonly saveApiKey: (key: string) => Promise<void>;
   readonly fetchProjects: (key: string) => Promise<readonly SymphonyLinearProject[]>;
   readonly fetchStates: (
     key: string,
@@ -54,7 +55,17 @@ export function SettingsWizard(props: SettingsWizardProps) {
   }
 
   async function handleSave() {
-    if (!project || !mapping) return;
+    if (!project || !mapping || !apiKey) return;
+    try {
+      // Persist the API key to the OS secret store first so polling can use it.
+      await props.api.saveApiKey(apiKey);
+    } catch (cause) {
+      setSaved({
+        ok: false,
+        error: cause instanceof Error ? cause.message : "Failed to save Linear API key.",
+      });
+      return;
+    }
     const result = await props.api.applyConfiguration({
       trackerProjectSlugId: project.slugId,
       trackerProjectName: project.name,

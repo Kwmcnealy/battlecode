@@ -8,6 +8,7 @@ import { SettingsWizard } from "./SettingsWizard.tsx";
 
 const noopApi = {
   validateKey: vi.fn().mockResolvedValue({ ok: true }),
+  saveApiKey: vi.fn().mockResolvedValue(undefined),
   fetchProjects: vi
     .fn()
     .mockResolvedValue([
