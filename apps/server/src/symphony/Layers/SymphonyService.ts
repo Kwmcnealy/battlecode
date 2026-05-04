@@ -1525,12 +1525,12 @@ const makeSymphonyService = Effect.gen(function* () {
           .filter((run): run is NonNullable<typeof run> => run !== null)
           .map((run) => [run.issue.id, run] as const),
       );
+      // Only planning + implementing consume a Codex turn slot.
+      // intake and in-review do not count toward the concurrency cap.
       const runningCount = existingRunsBeforeRefresh.filter(
         (run) =>
           run.archivedAt === null &&
-          (run.status === "planning" ||
-            run.status === "implementing" ||
-            run.status === "in-review"),
+          (run.status === "planning" || run.status === "implementing"),
       ).length;
       const schedulerDecisions = decideSchedulerActions({
         candidates: issues.map((issue) => ({
@@ -1548,7 +1548,7 @@ const makeSymphonyService = Effect.gen(function* () {
           lastSeenLinearState: null,
         })),
         intakeStates: intakeStateNames(workflow.config.tracker),
-        capacity: workflow.config.agent.maxConcurrentAgents,
+        capacity: workflow.config.concurrency.max,
         runningCount,
       });
 
@@ -2276,11 +2276,11 @@ const makeSymphonyService = Effect.gen(function* () {
       const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
       const runningCount = runs.filter((run) => {
         if (run.archivedAt !== null) return false;
-        return (
-          run.status === "planning" || run.status === "implementing" || run.status === "in-review"
-        );
+        // Only planning + implementing consume a Codex turn slot.
+        // intake and in-review do not count toward the concurrency cap.
+        return run.status === "planning" || run.status === "implementing";
       }).length;
-      const capacity = Math.max(0, workflow.config.agent.maxConcurrentAgents - runningCount);
+      const capacity = Math.max(0, workflow.config.concurrency.max - runningCount);
       if (capacity === 0) return;
 
       const candidates = runs
@@ -2344,7 +2344,7 @@ const makeSymphonyService = Effect.gen(function* () {
               branchName: prepared.branchName,
             });
           }),
-        { concurrency: workflow.config.agent.maxConcurrentAgents },
+        { concurrency: workflow.config.concurrency.max },
       );
     });
 
