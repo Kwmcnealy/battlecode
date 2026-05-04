@@ -1,5 +1,9 @@
 import { useState } from "react";
 
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Spinner } from "../ui/spinner";
+
 export interface LinearKeyValidationResult {
   readonly ok: boolean;
   readonly error?: string;
@@ -15,7 +19,7 @@ export function LinearKeyInput(props: LinearKeyInputProps) {
   const [error, setError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
 
-  async function handleBlur() {
+  async function handleValidate() {
     if (value.trim().length === 0) {
       setError(null);
       return;
@@ -32,19 +36,35 @@ export function LinearKeyInput(props: LinearKeyInputProps) {
   }
 
   return (
-    <div>
-      <label htmlFor="linear-api-key">Linear API key</label>
-      <input
-        id="linear-api-key"
-        type="password"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={handleBlur}
-        placeholder="lin_api_..."
-        disabled={validating}
-      />
-      {validating ? <p>Validating...</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
+    <div className="flex flex-col gap-2">
+      <label htmlFor="wizard-linear-api-key" className="text-sm font-medium">
+        Linear API key
+      </label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          id="wizard-linear-api-key"
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={handleValidate}
+          placeholder="lin_api_..."
+          disabled={validating}
+          autoComplete="off"
+        />
+        <Button
+          size="xs"
+          disabled={validating || value.trim().length === 0}
+          onClick={handleValidate}
+        >
+          {validating ? <Spinner className="size-3" /> : null}
+          Validate
+        </Button>
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

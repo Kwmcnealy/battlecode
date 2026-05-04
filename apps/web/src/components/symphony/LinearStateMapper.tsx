@@ -76,25 +76,33 @@ export function LinearStateMapper(props: LinearStateMapperProps) {
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-3">
       {props.states.map((state) => (
-        <fieldset key={state.id}>
-          <legend>{state.name}</legend>
-          {SLOTS.map((slot) => {
-            const labelText = `${state.name} (${slot})`;
-            const inputId = `state-${state.id}-${slot}`;
-            return (
-              <span key={slot}>
-                <input
-                  id={inputId}
-                  type="checkbox"
-                  checked={mapping[slot].has(state.name)}
-                  onChange={() => toggle(slot, state.name)}
-                />
-                <label htmlFor={inputId}>{labelText}</label>
-              </span>
-            );
-          })}
+        <fieldset
+          key={state.id}
+          className="flex flex-col gap-2 rounded-md border border-input/40 px-3 py-2"
+        >
+          <legend className="text-sm font-medium">{state.name}</legend>
+          <div className="flex flex-wrap gap-3">
+            {SLOTS.map((slot) => {
+              const labelText = `${state.name} (${slot})`;
+              const inputId = `state-${state.id}-${slot}`;
+              return (
+                <span key={slot} className="inline-flex items-center gap-1.5 text-xs">
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    checked={mapping[slot].has(state.name)}
+                    onChange={() => toggle(slot, state.name)}
+                    className="size-3.5 cursor-pointer accent-primary"
+                  />
+                  <label htmlFor={inputId} className="cursor-pointer">
+                    {labelText}
+                  </label>
+                </span>
+              );
+            })}
+          </div>
         </fieldset>
       ))}
     </div>
