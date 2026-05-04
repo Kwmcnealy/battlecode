@@ -1006,7 +1006,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       projectRootRef.current = projectRoot;
       const repository = yield* SymphonyRepository;
       const service = yield* SymphonyService;
-      const planMarkdown = "- [ ] Update contracts\n- [ ] Implement workflow phases";
+      // New protocol: agent emits SYMPHONY_PLAN_BEGIN/END markers in a message.
       const thread = makeThread({
         worktreePath: projectRoot,
         latestTurn: {
@@ -1015,15 +1015,15 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
           requestedAt: CREATED_AT,
           startedAt: CREATED_AT,
           completedAt: "2026-05-02T12:10:00.000Z",
-          assistantMessageId: null,
+          assistantMessageId: "message-plan" as never,
         },
-        proposedPlans: [
+        messages: [
           {
-            id: "plan-1",
+            id: "message-plan" as never,
+            role: "assistant",
+            text: "SYMPHONY_PLAN_BEGIN\n- [ ] Update contracts\n- [ ] Implement workflow phases\nSYMPHONY_PLAN_END",
             turnId: "turn-plan" as never,
-            planMarkdown,
-            implementedAt: null,
-            implementationThreadId: null,
+            streaming: false,
             createdAt: "2026-05-02T12:09:00.000Z",
             updatedAt: "2026-05-02T12:09:00.000Z",
           },
@@ -1083,196 +1083,36 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
     }),
   );
 
-  it.effect("creates a development PR after a clean review pass", () =>
+  it.effect("transitions to in-review when agent emits SYMPHONY_PR_URL", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
       projectRootRef.current = projectRoot;
       const repository = yield* SymphonyRepository;
       const service = yield* SymphonyService;
       const planMarkdown = "- [x] Update contracts\n- [x] Implement workflow phases";
+      // New protocol: agent emits SYMPHONY_PR_URL after running gh pr create.
+      const prUrl = "https://github.com/t3/battlecode/pull/99";
       const thread = makeThread({
         worktreePath: projectRoot,
         latestTurn: {
-          turnId: "turn-review" as never,
+          turnId: "turn-impl" as never,
           state: "completed",
           requestedAt: CREATED_AT,
           startedAt: CREATED_AT,
           completedAt: "2026-05-02T12:20:00.000Z",
-          assistantMessageId: "message-review" as never,
+          assistantMessageId: "message-impl" as never,
         },
         messages: [
           {
-            id: "message-review" as never,
+            id: "message-impl" as never,
             role: "assistant",
-            text: "REVIEW_PASS: tests cover the workflow",
-            turnId: "turn-review" as never,
+            text: `Done! ${prUrl}\nSYMPHONY_PR_URL: ${prUrl}`,
+            turnId: "turn-impl" as never,
             streaming: false,
             createdAt: "2026-05-02T12:19:00.000Z",
             updatedAt: "2026-05-02T12:19:00.000Z",
           },
         ],
-      });
-      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
-      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
-        Effect.succeed([makeLinearContext("Human Review")]),
-      );
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "implementing",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          threadId: thread.id,
-          currentStep: {
-            source: "symphony",
-            label: "Reviewing implementation",
-            detail: planMarkdown,
-            updatedAt: CREATED_AT,
-          },
-          attempts: [
-            {
-              attempt: 1,
-              status: "streaming-turn",
-              startedAt: CREATED_AT,
-              completedAt: null,
-              error: null,
-            },
-          ],
-        }),
-      );
-
-      yield* service.refresh({ projectId: PROJECT_ID });
-
-      expect(gitManagerMocks.runStackedAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "commit_push_pr",
-          baseBranch: "development",
-        }),
-        undefined,
-      );
-      expect(linearMocks.updateLinearIssueState).toHaveBeenCalledWith(
-        expect.objectContaining({ stateName: "Human Review" }),
-      );
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "in-review");
-      assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
-      assert.strictEqual(run?.pullRequest?.baseBranch, "development");
-      assert.strictEqual(run?.qualityGate.lastReviewSummary, "tests cover the workflow");
-    }),
-  );
-
-  it.effect("updates an existing PR after a clean review pass", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-      const planMarkdown = "- [x] Update existing PR";
-      const thread = makeThread({
-        worktreePath: projectRoot,
-        latestTurn: {
-          turnId: "turn-review-existing-pr" as never,
-          state: "completed",
-          requestedAt: CREATED_AT,
-          startedAt: CREATED_AT,
-          completedAt: "2026-05-02T12:20:00.000Z",
-          assistantMessageId: "message-review-existing-pr" as never,
-        },
-        messages: [
-          {
-            id: "message-review-existing-pr" as never,
-            role: "assistant",
-            text: "REVIEW_PASS: existing PR is ready",
-            turnId: "turn-review-existing-pr" as never,
-            streaming: false,
-            createdAt: "2026-05-02T12:19:00.000Z",
-            updatedAt: "2026-05-02T12:19:00.000Z",
-          },
-        ],
-      });
-      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
-      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
-        Effect.succeed([makeLinearContext("Human Review")]),
-      );
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "implementing",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          threadId: thread.id,
-          prUrl: "https://github.com/t3/battlecode/pull/42",
-          pullRequest: {
-            number: 42,
-            title: "Fix cloud lifecycle",
-            url: "https://github.com/t3/battlecode/pull/42",
-            baseBranch: "development",
-            headBranch: "symphony/bc-1",
-            state: "open",
-            updatedAt: "2026-05-02T12:10:00.000Z",
-          },
-          currentStep: {
-            source: "symphony",
-            label: "Reviewing implementation",
-            detail: planMarkdown,
-            updatedAt: CREATED_AT,
-          },
-          attempts: [
-            {
-              attempt: 1,
-              status: "streaming-turn",
-              startedAt: CREATED_AT,
-              completedAt: null,
-              error: null,
-            },
-          ],
-        }),
-      );
-
-      yield* service.refresh({ projectId: PROJECT_ID });
-
-      expect(gitManagerMocks.runStackedAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "commit_push_pr",
-          baseBranch: "development",
-        }),
-        undefined,
-      );
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "in-review");
-      assert.strictEqual(run?.prUrl, "https://github.com/t3/battlecode/pull/42");
-    }),
-  );
-
-  it.effect("fails a no-op fix turn instead of looping", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const reviewedCommit = yield* initializeGitRepository(projectRoot);
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-      const thread = makeThread({
-        worktreePath: projectRoot,
-        latestTurn: {
-          turnId: "turn-fix" as never,
-          state: "completed",
-          requestedAt: CREATED_AT,
-          startedAt: CREATED_AT,
-          completedAt: "2026-05-02T12:40:00.000Z",
-          assistantMessageId: "message-fix" as never,
-        },
       });
       orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
       linearMocks.fetchLinearIssuesByIds.mockReturnValue(
@@ -1282,69 +1122,218 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       yield* runMigrations();
       yield* insertProjectionProject(projectRoot);
       yield* configureWorkflowSettings;
-      const baseRun = makeServiceRun();
-      yield* repository.upsertRun({
-        ...baseRun,
-        status: "implementing",
-        workspacePath: projectRoot,
-        branchName: "symphony/bc-1",
-        threadId: thread.id,
-        currentStep: {
-          source: "symphony",
-          label: "Fixing review findings",
-          detail: "- [x] Existing plan",
-          updatedAt: CREATED_AT,
-        },
-        qualityGate: {
-          ...baseRun.qualityGate,
-          lastReviewedCommit: reviewedCommit,
-          lastFeedbackFingerprint: "feedback-hash",
-        },
-        attempts: [
-          {
-            attempt: 1,
-            status: "streaming-turn",
-            startedAt: CREATED_AT,
-            completedAt: null,
-            error: null,
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "implementing",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          threadId: thread.id,
+          currentStep: {
+            source: "symphony",
+            label: "Implementing approved plan",
+            detail: planMarkdown,
+            updatedAt: CREATED_AT,
           },
-        ],
-      });
+          attempts: [
+            {
+              attempt: 1,
+              status: "streaming-turn",
+              startedAt: CREATED_AT,
+              completedAt: null,
+              error: null,
+            },
+          ],
+        }),
+      );
 
       yield* service.refresh({ projectId: PROJECT_ID });
 
+      expect(linearMocks.updateLinearIssueState).toHaveBeenCalledWith(
+        expect.objectContaining({ stateName: "Human Review" }),
+      );
       const run = yield* repository.getRunByIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "failed");
-      assert.match(run?.lastError ?? "", /without code, test, or documentation changes/);
-      expect(orchestrationState.dispatchedCommands).toHaveLength(0);
+      assert.strictEqual(run?.status, "in-review");
+      assert.strictEqual(run?.prUrl, prUrl);
     }),
   );
 
-  it.effect("fails instead of starting a new phase after max turns", () =>
+  it.effect("falls through to continuation when implementing turn completes without SYMPHONY_PR_URL", () =>
     Effect.gen(function* () {
       const projectRoot = yield* writeWorkflow;
       projectRootRef.current = projectRoot;
       const repository = yield* SymphonyRepository;
       const service = yield* SymphonyService;
+      const planMarkdown = "- [x] Update existing PR";
+      // No SYMPHONY_PR_URL emitted → falls through to reconcileRunSignals.
       const thread = makeThread({
         worktreePath: projectRoot,
         latestTurn: {
-          turnId: "turn-review-fail" as never,
+          turnId: "turn-impl-no-url" as never,
+          state: "completed",
+          requestedAt: CREATED_AT,
+          startedAt: CREATED_AT,
+          completedAt: "2026-05-02T12:20:00.000Z",
+          assistantMessageId: "message-impl-no-url" as never,
+        },
+        messages: [
+          {
+            id: "message-impl-no-url" as never,
+            role: "assistant",
+            text: "I finished implementing but forgot to emit the PR URL marker.",
+            turnId: "turn-impl-no-url" as never,
+            streaming: false,
+            createdAt: "2026-05-02T12:19:00.000Z",
+            updatedAt: "2026-05-02T12:19:00.000Z",
+          },
+        ],
+      });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("In Progress")]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "implementing",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          threadId: thread.id,
+          currentStep: {
+            source: "symphony",
+            label: "Implementing approved plan",
+            detail: planMarkdown,
+            updatedAt: CREATED_AT,
+          },
+          attempts: [
+            {
+              attempt: 1,
+              status: "streaming-turn",
+              startedAt: CREATED_AT,
+              completedAt: null,
+              error: null,
+            },
+          ],
+        }),
+      );
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      // No PR URL → falls through to continuation turn.
+      const continuationTurn = orchestrationState.dispatchedCommands.findLast(
+        (command) => command.type === "thread.turn.start",
+      );
+      assert.ok(continuationTurn);
+      if (continuationTurn.type !== "thread.turn.start") {
+        throw new Error(`Expected turn start command, received ${continuationTurn.type}.`);
+      }
+      assert.match(continuationTurn.message.text, /continuation turn/i);
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "implementing");
+    }),
+  );
+
+  it.effect("continues an implementing turn with no SYMPHONY_PR_URL when Linear is active", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      // Thread completes with no PR URL marker. Linear issue is still active.
+      const thread = makeThread({
+        worktreePath: projectRoot,
+        latestTurn: {
+          turnId: "turn-impl-active" as never,
+          state: "completed",
+          requestedAt: CREATED_AT,
+          startedAt: CREATED_AT,
+          completedAt: "2026-05-02T12:40:00.000Z",
+          assistantMessageId: "message-impl-active" as never,
+        },
+        messages: [
+          {
+            id: "message-impl-active" as never,
+            role: "assistant",
+            text: "Working on it, still in progress.",
+            turnId: "turn-impl-active" as never,
+            streaming: false,
+            createdAt: "2026-05-02T12:39:00.000Z",
+            updatedAt: "2026-05-02T12:39:00.000Z",
+          },
+        ],
+      });
+      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+        Effect.succeed([makeLinearContext("In Progress")]),
+      );
+
+      yield* runMigrations();
+      yield* insertProjectionProject(projectRoot);
+      yield* configureWorkflowSettings;
+      yield* repository.upsertRun(
+        makeServiceRun({
+          status: "implementing",
+          workspacePath: projectRoot,
+          branchName: "symphony/bc-1",
+          threadId: thread.id,
+          attempts: [
+            {
+              attempt: 1,
+              status: "streaming-turn",
+              startedAt: CREATED_AT,
+              completedAt: null,
+              error: null,
+            },
+          ],
+        }),
+      );
+
+      yield* service.refresh({ projectId: PROJECT_ID });
+
+      // No PR URL → falls through to reconcileRunSignals → starts continuation turn.
+      const run = yield* repository.getRunByIssue({
+        projectId: PROJECT_ID,
+        issueId: ISSUE_ID,
+      });
+      assert.strictEqual(run?.status, "implementing");
+      const continuationTurn = orchestrationState.dispatchedCommands.findLast(
+        (command) => command.type === "thread.turn.start",
+      );
+      assert.ok(continuationTurn);
+    }),
+  );
+
+  it.effect("schedules a continuation delay when max turns reached and Linear is active", () =>
+    Effect.gen(function* () {
+      const projectRoot = yield* writeWorkflow;
+      projectRootRef.current = projectRoot;
+      const repository = yield* SymphonyRepository;
+      const service = yield* SymphonyService;
+      // Thread completes with no SYMPHONY_PR_URL. Run has 20 attempts (= maxTurns).
+      const thread = makeThread({
+        worktreePath: projectRoot,
+        latestTurn: {
+          turnId: "turn-max" as never,
           state: "completed",
           requestedAt: CREATED_AT,
           startedAt: CREATED_AT,
           completedAt: "2026-05-02T12:45:00.000Z",
-          assistantMessageId: "message-review-fail" as never,
+          assistantMessageId: "message-max" as never,
         },
         messages: [
           {
-            id: "message-review-fail" as never,
+            id: "message-max" as never,
             role: "assistant",
-            text: "REVIEW_FAIL: missing validation\n- Add validation.",
-            turnId: "turn-review-fail" as never,
+            text: "Still working, no PR yet.",
+            turnId: "turn-max" as never,
             streaming: false,
             createdAt: "2026-05-02T12:44:00.000Z",
             updatedAt: "2026-05-02T12:44:00.000Z",
@@ -1368,7 +1357,7 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
         threadId: thread.id,
         currentStep: {
           source: "symphony",
-          label: "Reviewing implementation",
+          label: "Implementing",
           detail: "- [x] Existing plan",
           updatedAt: CREATED_AT,
         },
@@ -1383,12 +1372,14 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
 
       yield* service.refresh({ projectId: PROJECT_ID });
 
+      // At maxTurns, scheduleLocalContinuationDelay is called — run stays implementing
+      // with nextRetryAt set, and no new turn is dispatched yet.
       const run = yield* repository.getRunByIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,
       });
-      assert.strictEqual(run?.status, "failed");
-      assert.match(run?.lastError ?? "", /configured max_turns/);
+      assert.strictEqual(run?.status, "implementing");
+      assert.ok(run?.nextRetryAt !== null, "nextRetryAt should be set after continuation delay");
       expect(orchestrationState.dispatchedCommands).toHaveLength(0);
     }),
   );

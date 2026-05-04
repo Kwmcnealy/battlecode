@@ -54,17 +54,7 @@ import {
   RECOVERABLE_MONITORED_RUN_STATUSES,
   isRecoverableLegacyCanceledRun,
 } from "../lifecyclePolicy.ts";
-import {
-  buildFixPrompt,
-  buildSimplificationPrompt,
-  doingPrompt,
-  planningPrompt,
-} from "../prompts.ts";
-import {
-  extractLatestAssistantText,
-  extractLatestPlanMarkdown,
-  extractReviewOutcome,
-} from "../threadOutputParser.ts";
+import { doingPrompt, planningPrompt } from "../prompts.ts";
 import { transitionLinearState, upsertManagedComment } from "../linearWriter.ts";
 import { decideNextAction } from "../orchestrator.ts";
 import { decideArchive } from "../reconciler.ts";
@@ -255,18 +245,21 @@ function statusFromPullRequestState(
   return fallback;
 }
 
-function issuePromptInput(run: SymphonyRun) {
-  return {
-    issueId: run.issue.identifier,
-    title: run.issue.title,
-    description: run.issue.description,
-  };
-}
-
 function runPlanMarkdown(run: SymphonyRun): string | null {
   const detail = run.currentStep?.detail?.trim();
   if (detail?.includes("- [")) return detail;
   return null;
+}
+
+/**
+ * Concatenate all completed assistant message text from an OrchestrationThread
+ * into a single string for marker-based parsing.
+ */
+function collectThreadOutput(thread: OrchestrationThread): string {
+  return thread.messages
+    .filter((m) => m.role === "assistant" && !m.streaming && m.text.trim().length > 0)
+    .map((m) => m.text)
+    .join("\n");
 }
 
 function continuationDelayIso(now = Date.now()): string {
@@ -2641,13 +2634,24 @@ const makeSymphonyService = Effect.gen(function* () {
             .pipe(Effect.mapError(toSymphonyError("Failed to update completed Symphony attempt.")));
         }
         if (attemptedRun.status === "planning") {
-          void decideNextAction;
-          const planMarkdown = extractLatestPlanMarkdown(thread);
-          if (!planMarkdown) {
+          const threadOutput = collectThreadOutput(thread);
+          const orchestratorAction = decideNextAction({
+            run: {
+              runId: attemptedRun.runId,
+              issueId: attemptedRun.issue.id,
+              status: attemptedRun.status,
+              archivedAt: attemptedRun.archivedAt,
+              // TODO(fix-5): use attemptedRun.lastSeenLinearState once Fix 5 wires the DB column.
+              lastSeenLinearState: null,
+            },
+            threadOutput,
+            threadComplete: true,
+          });
+          if (orchestratorAction.action === "fail") {
             const failedRun: SymphonyRun = {
               ...attemptedRun,
               status: "failed",
-              lastError: "Planning completed without a checklist plan.",
+              lastError: `Planning completed without a parseable plan (${orchestratorAction.reason}).`,
               updatedAt: completedAt,
             };
             yield* repository
@@ -2655,6 +2659,11 @@ const makeSymphonyService = Effect.gen(function* () {
               .pipe(Effect.mapError(toSymphonyError("Failed to mark planning as failed.")));
             return;
           }
+          if (orchestratorAction.action !== "advance-to-implementing") {
+            return;
+          }
+          const planSteps = orchestratorAction.plan;
+          const planMarkdown = planSteps.map((step) => `- [ ] ${step}`).join("\n");
           const plannedRun: SymphonyRun = {
             ...attemptedRun,
             status: "implementing",
@@ -2703,10 +2712,7 @@ const makeSymphonyService = Effect.gen(function* () {
                 branchName: withProgress.branchName ?? branchNameForIssue(run.issue.identifier),
                 bodyMarkdown: input.workflow.promptTemplate,
               },
-              plan: planMarkdown
-                .split("\n")
-                .map((line) => line.replace(/^\s*-\s*\[[ xX]\]\s*/, "").trim())
-                .filter(Boolean),
+              plan: planSteps,
             }),
             currentStepLabel: "Implementing approved plan",
             currentStepDetail: planMarkdown,
@@ -2714,168 +2720,60 @@ const makeSymphonyService = Effect.gen(function* () {
           return;
         }
 
-        // Detect review outcome when the implementing turn contains REVIEW_PASS/REVIEW_FAIL markers.
-        // TODO(phase-5): Replace with a dedicated "reviewing" status; markers drive this for now.
-        const reviewOutcome =
-          attemptedRun.status === "implementing"
-            ? extractReviewOutcome(extractLatestAssistantText(thread) ?? "")
-            : { status: "unknown" as const, summary: null, findings: [] };
-        if (attemptedRun.status === "implementing" && reviewOutcome.status !== "unknown") {
-          const outcome = reviewOutcome;
-          const passed = outcome.status === "pass";
-          const maxReviewFixLoops = input.workflow.config.quality?.maxReviewFixLoops ?? 1;
-          const remainingReviewLoops = maxReviewFixLoops - attemptedRun.qualityGate.reviewFixLoops;
-          const nextPhase: Extract<SymphonyRunStatus, "in-review" | "implementing" | "failed"> =
-            passed ? "in-review" : remainingReviewLoops > 0 ? "implementing" : "failed";
-          const reviewedCommit = attemptedRun.workspacePath
-            ? yield* readWorkspaceHeadCommit(attemptedRun.workspacePath)
-            : null;
-          const nextRun: SymphonyRun = {
-            ...attemptedRun,
-            status: nextPhase,
-            qualityGate: {
-              ...attemptedRun.qualityGate,
-              reviewFixLoops: passed
-                ? attemptedRun.qualityGate.reviewFixLoops
-                : attemptedRun.qualityGate.reviewFixLoops + 1,
-              lastReviewPassedAt: passed
-                ? completedAt
-                : attemptedRun.qualityGate.lastReviewPassedAt,
-              lastReviewSummary: outcome.summary,
-              lastReviewFindings: [...outcome.findings],
-              lastReviewedCommit: reviewedCommit ?? attemptedRun.qualityGate.lastReviewedCommit,
+        // Detect PR URL marker when the implementing turn completes.
+        // The agent emits SYMPHONY_PR_URL: <url> after creating the PR via `gh pr create`.
+        // When the marker is found, advance to in-review immediately.
+        // When not found, fall through to reconcileRunSignals for continuation/max-turns handling.
+        if (attemptedRun.status === "implementing") {
+          const threadOutput = collectThreadOutput(thread);
+          const orchestratorAction = decideNextAction({
+            run: {
+              runId: attemptedRun.runId,
+              issueId: attemptedRun.issue.id,
+              status: attemptedRun.status,
+              archivedAt: attemptedRun.archivedAt,
+              // TODO(fix-5): use attemptedRun.lastSeenLinearState once Fix 5 wires the DB column.
+              lastSeenLinearState: null,
             },
-            lastError: nextPhase === "failed" ? (outcome.summary ?? "Review failed.") : null,
-            currentStep: {
-              source: "symphony",
-              label: passed ? "Review passed" : "Review failed",
-              detail: outcome.summary,
-              updatedAt: completedAt,
-            },
-            updatedAt: completedAt,
-          };
-          yield* repository
-            .upsertRun(nextRun)
-            .pipe(Effect.mapError(toSymphonyError("Failed to persist review outcome.")));
-          const withProgress = yield* updateManagedProgressComment({
-            projectId: run.projectId,
-            workflow: input.workflow,
-            run: nextRun,
-            planMarkdown: runPlanMarkdown(attemptedRun),
-            statusLine: passed ? "Review passed" : "Review failed",
+            threadOutput,
+            threadComplete: true,
           });
-          if (nextPhase === "in-review") {
-            yield* createPullRequestForRun({
-              projectId: run.projectId,
-              workflow: input.workflow,
-              run: withProgress,
-            });
-            return;
-          }
-          if (nextPhase === "implementing") {
-            yield* startPhaseTurn({
-              projectId: run.projectId,
-              workflow: input.workflow,
-              run: withProgress,
-              phase: "implementing",
-              prompt: buildFixPrompt({
-                issue: issuePromptInput(run),
-                workflowPrompt: input.workflow.promptTemplate,
-                findings: outcome.findings,
-                pullRequestUrl: withProgress.prUrl ?? withProgress.pullRequest?.url ?? null,
-              }),
-              currentStepLabel: "Fixing review findings",
-              currentStepDetail: outcome.findings.join("\n"),
-            });
-          }
-          return;
-        }
-
-        // Detect "fixing" context: a review has already happened (lastFeedbackFingerprint set) and
-        // the implementing turn just completed. TODO(phase-5): replace with a dedicated status.
-        const isFixingContext =
-          attemptedRun.status === "implementing" &&
-          attemptedRun.qualityGate.lastFeedbackFingerprint !== null;
-        if (isFixingContext) {
-          const planMarkdown = runPlanMarkdown(attemptedRun);
-          const currentCommit = attemptedRun.workspacePath
-            ? yield* readWorkspaceHeadCommit(attemptedRun.workspacePath)
-            : null;
-          const workspaceStatus = attemptedRun.workspacePath
-            ? yield* git.statusDetails(attemptedRun.workspacePath).pipe(
-                Effect.mapError(() => null),
-                Effect.catch(() => Effect.succeed(null)),
-              )
-            : null;
-          const reviewedCommit = attemptedRun.qualityGate.lastReviewedCommit;
-          if (
-            reviewedCommit !== null &&
-            currentCommit === reviewedCommit &&
-            workspaceStatus?.hasWorkingTreeChanges !== true
-          ) {
-            const message =
-              "Fix phase completed without code, test, or documentation changes for the active feedback.";
-            const failedRun: SymphonyRun = {
+          if (orchestratorAction.action === "advance-to-in-review") {
+            const prUrl = orchestratorAction.prUrl;
+            const inReviewRun: SymphonyRun = {
               ...attemptedRun,
-              status: "failed",
-              nextRetryAt: null,
-              lastError: message,
+              status: "in-review",
+              prUrl,
               currentStep: {
                 source: "symphony",
-                label: "Fix made no changes",
-                detail: message,
+                label: "PR created",
+                detail: prUrl,
                 updatedAt: completedAt,
               },
               updatedAt: completedAt,
             };
             yield* repository
-              .upsertRun(failedRun)
-              .pipe(Effect.mapError(toSymphonyError("Failed to mark no-op fix as failed.")));
-            yield* updateManagedProgressComment({
+              .upsertRun(inReviewRun)
+              .pipe(Effect.mapError(toSymphonyError("Failed to persist in-review state.")));
+            const withProgress = yield* updateManagedProgressComment({
               projectId: run.projectId,
               workflow: input.workflow,
-              run: failedRun,
-              planMarkdown,
-              statusLine: message,
-              milestone: "Fix made no changes",
+              run: inReviewRun,
+              planMarkdown: runPlanMarkdown(attemptedRun),
+              statusLine: "PR created; pending review",
+              milestone: "PR opened",
             });
-            yield* emitProjectEvent({
+            yield* transitionLinearRunState({
               projectId: run.projectId,
-              issueId: run.issue.id,
-              runId: run.runId,
-              type: "run.failed",
-              message,
-              payload: { phase: "fixing", reviewedCommit },
+              workflow: input.workflow,
+              run: withProgress,
+              stateName: input.workflow.config.tracker.transitionStates.review,
+              reason: "pr-created",
             });
             return;
           }
-          const fixedRun: SymphonyRun = {
-            ...attemptedRun,
-            qualityGate: {
-              ...attemptedRun.qualityGate,
-              lastFixCommit: currentCommit ?? attemptedRun.qualityGate.lastFixCommit,
-            },
-          };
-          if (fixedRun !== attemptedRun) {
-            yield* repository
-              .upsertRun(fixedRun)
-              .pipe(Effect.mapError(toSymphonyError("Failed to persist fixed commit marker.")));
-          }
-          yield* startPhaseTurn({
-            projectId: run.projectId,
-            workflow: input.workflow,
-            run: fixedRun,
-            phase: "implementing",
-            prompt: buildSimplificationPrompt({
-              issue: issuePromptInput(run),
-              workflowPrompt: input.workflow.promptTemplate,
-              planMarkdown: planMarkdown ?? "",
-              phaseInstructions: input.workflow.config.quality?.simplificationPrompt ?? null,
-            }),
-            currentStepLabel: "Simplifying fixes",
-            currentStepDetail: planMarkdown,
-          });
-          return;
+          // No SYMPHONY_PR_URL marker found. Fall through to reconcileRunSignals which
+          // handles continuation turns, max-turns enforcement, and stall detection.
         }
 
         const linearIssue =
