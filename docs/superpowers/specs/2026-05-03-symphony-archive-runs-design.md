@@ -1,5 +1,9 @@
 # Symphony Archive Run Cleanup Design
 
+> **Note:** The archive-on-terminal-state behavior described here is preserved in the local-only
+> redesign (`docs/superpowers/specs/2026-05-03-symphony-local-only-redesign-design.md`). References
+> to "cloud execution" in this document are historical; Symphony is now local-only.
+
 ## Goal
 
 Give users a reliable way to clear stale Symphony issues without changing Linear state, while also making terminal Linear and GitHub signals automatically move finished or canceled runs into the local Archive bucket.

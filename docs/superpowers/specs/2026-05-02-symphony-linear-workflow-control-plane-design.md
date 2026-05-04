@@ -1,5 +1,9 @@
 # Symphony Linear Workflow Control Plane Design
 
+> **SUPERSEDED** by `docs/superpowers/specs/2026-05-03-symphony-local-only-redesign-design.md`.
+> The cloud/local hybrid lifecycle model described here was replaced by the local-only redesign.
+> This document is kept as a historical record only — do not implement it.
+
 ## Goal
 
 Make Symphony the normal control plane for future work. Linear remains the human-visible tracker, but Symphony owns the workflow truth for each ticket across local and cloud execution.

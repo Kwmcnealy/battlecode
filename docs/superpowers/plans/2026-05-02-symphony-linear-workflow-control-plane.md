@@ -1,5 +1,9 @@
 # Symphony Linear Workflow Control Plane Implementation Plan
 
+> **SUPERSEDED** by `docs/superpowers/specs/2026-05-03-symphony-local-only-redesign-design.md`.
+> The lifecycle control-plane model (cloud/local hybrid, LifecyclePhase) was replaced by the
+> local-only 7-state status model. This document is kept as a historical record only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Symphony the owner of Linear ticket planning, progress comments, agent phases, PR creation/reconciliation, and local/cloud lifecycle state.
