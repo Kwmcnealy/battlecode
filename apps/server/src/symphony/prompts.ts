@@ -171,28 +171,6 @@ function phaseInstructionBlock(instructions: string | null | undefined): string 
   return normalized ? ["Phase instructions", normalized].join("\n") : null;
 }
 
-/** @deprecated Use planningPrompt from this module after Task 4.6. */
-export function buildPlanningPrompt(input: BasePhasePromptInput): string {
-  return [
-    "You are in the Symphony planning phase.",
-    issueBlock(input.issue),
-    workflowBlock(input.workflowPrompt),
-    "Produce a comprehensive Markdown checklist plan for implementing this issue.",
-    "Do not write code in this phase.",
-  ].join("\n\n");
-}
-
-/** @deprecated Use doingPrompt from this module after Task 4.6. */
-export function buildImplementationPrompt(input: PlanPhasePromptInput): string {
-  return [
-    "You are in the Symphony implementation phase.",
-    issueBlock(input.issue),
-    workflowBlock(input.workflowPrompt),
-    planBlock(input.planMarkdown),
-    "Implement the approved plan. Keep Linear updates to Symphony.",
-  ].join("\n\n");
-}
-
 /** @deprecated Remove after Task 4.6 removes the simplification phase. */
 export function buildSimplificationPrompt(input: PlanPhasePromptInput): string {
   return [

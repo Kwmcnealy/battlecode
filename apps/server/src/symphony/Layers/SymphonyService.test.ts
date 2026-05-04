@@ -990,8 +990,8 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       if (turnStart.type !== "thread.turn.start") {
         throw new Error(`Expected turn start command, received ${turnStart.type}.`);
       }
-      assert.match(turnStart.message.text, /Symphony planning phase/);
-      assert.match(turnStart.message.text, /Do not write code in this phase/);
+      assert.match(turnStart.message.text, /SYMPHONY_PLAN_BEGIN/);
+      assert.match(turnStart.message.text, /Do not implement anything in this turn/);
       const run = yield* repository.getRunByIssue({
         projectId: PROJECT_ID,
         issueId: intakeIssueId,
@@ -1072,8 +1072,8 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
       if (implementationTurn.type !== "thread.turn.start") {
         throw new Error(`Expected turn start command, received ${implementationTurn.type}.`);
       }
-      assert.match(implementationTurn.message.text, /Symphony implementation phase/);
-      assert.match(implementationTurn.message.text, /Approved plan/);
+      assert.match(implementationTurn.message.text, /SYMPHONY_PR_URL/);
+      assert.match(implementationTurn.message.text, /## Plan/);
       const run = yield* repository.getRunByIssue({
         projectId: PROJECT_ID,
         issueId: ISSUE_ID,

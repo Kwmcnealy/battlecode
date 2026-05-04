@@ -56,9 +56,9 @@ import {
 } from "../lifecyclePolicy.ts";
 import {
   buildFixPrompt,
-  buildImplementationPrompt,
-  buildPlanningPrompt,
   buildSimplificationPrompt,
+  doingPrompt,
+  planningPrompt,
 } from "../prompts.ts";
 import {
   extractLatestAssistantText,
@@ -1949,9 +1949,20 @@ const makeSymphonyService = Effect.gen(function* () {
         workflow: input.workflow,
         run: withProgress,
         phase: "planning",
-        prompt: buildPlanningPrompt({
-          issue: issuePromptInput(input.run),
-          workflowPrompt: input.workflow.promptTemplate,
+        prompt: planningPrompt({
+          issue: {
+            id: input.run.issue.id,
+            identifier: input.run.issue.identifier,
+            title: input.run.issue.title,
+            description: input.run.issue.description,
+            url: input.run.issue.url,
+          },
+          workflow: {
+            validation: [],
+            prBaseBranch: input.workflow.config.pullRequest?.baseBranch ?? "development",
+            branchName: input.branchName,
+            bodyMarkdown: input.workflow.promptTemplate,
+          },
         }),
         currentStepLabel: "Planning",
         currentStepDetail: "Creating implementation plan",
@@ -2678,10 +2689,24 @@ const makeSymphonyService = Effect.gen(function* () {
             workflow: input.workflow,
             run: withProgress,
             phase: "implementing",
-            prompt: buildImplementationPrompt({
-              issue: issuePromptInput(run),
-              workflowPrompt: input.workflow.promptTemplate,
-              planMarkdown,
+            prompt: doingPrompt({
+              issue: {
+                id: run.issue.id,
+                identifier: run.issue.identifier,
+                title: run.issue.title,
+                description: run.issue.description,
+                url: run.issue.url,
+              },
+              workflow: {
+                validation: [],
+                prBaseBranch: input.workflow.config.pullRequest?.baseBranch ?? "development",
+                branchName: withProgress.branchName ?? branchNameForIssue(run.issue.identifier),
+                bodyMarkdown: input.workflow.promptTemplate,
+              },
+              plan: planMarkdown
+                .split("\n")
+                .map((line) => line.replace(/^\s*-\s*\[[ xX]\]\s*/, "").trim())
+                .filter(Boolean),
             }),
             currentStepLabel: "Implementing approved plan",
             currentStepDetail: planMarkdown,
