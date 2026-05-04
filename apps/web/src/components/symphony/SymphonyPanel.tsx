@@ -4,6 +4,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import type { EnvironmentId, ProjectId, SymphonyRun, SymphonySnapshot } from "@t3tools/contracts";
 
 import { ensureEnvironmentApi } from "../../environmentApi";
+import { selectThreadExistsByRef, useStore } from "../../store";
 import { useUiStateStore } from "../../uiStateStore";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -158,8 +159,16 @@ export function SymphonyPanel({
           issueId: run.issue.id,
         });
         if (result.threadId) {
-          onOpenThread(result.threadId);
-          setError(null);
+          const threadRef = { environmentId, threadId: result.threadId };
+          const threadExists = selectThreadExistsByRef(useStore.getState(), threadRef);
+          if (!threadExists) {
+            setError(
+              "This run's thread no longer exists. Click Retry to start a fresh thread.",
+            );
+          } else {
+            onOpenThread(result.threadId);
+            setError(null);
+          }
         } else {
           setError("This Symphony run does not have a linked chat thread yet.");
         }
@@ -169,7 +178,7 @@ export function SymphonyPanel({
         setLinkedThreadBusy(false);
       }
     },
-    [api, onOpenThread, projectId],
+    [api, environmentId, onOpenThread, projectId],
   );
 
   const { activeRuns, allRuns, archivedRuns } = useMemo(() => {
