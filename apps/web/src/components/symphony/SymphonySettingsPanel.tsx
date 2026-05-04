@@ -5,9 +5,9 @@ import { useShallow } from "zustand/react/shallow";
 import { ensureEnvironmentApi } from "../../environmentApi";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
 import { SettingsPageContainer } from "../settings/settingsLayout";
-import { LinearAuthSettings } from "./LinearAuthSettings";
 import { SymphonyProjectSelector } from "./SymphonyProjectSelector";
 import { SymphonySettingsEmptyState } from "./SymphonySettingsEmptyState";
+import { SettingsWizard, type SettingsWizardApi } from "./SettingsWizard";
 import type { SymphonySettingsBusyAction } from "./symphonySettingsDisplay";
 import { WorkflowSettingsSection } from "./WorkflowSettingsSection";
 
@@ -25,7 +25,6 @@ export function SymphonySettingsPanel() {
   );
   const [settings, setSettings] = useState<SymphonySettings | null>(null);
   const [workflowPath, setWorkflowPath] = useState("");
-  const [linearKey, setLinearKey] = useState("");
   const [busyAction, setBusyAction] = useState<SymphonySettingsBusyAction | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,12 +58,6 @@ export function SymphonySettingsPanel() {
     void loadSettings();
   }, [loadSettings]);
 
-  const updateLinearStatus = useCallback((status: SymphonySettings["linearSecret"]) => {
-    setSettings((current) =>
-      current ? { ...current, linearSecret: status, updatedAt: new Date().toISOString() } : current,
-    );
-  }, []);
-
   const runSettingsAction = useCallback(
     async (action: Exclude<SymphonySettingsBusyAction, "load">) => {
       if (!api || !selectedProject) return;
@@ -85,23 +78,6 @@ export function SymphonySettingsPanel() {
           const next = await api.symphony.validateWorkflow({ projectId: selectedProject.id });
           setSettings(next);
           setWorkflowPath(next.workflowPath);
-        } else if (action === "set-key") {
-          updateLinearStatus(
-            await api.symphony.setLinearApiKey({
-              projectId: selectedProject.id,
-              key: linearKey.trim(),
-            }),
-          );
-          setLinearKey("");
-        } else if (action === "test-key") {
-          updateLinearStatus(
-            await api.symphony.testLinearConnection({ projectId: selectedProject.id }),
-          );
-        } else if (action === "delete-key") {
-          updateLinearStatus(
-            await api.symphony.deleteLinearApiKey({ projectId: selectedProject.id }),
-          );
-          setLinearKey("");
         }
         setError(null);
       } catch (cause) {
@@ -110,8 +86,27 @@ export function SymphonySettingsPanel() {
         setBusyAction(null);
       }
     },
-    [api, linearKey, selectedProject, updateLinearStatus, workflowPath],
+    [api, selectedProject, workflowPath],
   );
+
+  const wizardApi = useMemo((): SettingsWizardApi | null => {
+    if (!api || !selectedProject) return null;
+    const projectId = selectedProject.id;
+    return {
+      validateKey: async (key) => {
+        try {
+          await api.symphony.fetchLinearProjects({ projectId, apiKey: key });
+          return { ok: true };
+        } catch (cause) {
+          return { ok: false, error: cause instanceof Error ? cause.message : "Validation failed" };
+        }
+      },
+      fetchProjects: (key) => api.symphony.fetchLinearProjects({ projectId, apiKey: key }),
+      fetchStates: (key, project) =>
+        api.symphony.fetchLinearWorkflowStates({ projectId, apiKey: key, teamId: project.teamId }),
+      applyConfiguration: (input) => api.symphony.applyConfiguration({ projectId, ...input }),
+    };
+  }, [api, selectedProject]);
 
   if (projects.length === 0 || !selectedProjectId || !selectedProject) {
     return <SymphonySettingsEmptyState />;
@@ -140,13 +135,7 @@ export function SymphonySettingsPanel() {
         runSettingsAction={(action) => void runSettingsAction(action)}
       />
 
-      <LinearAuthSettings
-        linearStatus={settings?.linearSecret ?? null}
-        linearKey={linearKey}
-        busyAction={busyAction}
-        setLinearKey={setLinearKey}
-        runSettingsAction={(action) => void runSettingsAction(action)}
-      />
+      {wizardApi ? <SettingsWizard api={wizardApi} /> : null}
     </SettingsPageContainer>
   );
 }
