@@ -1529,8 +1529,7 @@ const makeSymphonyService = Effect.gen(function* () {
       // intake and in-review do not count toward the concurrency cap.
       const runningCount = existingRunsBeforeRefresh.filter(
         (run) =>
-          run.archivedAt === null &&
-          (run.status === "planning" || run.status === "implementing"),
+          run.archivedAt === null && (run.status === "planning" || run.status === "implementing"),
       ).length;
       const schedulerDecisions = decideSchedulerActions({
         candidates: issues.map((issue) => ({
@@ -2529,6 +2528,48 @@ const makeSymphonyService = Effect.gen(function* () {
       }
 
       if (latestTurn.state === "running") {
+        // Stall detection: if the turn has been running longer than
+        // workflow.stall.timeoutMs (default 5min), kill the Codex session and
+        // mark the run failed. This frees the Codex slot and surfaces the stall
+        // to the user for manual Retry.
+        const turnStartedAtMs = latestTurn.startedAt
+          ? Date.parse(latestTurn.startedAt)
+          : Number.NaN;
+        const stallTimeoutMs = input.workflow.config.stall.timeoutMs;
+        const isStalled =
+          Number.isFinite(turnStartedAtMs) &&
+          Date.now() - turnStartedAtMs > stallTimeoutMs &&
+          (run.status === "planning" || run.status === "implementing");
+        if (isStalled) {
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.session.stop",
+              commandId: commandId("symphony-stall-stop"),
+              threadId: run.threadId,
+              createdAt: nowIso(),
+            })
+            .pipe(Effect.ignoreCause({ log: true }));
+          const failedRun: SymphonyRun = {
+            ...run,
+            status: "failed",
+            lastError: `stalled (no agent progress for ${stallTimeoutMs}ms)`,
+            updatedAt: nowIso(),
+          };
+          yield* repository
+            .upsertRun(failedRun)
+            .pipe(Effect.mapError(toSymphonyError("Failed to mark Symphony run stalled.")));
+          yield* emitProjectEvent({
+            projectId: run.projectId,
+            runId: run.runId,
+            issueId: run.issue.id,
+            type: "run.stalled",
+            message: `Run ${run.runId} stalled after ${stallTimeoutMs}ms; turn killed`,
+            payload: { runId: run.runId, stallTimeoutMs },
+          });
+          yield* publishSnapshotUpdate(run.projectId, { force: true });
+          return;
+        }
+
         const attempts = replaceLatestAttempt(run, { status: "streaming-turn" });
         const nextRun =
           attempts === run.attempts
