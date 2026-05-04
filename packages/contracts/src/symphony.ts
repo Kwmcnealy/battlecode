@@ -510,6 +510,5 @@ export type SymphonyApplyConfigurationInput = Schema.Schema.Type<
 >;
 
 export const SYMPHONY_FETCH_LINEAR_PROJECTS = "symphony.fetchLinearProjects" as const;
-export const SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES =
-  "symphony.fetchLinearWorkflowStates" as const;
+export const SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES = "symphony.fetchLinearWorkflowStates" as const;
 export const SYMPHONY_APPLY_CONFIGURATION = "symphony.applyConfiguration" as const;

@@ -3005,6 +3005,8 @@ const makeSymphonyService = Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
       const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
 
+      // Each run's reconciliation has its own catch boundary so a single
+      // run's failure does not affect sibling runs.
       yield* Effect.forEach(
         runs,
         (run) =>
@@ -3028,7 +3030,18 @@ const makeSymphonyService = Effect.gen(function* () {
               thread,
               reason: "scheduler",
             });
-          }),
+          }).pipe(
+            Effect.catch((error: SymphonyError) =>
+              emitProjectEvent({
+                projectId,
+                runId: run.runId,
+                issueId: run.issue.id,
+                type: "run.signal-warning",
+                message: `Reconciler tick failed for run ${run.runId}: ${error.message}`,
+                payload: { runId: run.runId, error: error.message },
+              }),
+            ),
+          ),
         { concurrency: 4 },
       );
     });
@@ -3086,14 +3099,28 @@ const makeSymphonyService = Effect.gen(function* () {
     );
   };
 
-  const runSchedulerTick = (projectId: ProjectId): Effect.Effect<void, SymphonyError> =>
+  const reconcilerTickForProject = (projectId: ProjectId): Effect.Effect<void, never> =>
+    reconcileProjectRuns(projectId).pipe(
+      Effect.catch((error: SymphonyError) =>
+        Effect.logError("Reconciler tick failed", { projectId, error: error.message }).pipe(
+          Effect.flatMap(() =>
+            emitProjectEvent({
+              projectId,
+              type: "runtime.warning",
+              message: `Reconciler tick failed: ${error.message}`,
+              payload: { symptom: "reconciler-tick", error: error.message },
+            }).pipe(Effect.ignoreCause({ log: false })),
+          ),
+          Effect.as(undefined as void),
+        ),
+      ),
+    );
+
+  const schedulerTickForProject = (
+    projectId: ProjectId,
+    runtimeState: { readonly status: string; readonly lastPollAt: string | null } | null,
+  ): Effect.Effect<void, never> =>
     Effect.gen(function* () {
-      const runtimeState = yield* repository
-        .getRuntimeState(projectId)
-        .pipe(Effect.mapError(toSymphonyError("Failed to load Symphony runtime state.")));
-
-      yield* reconcileProjectRuns(projectId);
-
       if (runtimeState?.status !== "running") return;
 
       const settings = yield* loadSettings(projectId);
@@ -3109,7 +3136,62 @@ const makeSymphonyService = Effect.gen(function* () {
       if (shouldPoll(runtimeState.lastPollAt, workflow.config.polling.schedulerIntervalMs)) {
         yield* refreshCandidates(projectId);
       }
+    }).pipe(
+      Effect.catch((error: SymphonyError) =>
+        Effect.logError("Scheduler poll tick failed", { projectId, error: error.message }).pipe(
+          Effect.flatMap(() =>
+            emitProjectEvent({
+              projectId,
+              type: "runtime.warning",
+              message: `Scheduler poll tick failed: ${error.message}`,
+              payload: { symptom: "scheduler-tick", error: error.message },
+            }).pipe(Effect.ignoreCause({ log: false })),
+          ),
+          Effect.as(undefined as void),
+        ),
+      ),
+    );
+
+  const launcherTickForProject = (
+    projectId: ProjectId,
+    runtimeState: { readonly status: string } | null,
+  ): Effect.Effect<void, never> =>
+    Effect.gen(function* () {
+      if (runtimeState?.status !== "running") return;
       yield* launchQueuedRuns(projectId);
+    }).pipe(
+      Effect.catch((error: SymphonyError) =>
+        Effect.logError("Launcher tick failed", { projectId, error: error.message }).pipe(
+          Effect.flatMap(() =>
+            emitProjectEvent({
+              projectId,
+              type: "runtime.warning",
+              message: `Launcher tick failed: ${error.message}`,
+              payload: { symptom: "launcher-tick", error: error.message },
+            }).pipe(Effect.ignoreCause({ log: false })),
+          ),
+          Effect.as(undefined as void),
+        ),
+      ),
+    );
+
+  const runSchedulerTick = (projectId: ProjectId): Effect.Effect<void, never> =>
+    Effect.gen(function* () {
+      const runtimeState = yield* repository.getRuntimeState(projectId).pipe(
+        Effect.mapError(toSymphonyError("Failed to load Symphony runtime state.")),
+        Effect.orElseSucceed(() => null),
+      );
+
+      // Run the three concerns as independent fault-isolated daemons. A failure
+      // in one does not propagate to the siblings.
+      yield* Effect.all(
+        [
+          reconcilerTickForProject(projectId),
+          schedulerTickForProject(projectId, runtimeState),
+          launcherTickForProject(projectId, runtimeState),
+        ],
+        { concurrency: "unbounded" },
+      );
     });
 
   const runExclusiveSchedulerTick = (projectId: ProjectId): Effect.Effect<void, never> =>
@@ -3124,7 +3206,6 @@ const makeSymphonyService = Effect.gen(function* () {
       Effect.flatMap((shouldRun) =>
         shouldRun
           ? runSchedulerTick(projectId).pipe(
-              Effect.ignoreCause({ log: true }),
               Effect.ensuring(
                 Ref.update(schedulerInFlight, (current) => {
                   const next = new Set(current);
@@ -3493,9 +3574,7 @@ const makeSymphonyService = Effect.gen(function* () {
 
       // Build the new YAML front matter from the wizard input.
       const stateYamlList = (arr: readonly string[]) =>
-        arr.length === 0
-          ? "[]"
-          : "\n" + arr.map((s) => `    - ${s}`).join("\n");
+        arr.length === 0 ? "[]" : "\n" + arr.map((s) => `    - ${s}`).join("\n");
 
       const validationLines =
         input.validation.length === 0
@@ -3525,9 +3604,7 @@ pull_request:
       const nextContent = `---\n${newFrontMatter}\n---\n\n${promptBody}\n`;
       yield* fs
         .writeFileString(workflowPath, nextContent)
-        .pipe(
-          Effect.mapError(toSymphonyError(`Failed to write workflow to ${workflowPath}.`)),
-        );
+        .pipe(Effect.mapError(toSymphonyError(`Failed to write workflow to ${workflowPath}.`)));
 
       // Update settings to point to this path and mark as unvalidated so it
       // gets revalidated on the next tick.

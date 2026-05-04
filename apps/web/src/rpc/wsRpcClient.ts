@@ -158,10 +158,7 @@ export interface WsRpcClient {
     }) => Promise<readonly SymphonyLinearWorkflowState[]>;
     readonly applyConfiguration: (
       input: SymphonyApplyConfigurationInput,
-    ) => Promise<
-      | { ok: true; reloaded: boolean }
-      | { ok: false; error: string }
-    >;
+    ) => Promise<{ ok: true; reloaded: boolean } | { ok: false; error: string }>;
   };
 }
 
@@ -338,13 +335,13 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           readonly SymphonyLinearProject[]
         >,
       fetchLinearWorkflowStates: (input) =>
-        transport.request(
-          (client) => client[SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES](input),
+        transport.request((client) =>
+          client[SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES](input),
         ) as Promise<readonly SymphonyLinearWorkflowState[]>,
       applyConfiguration: (input) =>
-        transport.request((client) =>
-          client[SYMPHONY_APPLY_CONFIGURATION](input),
-        ) as Promise<{ ok: true; reloaded: boolean } | { ok: false; error: string }>,
+        transport.request((client) => client[SYMPHONY_APPLY_CONFIGURATION](input)) as Promise<
+          { ok: true; reloaded: boolean } | { ok: false; error: string }
+        >,
     },
   };
 }

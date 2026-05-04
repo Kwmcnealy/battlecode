@@ -1005,9 +1005,7 @@ export function fetchLinearTeamsAndProjects(input: {
         catch: (cause) =>
           new SymphonyError({
             message:
-              cause instanceof Error
-                ? cause.message
-                : "Failed to parse Linear teams and projects.",
+              cause instanceof Error ? cause.message : "Failed to parse Linear teams and projects.",
             cause,
           }),
       }),
@@ -1051,9 +1049,7 @@ export function fetchLinearWorkflowStates(input: {
         catch: (cause) =>
           new SymphonyError({
             message:
-              cause instanceof Error
-                ? cause.message
-                : "Failed to parse Linear workflow states.",
+              cause instanceof Error ? cause.message : "Failed to parse Linear workflow states.",
             cause,
           }),
       }),

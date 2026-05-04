@@ -77,7 +77,8 @@ export interface SymphonyServiceShape {
   readonly applyConfiguration: (
     input: SymphonyApplyConfigurationInput,
   ) => Effect.Effect<
-    { readonly ok: true; readonly reloaded: boolean } | { readonly ok: false; readonly error: string },
+    | { readonly ok: true; readonly reloaded: boolean }
+    | { readonly ok: false; readonly error: string },
     SymphonyError
   >;
 }

@@ -332,10 +332,7 @@ export interface EnvironmentApi {
     }) => Promise<readonly SymphonyLinearWorkflowState[]>;
     applyConfiguration: (
       input: SymphonyApplyConfigurationInput,
-    ) => Promise<
-      | { ok: true; reloaded: boolean }
-      | { ok: false; error: string }
-    >;
+    ) => Promise<{ ok: true; reloaded: boolean } | { ok: false; error: string }>;
     subscribe: (
       input: SymphonyProjectInput,
       callback: (event: SymphonySubscribeEvent) => void,

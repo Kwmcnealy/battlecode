@@ -1499,8 +1499,20 @@ layer("SymphonyService wizard RPCs", (it) => {
       yield* configureWorkflowSettings;
 
       const projects: SymphonyLinearProject[] = [
-        { id: "proj-1", name: "Battlecode Alpha", slugId: "battlecode-alpha", teamId: "team-1", teamName: "Team Alpha" },
-        { id: "proj-2", name: "Battlecode Beta", slugId: "battlecode-beta", teamId: "team-2", teamName: "Team Beta" },
+        {
+          id: "proj-1",
+          name: "Battlecode Alpha",
+          slugId: "battlecode-alpha",
+          teamId: "team-1",
+          teamName: "Team Alpha",
+        },
+        {
+          id: "proj-2",
+          name: "Battlecode Beta",
+          slugId: "battlecode-beta",
+          teamId: "team-2",
+          teamName: "Team Beta",
+        },
       ];
       linearMocks.fetchLinearTeamsAndProjects.mockReturnValue(Effect.succeed(projects));
 
