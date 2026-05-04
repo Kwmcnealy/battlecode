@@ -931,18 +931,29 @@ export function fetchLinearCandidates(input: {
   return fetchPage(null, []);
 }
 
-const LINEAR_TEAMS_AND_PROJECTS_QUERY = `
-query SymphonyTeamsAndProjects {
+// Two-step fetch to stay under Linear's 10000 complexity budget on
+// workspaces with many teams + many projects. Step 1 gets a flat team list.
+// Step 2 fetches projects per team. Each query alone is cheap; N+1 total
+// requests but each well under the budget.
+const LINEAR_TEAMS_QUERY = `
+query SymphonyTeams {
   teams(first: 100) {
     nodes {
       id
       name
-      projects(first: 100) {
-        nodes {
-          id
-          name
-          slugId
-        }
+    }
+  }
+}
+`;
+
+const LINEAR_TEAM_PROJECTS_QUERY = `
+query SymphonyTeamProjects($teamId: String!) {
+  team(id: $teamId) {
+    projects(first: 100) {
+      nodes {
+        id
+        name
+        slugId
       }
     }
   }
@@ -964,16 +975,20 @@ query SymphonyTeamWorkflowStates($teamId: String!) {
 }
 `;
 
-export function fetchLinearTeamsAndProjects(input: {
+interface LinearTeamSummary {
+  readonly id: string;
+  readonly name: string;
+}
+
+function fetchLinearTeams(input: {
   readonly apiKey: string;
-  readonly endpoint?: string;
-}): Effect.Effect<readonly SymphonyLinearProject[], SymphonyError> {
-  const endpoint = input.endpoint ?? DEFAULT_LINEAR_ENDPOINT;
+  readonly endpoint: string;
+}): Effect.Effect<readonly LinearTeamSummary[], SymphonyError> {
   return linearGraphql({
-    endpoint,
+    endpoint: input.endpoint,
     apiKey: input.apiKey,
-    operationName: "SymphonyTeamsAndProjects",
-    query: LINEAR_TEAMS_AND_PROJECTS_QUERY,
+    operationName: "SymphonyTeams",
+    query: LINEAR_TEAMS_QUERY,
   }).pipe(
     Effect.flatMap((body) =>
       Effect.try({
@@ -981,36 +996,85 @@ export function fetchLinearTeamsAndProjects(input: {
           const data = readNestedRecord(body, "data");
           const teams = data ? readNestedRecord(data, "teams") : null;
           const teamNodes = teams ? readArray(teams.nodes) : [];
-          const projects: SymphonyLinearProject[] = [];
+          const result: LinearTeamSummary[] = [];
           for (const teamNode of teamNodes) {
             const team = readRecord(teamNode);
             if (!team) continue;
-            const teamId = readString(team.id);
-            const teamName = readString(team.name);
-            if (!teamId || !teamName) continue;
-            const teamProjects = readNestedRecord(team, "projects");
-            const projectNodes = teamProjects ? readArray(teamProjects.nodes) : [];
-            for (const projectNode of projectNodes) {
-              const project = readRecord(projectNode);
-              if (!project) continue;
-              const id = readString(project.id);
-              const name = readString(project.name);
-              const slugId = readString(project.slugId);
-              if (!id || !name || !slugId) continue;
-              projects.push({ id, name, slugId, teamId, teamName });
-            }
+            const id = readString(team.id);
+            const name = readString(team.name);
+            if (!id || !name) continue;
+            result.push({ id, name });
           }
-          return projects;
+          return result;
         },
         catch: (cause) =>
           new SymphonyError({
-            message:
-              cause instanceof Error ? cause.message : "Failed to parse Linear teams and projects.",
+            message: cause instanceof Error ? cause.message : "Failed to parse Linear teams.",
             cause,
           }),
       }),
     ),
   );
+}
+
+function fetchTeamProjects(input: {
+  readonly apiKey: string;
+  readonly endpoint: string;
+  readonly team: LinearTeamSummary;
+}): Effect.Effect<readonly SymphonyLinearProject[], SymphonyError> {
+  return linearGraphql({
+    endpoint: input.endpoint,
+    apiKey: input.apiKey,
+    operationName: "SymphonyTeamProjects",
+    query: LINEAR_TEAM_PROJECTS_QUERY,
+    variables: { teamId: input.team.id },
+  }).pipe(
+    Effect.flatMap((body) =>
+      Effect.try({
+        try: () => {
+          const data = readNestedRecord(body, "data");
+          const team = data ? readNestedRecord(data, "team") : null;
+          const teamProjects = team ? readNestedRecord(team, "projects") : null;
+          const projectNodes = teamProjects ? readArray(teamProjects.nodes) : [];
+          const result: SymphonyLinearProject[] = [];
+          for (const projectNode of projectNodes) {
+            const project = readRecord(projectNode);
+            if (!project) continue;
+            const id = readString(project.id);
+            const name = readString(project.name);
+            const slugId = readString(project.slugId);
+            if (!id || !name || !slugId) continue;
+            result.push({ id, name, slugId, teamId: input.team.id, teamName: input.team.name });
+          }
+          return result;
+        },
+        catch: (cause) =>
+          new SymphonyError({
+            message: cause instanceof Error ? cause.message : "Failed to parse Linear projects.",
+            cause,
+          }),
+      }),
+    ),
+  );
+}
+
+export function fetchLinearTeamsAndProjects(input: {
+  readonly apiKey: string;
+  readonly endpoint?: string;
+}): Effect.Effect<readonly SymphonyLinearProject[], SymphonyError> {
+  const endpoint = input.endpoint ?? DEFAULT_LINEAR_ENDPOINT;
+  return Effect.gen(function* () {
+    const teams = yield* fetchLinearTeams({ apiKey: input.apiKey, endpoint });
+    if (teams.length === 0) return [] as readonly SymphonyLinearProject[];
+    // Fetch project lists in parallel but bounded — Linear allows ~16 concurrent
+    // requests; 4 keeps us well under that and avoids head-of-line blocking on
+    // a slow team.
+    const groups = yield* Effect.all(
+      teams.map((team) => fetchTeamProjects({ apiKey: input.apiKey, endpoint, team })),
+      { concurrency: 4 },
+    );
+    return groups.flat();
+  });
 }
 
 export function fetchLinearWorkflowStates(input: {

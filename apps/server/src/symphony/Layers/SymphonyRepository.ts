@@ -378,7 +378,30 @@ const makeRepository = Effect.gen(function* () {
       ORDER BY updated_at DESC, issue_identifier ASC
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRuns")),
-      Effect.flatMap((rows) => Effect.forEach(rows, decodeRunRow, { concurrency: 8 })),
+      // Decode each row in isolation; skip rows that fail to decode (e.g.,
+      // legacy rows with statuses that no longer exist after the Phase 4
+      // status enum collapse). A single bad row should NOT prevent the rest
+      // of the snapshot from loading.
+      Effect.flatMap((rows) =>
+        Effect.forEach(
+          rows,
+          (row) =>
+            decodeRunRow(row).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Symphony run row failed to decode; skipping", {
+                  runId: row.runId,
+                  status: row.status,
+                  cause: cause instanceof Error ? cause.message : String(cause),
+                }).pipe(Effect.as(null as null)),
+              ),
+            ),
+          { concurrency: 8 },
+        ).pipe(
+          Effect.map((maybe) =>
+            maybe.filter((run): run is NonNullable<typeof run> => run !== null),
+          ),
+        ),
+      ),
     );
 
   const listProjectIdsWithRunsInStatuses: SymphonyRepositoryShape["listProjectIdsWithRunsInStatuses"] =
