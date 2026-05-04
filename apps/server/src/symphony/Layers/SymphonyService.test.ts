@@ -1160,85 +1160,87 @@ layer("SymphonyService lifecycle reconciliation", (it) => {
     }),
   );
 
-  it.effect("falls through to continuation when implementing turn completes without SYMPHONY_PR_URL", () =>
-    Effect.gen(function* () {
-      const projectRoot = yield* writeWorkflow;
-      projectRootRef.current = projectRoot;
-      const repository = yield* SymphonyRepository;
-      const service = yield* SymphonyService;
-      const planMarkdown = "- [x] Update existing PR";
-      // No SYMPHONY_PR_URL emitted → falls through to reconcileRunSignals.
-      const thread = makeThread({
-        worktreePath: projectRoot,
-        latestTurn: {
-          turnId: "turn-impl-no-url" as never,
-          state: "completed",
-          requestedAt: CREATED_AT,
-          startedAt: CREATED_AT,
-          completedAt: "2026-05-02T12:20:00.000Z",
-          assistantMessageId: "message-impl-no-url" as never,
-        },
-        messages: [
-          {
-            id: "message-impl-no-url" as never,
-            role: "assistant",
-            text: "I finished implementing but forgot to emit the PR URL marker.",
+  it.effect(
+    "falls through to continuation when implementing turn completes without SYMPHONY_PR_URL",
+    () =>
+      Effect.gen(function* () {
+        const projectRoot = yield* writeWorkflow;
+        projectRootRef.current = projectRoot;
+        const repository = yield* SymphonyRepository;
+        const service = yield* SymphonyService;
+        const planMarkdown = "- [x] Update existing PR";
+        // No SYMPHONY_PR_URL emitted → falls through to reconcileRunSignals.
+        const thread = makeThread({
+          worktreePath: projectRoot,
+          latestTurn: {
             turnId: "turn-impl-no-url" as never,
-            streaming: false,
-            createdAt: "2026-05-02T12:19:00.000Z",
-            updatedAt: "2026-05-02T12:19:00.000Z",
+            state: "completed",
+            requestedAt: CREATED_AT,
+            startedAt: CREATED_AT,
+            completedAt: "2026-05-02T12:20:00.000Z",
+            assistantMessageId: "message-impl-no-url" as never,
           },
-        ],
-      });
-      orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
-      linearMocks.fetchLinearIssuesByIds.mockReturnValue(
-        Effect.succeed([makeLinearContext("In Progress")]),
-      );
-
-      yield* runMigrations();
-      yield* insertProjectionProject(projectRoot);
-      yield* configureWorkflowSettings;
-      yield* repository.upsertRun(
-        makeServiceRun({
-          status: "implementing",
-          workspacePath: projectRoot,
-          branchName: "symphony/bc-1",
-          threadId: thread.id,
-          currentStep: {
-            source: "symphony",
-            label: "Implementing approved plan",
-            detail: planMarkdown,
-            updatedAt: CREATED_AT,
-          },
-          attempts: [
+          messages: [
             {
-              attempt: 1,
-              status: "streaming-turn",
-              startedAt: CREATED_AT,
-              completedAt: null,
-              error: null,
+              id: "message-impl-no-url" as never,
+              role: "assistant",
+              text: "I finished implementing but forgot to emit the PR URL marker.",
+              turnId: "turn-impl-no-url" as never,
+              streaming: false,
+              createdAt: "2026-05-02T12:19:00.000Z",
+              updatedAt: "2026-05-02T12:19:00.000Z",
             },
           ],
-        }),
-      );
+        });
+        orchestrationState.currentReadModel = makeReadModel(projectRoot, { threads: [thread] });
+        linearMocks.fetchLinearIssuesByIds.mockReturnValue(
+          Effect.succeed([makeLinearContext("In Progress")]),
+        );
 
-      yield* service.refresh({ projectId: PROJECT_ID });
+        yield* runMigrations();
+        yield* insertProjectionProject(projectRoot);
+        yield* configureWorkflowSettings;
+        yield* repository.upsertRun(
+          makeServiceRun({
+            status: "implementing",
+            workspacePath: projectRoot,
+            branchName: "symphony/bc-1",
+            threadId: thread.id,
+            currentStep: {
+              source: "symphony",
+              label: "Implementing approved plan",
+              detail: planMarkdown,
+              updatedAt: CREATED_AT,
+            },
+            attempts: [
+              {
+                attempt: 1,
+                status: "streaming-turn",
+                startedAt: CREATED_AT,
+                completedAt: null,
+                error: null,
+              },
+            ],
+          }),
+        );
 
-      // No PR URL → falls through to continuation turn.
-      const continuationTurn = orchestrationState.dispatchedCommands.findLast(
-        (command) => command.type === "thread.turn.start",
-      );
-      assert.ok(continuationTurn);
-      if (continuationTurn.type !== "thread.turn.start") {
-        throw new Error(`Expected turn start command, received ${continuationTurn.type}.`);
-      }
-      assert.match(continuationTurn.message.text, /continuation turn/i);
-      const run = yield* repository.getRunByIssue({
-        projectId: PROJECT_ID,
-        issueId: ISSUE_ID,
-      });
-      assert.strictEqual(run?.status, "implementing");
-    }),
+        yield* service.refresh({ projectId: PROJECT_ID });
+
+        // No PR URL → falls through to continuation turn.
+        const continuationTurn = orchestrationState.dispatchedCommands.findLast(
+          (command) => command.type === "thread.turn.start",
+        );
+        assert.ok(continuationTurn);
+        if (continuationTurn.type !== "thread.turn.start") {
+          throw new Error(`Expected turn start command, received ${continuationTurn.type}.`);
+        }
+        assert.match(continuationTurn.message.text, /continuation turn/i);
+        const run = yield* repository.getRunByIssue({
+          projectId: PROJECT_ID,
+          issueId: ISSUE_ID,
+        });
+        assert.strictEqual(run?.status, "implementing");
+      }),
   );
 
   it.effect("continues an implementing turn with no SYMPHONY_PR_URL when Linear is active", () =>

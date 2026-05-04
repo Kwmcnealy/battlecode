@@ -98,6 +98,14 @@ export interface LinearWriterRunDeps extends LinearWriterEventDeps {
 
 export interface LinearWriterStateDeps extends LinearWriterEventDeps {
   readonly readLinearApiKey: (projectId: ProjectId) => Effect.Effect<string | null, SymphonyError>;
+  /**
+   * Persist a lastError message on the run so the user can see the failure in the UI.
+   * Called when a Linear state transition fails. Must never throw.
+   */
+  readonly setRunError: (
+    runId: SymphonyRun["runId"],
+    message: string,
+  ) => Effect.Effect<void, never>;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +203,9 @@ export function upsertManagedComment(
  *
  * - Fetches the current issue state first; skips if already in target state.
  * - Emits a `linear.state-updated` event when the state changes.
- * - All failures are swallowed (best-effort, never throws).
+ * - On any failure: logs structured details, emits a `linear.transition-warning` project event,
+ *   and calls `deps.setRunError` so the user sees the failure in the run details drawer.
+ * - Never throws — per-symptom isolation is preserved.
  */
 export function transitionLinearState(
   deps: LinearWriterStateDeps,
@@ -245,5 +255,35 @@ export function transitionLinearState(
         },
       });
     }
-  }).pipe(Effect.ignoreCause({ log: true }));
+  }).pipe(
+    Effect.catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const lastErrorMessage = `Failed to transition Linear state to '${stateName}': ${errorMessage}`;
+      return Effect.gen(function* () {
+        yield* Effect.logWarning("Linear state transition failed", {
+          operation: "transitionLinearState",
+          stateName,
+          runId: input.run.runId,
+          issueId: input.run.issue.id,
+          error: errorMessage,
+        });
+        yield* deps
+          .emitProjectEvent({
+            projectId: input.projectId,
+            issueId: input.run.issue.id,
+            runId: input.run.runId,
+            type: "linear.transition-warning",
+            message: lastErrorMessage,
+            payload: {
+              operation: "transitionLinearState",
+              stateName,
+              reason: input.reason,
+              error: errorMessage,
+            },
+          })
+          .pipe(Effect.orElseSucceed(() => undefined as SymphonyEvent | undefined));
+        yield* deps.setRunError(input.run.runId, lastErrorMessage);
+      });
+    }),
+  );
 }

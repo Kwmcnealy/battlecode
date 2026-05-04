@@ -597,6 +597,16 @@ const makeRepository = Effect.gen(function* () {
         updated_at = excluded.updated_at
     `.pipe(Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRun")), Effect.as(run));
 
+  const upsertRunError: SymphonyRepositoryShape["upsertRunError"] = (runId, lastError, updatedAt) =>
+    sql`
+      UPDATE symphony_runs
+      SET last_error = ${lastError}, updated_at = ${updatedAt}
+      WHERE run_id = ${runId}
+    `.pipe(
+      Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRunError")),
+      Effect.as(undefined),
+    );
+
   const appendEvent: SymphonyRepositoryShape["appendEvent"] = (event) =>
     sql`
       INSERT INTO symphony_events (
@@ -718,6 +728,7 @@ const makeRepository = Effect.gen(function* () {
     getRunByIssue,
     getRunByThreadId,
     upsertRun,
+    upsertRunError,
     appendEvent,
     listEvents,
     getRuntimeState,

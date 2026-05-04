@@ -14,6 +14,7 @@ import {
   transitionLinearState,
   upsertManagedComment,
   type LinearWriterRunDeps,
+  type LinearWriterStateDeps,
 } from "./linearWriter.ts";
 
 // Mock the Linear API calls so tests are pure (no network, no DB).
@@ -143,12 +144,14 @@ function makeWorkflow(endpointOverride?: string): { config: SymphonyWorkflowConf
 function makeDeps(apiKey = "test-api-key") {
   const emitProjectEvent = vi.fn().mockReturnValue(Effect.void);
   const upsertRun = vi.fn().mockImplementation((run: SymphonyRun) => Effect.succeed(run));
+  const setRunError = vi.fn().mockReturnValue(Effect.void);
 
   return {
     readLinearApiKey: vi.fn().mockReturnValue(Effect.succeed(apiKey)),
     emitProjectEvent,
     upsertRun,
-  } satisfies LinearWriterRunDeps;
+    setRunError,
+  } satisfies LinearWriterRunDeps & LinearWriterStateDeps;
 }
 
 async function runEffect<A>(effect: Effect.Effect<A, never>): Promise<A> {
@@ -430,5 +433,70 @@ describe("transitionLinearState", () => {
         }),
       ),
     ).resolves.toBeUndefined();
+  });
+
+  it("emits a linear.transition-warning event when the API call fails", async () => {
+    const run = makeRun();
+    const deps = makeDeps();
+    linearMocks.fetchLinearIssuesByIds.mockReturnValue(Effect.fail(new Error("network timeout")));
+
+    await runEffect(
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
+        stateName: "In Progress",
+        reason: "planning-started",
+      }),
+    );
+
+    expect(deps.emitProjectEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "linear.transition-warning",
+        message: expect.stringContaining("In Progress"),
+      }),
+    );
+  });
+
+  it("calls setRunError with a descriptive message when the API call fails", async () => {
+    const run = makeRun();
+    const deps = makeDeps();
+    linearMocks.fetchLinearIssuesByIds.mockReturnValue(Effect.fail(new Error("network timeout")));
+
+    await runEffect(
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
+        stateName: "In Progress",
+        reason: "planning-started",
+      }),
+    );
+
+    expect(deps.setRunError).toHaveBeenCalledWith(
+      run.runId,
+      expect.stringContaining("In Progress"),
+    );
+  });
+
+  it("does not call setRunError when the state transition succeeds", async () => {
+    const run = makeRun();
+    const deps = makeDeps();
+    linearMocks.fetchLinearIssuesByIds.mockReturnValue(Effect.succeed([baseIssue]));
+    linearMocks.updateLinearIssueState.mockReturnValue(
+      Effect.succeed({ changed: true, stateId: "state-in-progress", stateName: "In Progress" }),
+    );
+
+    await runEffect(
+      transitionLinearState(deps, {
+        projectId: ProjectId.make("project-1"),
+        workflow: makeWorkflow(),
+        run,
+        stateName: "In Progress",
+        reason: "test",
+      }),
+    );
+
+    expect(deps.setRunError).not.toHaveBeenCalled();
   });
 });

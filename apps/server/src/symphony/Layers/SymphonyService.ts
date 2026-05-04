@@ -989,6 +989,10 @@ const makeSymphonyService = Effect.gen(function* () {
       repository
         .upsertRun(run)
         .pipe(Effect.mapError(toSymphonyError("Failed to persist Symphony progress comment."))),
+    setRunError: (runId: SymphonyRun["runId"], message: string): Effect.Effect<void, never> =>
+      repository
+        .upsertRunError(runId, message, nowIso())
+        .pipe(Effect.orElseSucceed(() => undefined as void)),
   };
 
   const transitionLinearRunState = (input: {

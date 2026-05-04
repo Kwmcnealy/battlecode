@@ -3,6 +3,7 @@ import type {
   SymphonyEvent,
   SymphonyIssueId,
   SymphonyRun,
+  SymphonyRunId,
   SymphonyRunStatus,
   SymphonySettings,
   ThreadId,
@@ -50,6 +51,15 @@ export interface SymphonyRepositoryShape {
     threadId: ThreadId,
   ) => Effect.Effect<SymphonyRun | null, SymphonyRepositoryError>;
   readonly upsertRun: (run: SymphonyRun) => Effect.Effect<SymphonyRun, SymphonyRepositoryError>;
+  /**
+   * Lightweight update that sets only the `last_error` and `updated_at` columns on a run.
+   * Used by the linear writer to surface failures without loading the full run object.
+   */
+  readonly upsertRunError: (
+    runId: SymphonyRunId,
+    lastError: string,
+    updatedAt: string,
+  ) => Effect.Effect<void, SymphonyRepositoryError>;
   readonly appendEvent: (
     event: SymphonyEvent,
   ) => Effect.Effect<SymphonyEvent, SymphonyRepositoryError>;
