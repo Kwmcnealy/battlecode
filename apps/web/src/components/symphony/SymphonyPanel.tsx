@@ -162,9 +162,7 @@ export function SymphonyPanel({
           const threadRef = { environmentId, threadId: result.threadId };
           const threadExists = selectThreadExistsByRef(useStore.getState(), threadRef);
           if (!threadExists) {
-            setError(
-              "This run's thread no longer exists. Click Retry to start a fresh thread.",
-            );
+            setError("This run's thread no longer exists. Click Retry to start a fresh thread.");
           } else {
             onOpenThread(result.threadId);
             setError(null);
