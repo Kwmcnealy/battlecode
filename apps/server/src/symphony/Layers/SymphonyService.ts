@@ -1300,6 +1300,8 @@ const makeSymphonyService = Effect.gen(function* () {
         prUrl: nextPrUrl,
         archivedAt: nextArchivedAt,
         lastError: nextLastError,
+        lastSeenLinearState:
+          input.linearIssue?.state.name ?? runWithBranch.lastSeenLinearState ?? null,
         updatedAt: input.run.updatedAt,
       };
       const statusChanged = nextRun.status !== input.run.status;
@@ -1498,10 +1500,6 @@ const makeSymphonyService = Effect.gen(function* () {
       );
       // Load existing runs for all candidate issues, then use decideSchedulerActions
       // to determine what to create, archive, or update.
-      // TODO(phase-4): Pass actual lastSeenLinearState from the DB column added by
-      // Migration 032. For now, null is passed for all runs, which treats every
-      // failed/released run as eligible for re-engagement (equivalent to the prior
-      // shouldQueueIntakeRun behavior).
       const existingRunsForCandidates = yield* Effect.forEach(
         issues,
         (issue) =>
@@ -1533,8 +1531,7 @@ const makeSymphonyService = Effect.gen(function* () {
           issueId: run.issue.id,
           status: run.status,
           archivedAt: run.archivedAt,
-          // TODO(phase-4): use run.lastSeenLinearState once Migration 032 is applied.
-          lastSeenLinearState: null,
+          lastSeenLinearState: run.lastSeenLinearState ?? null,
         })),
         intakeStates: intakeStateNames(workflow.config.tracker),
         capacity: workflow.config.concurrency.max,
@@ -2645,8 +2642,7 @@ const makeSymphonyService = Effect.gen(function* () {
               issueId: attemptedRun.issue.id,
               status: attemptedRun.status,
               archivedAt: attemptedRun.archivedAt,
-              // TODO(fix-5): use attemptedRun.lastSeenLinearState once Fix 5 wires the DB column.
-              lastSeenLinearState: null,
+              lastSeenLinearState: attemptedRun.lastSeenLinearState ?? null,
             },
             threadOutput,
             threadComplete: true,
@@ -2736,8 +2732,7 @@ const makeSymphonyService = Effect.gen(function* () {
               issueId: attemptedRun.issue.id,
               status: attemptedRun.status,
               archivedAt: attemptedRun.archivedAt,
-              // TODO(fix-5): use attemptedRun.lastSeenLinearState once Fix 5 wires the DB column.
-              lastSeenLinearState: null,
+              lastSeenLinearState: attemptedRun.lastSeenLinearState ?? null,
             },
             threadOutput,
             threadComplete: true,

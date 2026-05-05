@@ -352,6 +352,10 @@ export const SymphonyRun = Schema.Struct({
   attempts: Schema.Array(SymphonyRunAttempt),
   nextRetryAt: Schema.NullOr(IsoDateTime),
   lastError: Schema.NullOr(Schema.String),
+  lastSeenLinearState: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

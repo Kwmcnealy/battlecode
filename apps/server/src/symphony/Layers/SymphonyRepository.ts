@@ -55,6 +55,7 @@ interface RunRow {
   readonly attempts: string;
   readonly nextRetryAt: string | null;
   readonly lastError: string | null;
+  readonly lastSeenLinearState: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -240,6 +241,7 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       attempts,
       nextRetryAt: row.nextRetryAt,
       lastError: row.lastError,
+      lastSeenLinearState: row.lastSeenLinearState ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     });
@@ -371,6 +373,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -453,6 +456,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -487,6 +491,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -519,6 +524,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -553,6 +559,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json,
         next_retry_at,
         last_error,
+        last_seen_linear_state,
         created_at,
         updated_at
       )
@@ -575,6 +582,7 @@ const makeRepository = Effect.gen(function* () {
         ${JSON.stringify(run.attempts)},
         ${run.nextRetryAt},
         ${run.lastError},
+        ${run.lastSeenLinearState ?? null},
         ${run.createdAt},
         ${run.updatedAt}
       )
@@ -594,6 +602,7 @@ const makeRepository = Effect.gen(function* () {
         attempts_json = excluded.attempts_json,
         next_retry_at = excluded.next_retry_at,
         last_error = excluded.last_error,
+        last_seen_linear_state = excluded.last_seen_linear_state,
         updated_at = excluded.updated_at
     `.pipe(Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRun")), Effect.as(run));
 

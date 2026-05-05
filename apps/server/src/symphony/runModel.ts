@@ -214,6 +214,7 @@ export function makeRun(
     attempts: [],
     nextRetryAt: null,
     lastError: null,
+    lastSeenLinearState: null,
     createdAt,
     updatedAt: createdAt,
   };
