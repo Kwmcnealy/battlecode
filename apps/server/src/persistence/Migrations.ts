@@ -41,6 +41,11 @@ import Migration0025 from "./Migrations/025_CleanupInvalidProjectionPendingAppro
 import Migration0026 from "./Migrations/026_CanonicalizeModelSelectionOptions.ts";
 import Migration0027 from "./Migrations/027_Symphony.ts";
 import Migration0028 from "./Migrations/028_SymphonyExecutionTargets.ts";
+import Migration0029 from "./Migrations/029_SymphonyRunProgress.ts";
+import Migration0030 from "./Migrations/030_SymphonyRunArchive.ts";
+import Migration0031 from "./Migrations/031_SymphonyLifecycleControlPlane.ts";
+import Migration0032 from "./Migrations/032_SymphonyLocalOnly.ts";
+import Migration0033 from "./Migrations/033_SymphonyStatusNormalization.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -81,6 +86,11 @@ export const migrationEntries = [
   [26, "CanonicalizeModelSelectionOptions", Migration0026],
   [27, "Symphony", Migration0027],
   [28, "SymphonyExecutionTargets", Migration0028],
+  [29, "SymphonyRunProgress", Migration0029],
+  [30, "SymphonyRunArchive", Migration0030],
+  [31, "SymphonyLifecycleControlPlane", Migration0031],
+  [32, "SymphonyLocalOnly", Migration0032],
+  [33, "SymphonyStatusNormalization", Migration0033],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

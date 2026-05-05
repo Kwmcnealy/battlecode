@@ -1,0 +1,211 @@
+import {
+  ProjectId,
+  SymphonyIssueId,
+  type OrchestrationThread,
+  type SymphonyIssue,
+  type SymphonyPullRequestSummary,
+  type SymphonyRun,
+  type SymphonyWorkflowConfig,
+} from "@t3tools/contracts";
+import { describe, expect, it } from "vitest";
+
+import { makeRun } from "./runModel.ts";
+import { resolveRunLifecycle } from "./runLifecycle.ts";
+
+const PROJECT_ID = ProjectId.make("project-symphony");
+const CREATED_AT = "2026-05-02T12:00:00.000Z";
+
+const CONFIG: SymphonyWorkflowConfig = {
+  tracker: {
+    kind: "linear",
+    endpoint: "https://linear.example/graphql",
+    projectSlugId: "battlecode",
+    activeStates: ["Todo", "In Progress"],
+    terminalStates: ["Done", "Closed", "Canceled"],
+    reviewStates: ["In Review"],
+    doneStates: ["Done"],
+    canceledStates: ["Canceled"],
+    transitionStates: {
+      started: "In Progress",
+      review: "In Review",
+      done: "Done",
+      canceled: "Canceled",
+    },
+  },
+  polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+  concurrency: { max: 3 },
+  stall: { timeoutMs: 300_000 },
+  workspace: { root: "" },
+  hooks: { timeoutMs: 60_000 },
+  agent: {
+    maxConcurrentAgents: 3,
+    maxTurns: 20,
+    maxRetryBackoffMs: 300_000,
+  },
+  codex: { runtimeMode: "full-access" },
+};
+
+function makeIssue(overrides: Partial<SymphonyIssue> = {}): SymphonyIssue {
+  return {
+    id: SymphonyIssueId.make("issue-1"),
+    identifier: "APP-1",
+    title: "Fix dashboard",
+    description: null,
+    priority: null,
+    state: "In Progress",
+    branchName: null,
+    url: "https://linear.app/t3/issue/APP-1",
+    labels: [],
+    blockedBy: [],
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  };
+}
+
+function makeLifecycleRun(overrides: Partial<SymphonyRun> = {}): SymphonyRun {
+  return {
+    ...makeRun(PROJECT_ID, makeIssue(), CREATED_AT),
+    status: "implementing",
+    ...overrides,
+  };
+}
+
+function makeThread(
+  latestTurn: NonNullable<OrchestrationThread["latestTurn"]>,
+): Pick<OrchestrationThread, "latestTurn" | "activities" | "session"> {
+  return {
+    latestTurn,
+    activities: [],
+    session: null,
+  };
+}
+
+function makeCompletedThread(): Pick<OrchestrationThread, "latestTurn" | "activities" | "session"> {
+  return makeThread({
+    turnId: "turn-1" as never,
+    state: "completed",
+    requestedAt: CREATED_AT,
+    startedAt: CREATED_AT,
+    completedAt: "2026-05-02T12:10:00.000Z",
+    assistantMessageId: null,
+  });
+}
+
+function makePullRequest(state: SymphonyPullRequestSummary["state"]): SymphonyPullRequestSummary {
+  return {
+    number: 42,
+    title: "Fix dashboard",
+    url: "https://github.com/t3/battlecode/pull/42",
+    baseBranch: "development",
+    headBranch: "symphony/app-1",
+    state,
+    updatedAt: "2026-05-02T12:15:00.000Z",
+  };
+}
+
+describe("Symphony run lifecycle", () => {
+  it("keeps a local completed turn without PR non-terminal and actionable", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeCompletedThread(),
+    });
+
+    expect(result.status).toBe("implementing");
+    expect(result.currentStep.label).toBe("Turn completed; waiting for PR or Linear review");
+  });
+
+  it("marks a local run review-ready when its PR is open", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeCompletedThread(),
+      pullRequest: makePullRequest("open"),
+    });
+
+    expect(result.status).toBe("in-review");
+    expect(result.currentStep.source).toBe("github");
+  });
+
+  it("marks a run completed when its PR is merged", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeCompletedThread(),
+      pullRequest: makePullRequest("merged"),
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.currentStep.label).toBe("Pull request merged");
+  });
+
+  it("marks a run canceled when its PR is closed without merge", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeCompletedThread(),
+      pullRequest: makePullRequest("closed"),
+    });
+
+    expect(result.status).toBe("canceled");
+    expect(result.currentStep.label).toBe("Pull request closed");
+  });
+
+  it("marks runs canceled from configured Linear canceled states", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      linear: { stateName: "Canceled", updatedAt: CREATED_AT },
+    });
+
+    expect(result.status).toBe("canceled");
+    expect(result.currentStep.source).toBe("linear");
+  });
+
+  it("treats interrupted local turns as retryable failures, not canceled", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      thread: makeThread({
+        turnId: "turn-interrupted" as never,
+        state: "interrupted",
+        requestedAt: CREATED_AT,
+        startedAt: CREATED_AT,
+        completedAt: "2026-05-02T12:10:00.000Z",
+        assistantMessageId: null,
+      }),
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.currentStep.label).toBe("Codex turn failed");
+  });
+
+  it("marks configured Linear review states as review-ready", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: {
+        ...CONFIG,
+        tracker: {
+          ...CONFIG.tracker,
+          reviewStates: ["Human Review"],
+        },
+      },
+      linear: { stateName: "Human Review", updatedAt: CREATED_AT },
+    });
+
+    expect(result.status).toBe("in-review");
+    expect(result.currentStep.label).toBe("Linear review state");
+  });
+
+  it("marks runs completed from configured Linear done states", () => {
+    const result = resolveRunLifecycle({
+      run: makeLifecycleRun(),
+      config: CONFIG,
+      linear: { stateName: "Done", updatedAt: CREATED_AT },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.currentStep.source).toBe("linear");
+  });
+});

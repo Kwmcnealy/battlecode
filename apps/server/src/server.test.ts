@@ -551,14 +551,6 @@ const buildAppUnderTest = (options?: {
             Effect.fail(
               new SymphonyError({ message: "Symphony service not implemented in test." }),
             ),
-          updateExecutionDefault: () =>
-            Effect.fail(
-              new SymphonyError({ message: "Symphony service not implemented in test." }),
-            ),
-          refreshCloudStatus: () =>
-            Effect.fail(
-              new SymphonyError({ message: "Symphony service not implemented in test." }),
-            ),
           openLinkedThread: () =>
             Effect.fail(
               new SymphonyError({ message: "Symphony service not implemented in test." }),

@@ -72,6 +72,17 @@ describe("GitRunStackedActionInput", () => {
     expect(parsed.actionId).toBe("action-1");
     expect(parsed.action).toBe("create_pr");
   });
+
+  it("accepts a base branch override for stacked PR actions", () => {
+    const parsed = decodeRunStackedActionInput({
+      actionId: "action-1",
+      cwd: "/repo",
+      action: "commit_push_pr",
+      baseBranch: "development",
+    });
+
+    expect(parsed.baseBranch).toBe("development");
+  });
 });
 
 describe("GitRunStackedActionResult", () => {

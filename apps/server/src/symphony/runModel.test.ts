@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   blockerIsTerminal,
+  buildContinuationPrompt,
   buildIssuePrompt,
   defaultSymphonyLocalModelSelection,
   makeRun,
@@ -48,32 +49,53 @@ function makeRunWithStatus(status: SymphonyRun["status"]): SymphonyRun {
 describe("Symphony run model", () => {
   it("groups runs into the dashboard queues", () => {
     const queues = queueRuns([
-      makeRunWithStatus("target-pending"),
-      makeRunWithStatus("eligible"),
-      makeRunWithStatus("running"),
-      makeRunWithStatus("retry-queued"),
-      makeRunWithStatus("cloud-submitted"),
+      makeRunWithStatus("intake"),
+      makeRunWithStatus("planning"),
+      makeRunWithStatus("implementing"),
+      makeRunWithStatus("in-review"),
       makeRunWithStatus("completed"),
-      makeRunWithStatus("released"),
       makeRunWithStatus("failed"),
       makeRunWithStatus("canceled"),
+      {
+        ...makeRunWithStatus("completed"),
+        archivedAt: "2026-01-01T00:10:00.000Z",
+      },
     ]);
 
-    expect(queues.pendingTarget).toHaveLength(1);
-    expect(queues.eligible).toHaveLength(1);
-    expect(queues.running.map((run) => run.status)).toEqual(["running", "cloud-submitted"]);
-    expect(queues.retrying).toHaveLength(1);
-    expect(queues.completed.map((run) => run.status)).toEqual(["completed", "released"]);
+    expect(queues.intake).toHaveLength(1);
+    expect(queues.planning).toHaveLength(1);
+    expect(queues.implementing.map((run) => run.status)).toEqual(["implementing"]);
+    expect(queues["in-review"]).toHaveLength(1);
+    expect(queues.completed.map((run) => run.status)).toEqual(["completed"]);
     expect(queues.failed).toHaveLength(1);
     expect(queues.canceled).toHaveLength(1);
+    expect(queues.archived.map((run) => run.status)).toEqual(["completed"]);
   });
 
-  it("creates new runs awaiting an explicit execution target", () => {
+  it("creates new runs with intake status", () => {
     const run = makeRun(PROJECT_ID, makeIssue(), CREATED_AT);
 
-    expect(run.status).toBe("target-pending");
-    expect(run.executionTarget).toBeNull();
-    expect(run.cloudTask).toBeNull();
+    expect(run.status).toBe("intake");
+    expect(run.linearProgress).toEqual({
+      commentId: null,
+      commentUrl: null,
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+      ownedCommentIds: [],
+    });
+    expect(run.qualityGate).toEqual({
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
+    });
+    expect(run.archivedAt).toBeNull();
   });
 
   it("uses GPT-5.5 high reasoning for local Symphony runs", () => {
@@ -106,6 +128,14 @@ describe("Symphony run model", () => {
     expect(prompt).toContain("Work on APP-1 from /repo/WORKFLOW.md in /tmp/symphony/APP-1.");
     expect(prompt).toContain("- Linear issue: APP-1 - Fix the dashboard");
     expect(prompt).toContain("- Branch: symphony/app-1");
+  });
+
+  it("renders continuation guidance without replaying the full issue prompt", () => {
+    const prompt = buildContinuationPrompt({ turnNumber: 2, maxTurns: 3 });
+
+    expect(prompt).toContain("Continuation guidance:");
+    expect(prompt).toContain("continuation turn #2 of 3");
+    expect(prompt).not.toContain("Symphony run context:");
   });
 
   it("updates only the latest attempt", () => {

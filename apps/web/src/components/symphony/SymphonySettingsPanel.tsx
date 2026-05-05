@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ProjectId, SymphonySettings } from "@t3tools/contracts";
+import type { ProjectId, SymphonySecretStatus, SymphonySettings } from "@t3tools/contracts";
 import { useShallow } from "zustand/react/shallow";
 
 import { ensureEnvironmentApi } from "../../environmentApi";
@@ -8,6 +8,7 @@ import { SettingsPageContainer } from "../settings/settingsLayout";
 import { LinearAuthSettings } from "./LinearAuthSettings";
 import { SymphonyProjectSelector } from "./SymphonyProjectSelector";
 import { SymphonySettingsEmptyState } from "./SymphonySettingsEmptyState";
+import { SettingsWizard, type SettingsWizardApi } from "./SettingsWizard";
 import type { SymphonySettingsBusyAction } from "./symphonySettingsDisplay";
 import { WorkflowSettingsSection } from "./WorkflowSettingsSection";
 
@@ -40,6 +41,10 @@ export function SymphonySettingsPanel() {
     [selectedProject],
   );
 
+  const updateLinearStatus = useCallback((status: SymphonySecretStatus) => {
+    setSettings((prev) => (prev ? { ...prev, linearSecret: status } : prev));
+  }, []);
+
   const loadSettings = useCallback(async () => {
     if (!api || !selectedProject) return;
     setBusyAction("load");
@@ -58,12 +63,6 @@ export function SymphonySettingsPanel() {
   useEffect(() => {
     void loadSettings();
   }, [loadSettings]);
-
-  const updateLinearStatus = useCallback((status: SymphonySettings["linearSecret"]) => {
-    setSettings((current) =>
-      current ? { ...current, linearSecret: status, updatedAt: new Date().toISOString() } : current,
-    );
-  }, []);
 
   const runSettingsAction = useCallback(
     async (action: Exclude<SymphonySettingsBusyAction, "load">) => {
@@ -113,6 +112,35 @@ export function SymphonySettingsPanel() {
     [api, linearKey, selectedProject, updateLinearStatus, workflowPath],
   );
 
+  const wizardApi = useMemo((): SettingsWizardApi | null => {
+    if (!api || !selectedProject) return null;
+    const projectId = selectedProject.id;
+    return {
+      validateKey: async (key) => {
+        try {
+          await api.symphony.fetchLinearProjects({ projectId, apiKey: key });
+          return { ok: true };
+        } catch (cause) {
+          return { ok: false, error: cause instanceof Error ? cause.message : "Validation failed" };
+        }
+      },
+      saveApiKey: async (key) => {
+        updateLinearStatus(await api.symphony.setLinearApiKey({ projectId, key }));
+      },
+      fetchProjects: (key) => api.symphony.fetchLinearProjects({ projectId, apiKey: key }),
+      fetchStates: (key, project) =>
+        api.symphony.fetchLinearWorkflowStates({ projectId, apiKey: key, teamId: project.teamId }),
+      applyConfiguration: async (input) => {
+        const result = await api.symphony.applyConfiguration({ projectId, ...input });
+        if (result.ok) {
+          // Reload settings so the new workflow status is reflected.
+          await loadSettings();
+        }
+        return result;
+      },
+    };
+  }, [api, loadSettings, selectedProject, updateLinearStatus]);
+
   if (projects.length === 0 || !selectedProjectId || !selectedProject) {
     return <SymphonySettingsEmptyState />;
   }
@@ -131,6 +159,14 @@ export function SymphonySettingsPanel() {
         </div>
       ) : null}
 
+      <LinearAuthSettings
+        linearStatus={settings?.linearSecret ?? null}
+        linearKey={linearKey}
+        busyAction={busyAction}
+        setLinearKey={setLinearKey}
+        runSettingsAction={(action) => void runSettingsAction(action)}
+      />
+
       <WorkflowSettingsSection
         selectedProject={selectedProject}
         settings={settings}
@@ -140,13 +176,7 @@ export function SymphonySettingsPanel() {
         runSettingsAction={(action) => void runSettingsAction(action)}
       />
 
-      <LinearAuthSettings
-        linearStatus={settings?.linearSecret ?? null}
-        linearKey={linearKey}
-        busyAction={busyAction}
-        setLinearKey={setLinearKey}
-        runSettingsAction={(action) => void runSettingsAction(action)}
-      />
+      {wizardApi ? <SettingsWizard api={wizardApi} /> : null}
     </SettingsPageContainer>
   );
 }

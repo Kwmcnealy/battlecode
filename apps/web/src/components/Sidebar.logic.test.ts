@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildSymphonySidebarRunsDigest,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
@@ -15,10 +16,12 @@ import {
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarThreadProviderBadge,
+  resolveSymphonySidebarRunClickTarget,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
+  symphonyRunIsSidebarActive,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./Sidebar.logic";
 import {
@@ -26,6 +29,8 @@ import {
   OrchestrationLatestTurn,
   ProjectId,
   type ServerProvider,
+  SymphonyIssueId,
+  SymphonyRunId,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -397,6 +402,107 @@ describe("resolveAdjacentThreadId", () => {
         direction: "previous",
       }),
     ).toBeNull();
+  });
+});
+
+describe("Symphony sidebar routing", () => {
+  it("treats only live execution states as active", () => {
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "in-review",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "implementing",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "failed",
+        archivedAt: null,
+      }),
+    ).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "planning",
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "intake",
+        archivedAt: null,
+      }),
+    ).toBe(false);
+    expect(
+      symphonyRunIsSidebarActive({
+        status: "implementing",
+        archivedAt: "2026-05-02T12:00:00.000Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("routes Symphony runs with threads to chat", () => {
+    expect(
+      resolveSymphonySidebarRunClickTarget({
+        runId: SymphonyRunId.make("run-local"),
+        threadId: ThreadId.make("thread-local"),
+      }),
+    ).toEqual({
+      kind: "thread",
+      threadId: ThreadId.make("thread-local"),
+    });
+  });
+
+  it("routes Symphony runs without threads to details", () => {
+    expect(
+      resolveSymphonySidebarRunClickTarget({
+        runId: SymphonyRunId.make("run-no-thread"),
+        threadId: null,
+      }),
+    ).toEqual({
+      kind: "details",
+      runId: SymphonyRunId.make("run-no-thread"),
+    });
+  });
+});
+
+describe("Symphony sidebar update digest", () => {
+  const baseRun = {
+    archivedAt: null,
+    issue: {
+      id: SymphonyIssueId.make("issue-bc-1"),
+      identifier: "BC-1",
+      title: "Stabilize Symphony updates",
+    },
+    runId: SymphonyRunId.make("run-bc-1"),
+    status: "implementing" as const,
+    threadId: ThreadId.make("thread-bc-1"),
+  } as const;
+
+  it("ignores fields that are not rendered in the sidebar", () => {
+    const noisyRun = {
+      ...baseRun,
+      currentStep: {
+        source: "symphony",
+        label: "Streaming another event",
+        detail: "High-frequency event timeline update",
+        updatedAt: "2026-05-02T12:00:00.000Z",
+      },
+    } as const;
+
+    expect(buildSymphonySidebarRunsDigest([noisyRun])).toBe(
+      buildSymphonySidebarRunsDigest([baseRun]),
+    );
+  });
+
+  it("changes when visible sidebar status changes", () => {
+    expect(buildSymphonySidebarRunsDigest([{ ...baseRun, status: "planning" as const }])).not.toBe(
+      buildSymphonySidebarRunsDigest([baseRun]),
+    );
   });
 });
 

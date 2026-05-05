@@ -1,12 +1,11 @@
 import {
-  CloudIcon,
   ExternalLinkIcon,
   GitBranchIcon,
   GitPullRequestIcon,
   MessageSquareIcon,
   TimerIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { SymphonyEvent, SymphonyRun } from "@t3tools/contracts";
 
 import { Badge } from "../ui/badge";
@@ -19,12 +18,7 @@ import {
   SheetPopup,
   SheetTitle,
 } from "../ui/sheet";
-import {
-  STATUS_BADGE_CLASSNAME,
-  TARGET_LABEL,
-  formatDateTime,
-  formatStatus,
-} from "./symphonyDisplay";
+import { PHASE_BADGE_CLASSNAME, formatDateTime, formatLifecyclePhase } from "./symphonyDisplay";
 
 function DetailRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -68,11 +62,15 @@ export function RunDetailsDrawer({
   onOpenChange: (open: boolean) => void;
   onOpenLinkedThread: () => void;
 }) {
-  const runEvents = run
-    ? events
-        .filter((event) => event.runId === run.runId || event.issueId === run.issue.id)
-        .toReversed()
-    : [];
+  const runEvents = useMemo(
+    () =>
+      run
+        ? events
+            .filter((event) => event.runId === run.runId || event.issueId === run.issue.id)
+            .toReversed()
+        : [],
+    [events, run],
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -88,8 +86,8 @@ export function RunDetailsDrawer({
               </SheetDescription>
             </div>
             {run ? (
-              <Badge variant="outline" className={STATUS_BADGE_CLASSNAME[run.status]}>
-                {formatStatus(run.status)}
+              <Badge variant="outline" className={PHASE_BADGE_CLASSNAME[run.status]}>
+                {formatLifecyclePhase(run.status)}
               </Badge>
             ) : null}
           </div>
@@ -119,21 +117,17 @@ export function RunDetailsDrawer({
                   Linear
                 </Button>
               ) : null}
-              {run.cloudTask?.taskUrl ? (
+              {(run.pullRequest?.url ?? run.prUrl) ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  render={<a href={run.cloudTask.taskUrl} target="_blank" rel="noreferrer" />}
-                >
-                  <CloudIcon className="size-4" />
-                  Codex task
-                </Button>
-              ) : null}
-              {run.prUrl ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  render={<a href={run.prUrl} target="_blank" rel="noreferrer" />}
+                  render={
+                    <a
+                      href={run.pullRequest?.url ?? run.prUrl ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
                 >
                   <GitPullRequestIcon className="size-4" />
                   PR
@@ -147,13 +141,16 @@ export function RunDetailsDrawer({
                 <DetailRow label="Workspace" value={run.workspacePath} />
                 <DetailRow label="Branch" value={run.branchName} />
                 <DetailRow label="Thread" value={run.threadId} />
-                <DetailRow label="PR URL" value={run.prUrl} />
-                <DetailRow
-                  label="Target"
-                  value={run.executionTarget ? TARGET_LABEL[run.executionTarget] : null}
-                />
-                <DetailRow label="Cloud status" value={run.cloudTask?.status ?? null} />
-                <DetailRow label="Cloud task" value={run.cloudTask?.taskUrl ?? null} />
+                <DetailRow label="PR URL" value={run.pullRequest?.url ?? run.prUrl} />
+                <DetailRow label="PR state" value={run.pullRequest?.state ?? null} />
+                <DetailRow label="Linear state" value={run.issue.state} />
+                <DetailRow label="Status" value={formatLifecyclePhase(run.status)} />
+                <DetailRow label="Progress comment" value={run.linearProgress.commentUrl} />
+                <DetailRow label="Review summary" value={run.qualityGate.lastReviewSummary} />
+                <DetailRow label="Review fixes" value={String(run.qualityGate.reviewFixLoops)} />
+                <DetailRow label="Current step" value={run.currentStep?.label ?? null} />
+                <DetailRow label="Step detail" value={run.currentStep?.detail ?? null} />
+                <DetailRow label="Archived at" value={formatDateTime(run.archivedAt)} />
               </dl>
             </section>
 

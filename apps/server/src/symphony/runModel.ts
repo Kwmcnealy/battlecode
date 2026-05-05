@@ -89,6 +89,21 @@ export function buildIssuePrompt(input: {
   ].join("\n");
 }
 
+export function buildContinuationPrompt(input: {
+  readonly turnNumber: number;
+  readonly maxTurns: number;
+}): string {
+  return [
+    "Continuation guidance:",
+    "",
+    "- The previous Codex turn completed normally, but the Linear issue is still in an active state.",
+    `- This is continuation turn #${input.turnNumber} of ${input.maxTurns} for the current agent run.`,
+    "- Resume from the current workspace and workpad state instead of restarting from scratch.",
+    "- The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.",
+    "- Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.",
+  ].join("\n");
+}
+
 export function buildHookEnv(input: {
   readonly projectRoot: string;
   readonly workflowPath: string;
@@ -121,26 +136,29 @@ export function blockerIsTerminal(
 }
 
 export function queueRuns(runs: readonly SymphonyRun[]): SymphonySnapshot["queues"] {
+  const activeRuns = runs.filter((run) => run.archivedAt === null);
   return {
-    pendingTarget: runs.filter((run) => run.status === "target-pending"),
-    eligible: runs.filter((run) => run.status === "eligible"),
-    running: runs.filter((run) => run.status === "running" || run.status === "cloud-submitted"),
-    retrying: runs.filter((run) => run.status === "retry-queued"),
-    completed: runs.filter((run) => run.status === "completed" || run.status === "released"),
-    failed: runs.filter((run) => run.status === "failed"),
-    canceled: runs.filter((run) => run.status === "canceled"),
+    intake: activeRuns.filter((run) => run.status === "intake"),
+    planning: activeRuns.filter((run) => run.status === "planning"),
+    implementing: activeRuns.filter((run) => run.status === "implementing"),
+    "in-review": activeRuns.filter((run) => run.status === "in-review"),
+    completed: activeRuns.filter((run) => run.status === "completed"),
+    failed: activeRuns.filter((run) => run.status === "failed"),
+    canceled: activeRuns.filter((run) => run.status === "canceled"),
+    archived: runs.filter((run) => run.archivedAt !== null),
   };
 }
 
 export function buildTotals(queues: SymphonySnapshot["queues"]): SymphonySnapshot["totals"] {
   return {
-    pendingTarget: queues.pendingTarget.length,
-    eligible: queues.eligible.length,
-    running: queues.running.length,
-    retrying: queues.retrying.length,
+    intake: queues.intake.length,
+    planning: queues.planning.length,
+    implementing: queues.implementing.length,
+    "in-review": queues["in-review"].length,
     completed: queues.completed.length,
     failed: queues.failed.length,
     canceled: queues.canceled.length,
+    archived: queues.archived.length,
   };
 }
 
@@ -166,16 +184,37 @@ export function makeRun(
     runId: runId(projectId, issue.id),
     projectId,
     issue,
-    status: "target-pending",
+    status: "intake",
     workspacePath: null,
     branchName: branchNameForIssue(issue.identifier),
     threadId: null,
     prUrl: null,
-    executionTarget: null,
-    cloudTask: null,
+    pullRequest: null,
+    currentStep: null,
+    linearProgress: {
+      commentId: null,
+      commentUrl: null,
+      ownedCommentIds: [],
+      lastRenderedHash: null,
+      lastUpdatedAt: null,
+      lastMilestoneAt: null,
+      lastFeedbackAt: null,
+    },
+    qualityGate: {
+      reviewFixLoops: 0,
+      lastReviewPassedAt: null,
+      lastReviewSummary: null,
+      lastReviewFindings: [],
+      lastReviewedCommit: null,
+      lastFixCommit: null,
+      lastPublishedCommit: null,
+      lastFeedbackFingerprint: null,
+    },
+    archivedAt: null,
     attempts: [],
     nextRetryAt: null,
     lastError: null,
+    lastSeenLinearState: null,
     createdAt,
     updatedAt: createdAt,
   };

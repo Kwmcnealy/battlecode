@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
+import type { ProviderKind, ServerProvider, SymphonyRun } from "@t3tools/contracts";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -18,6 +18,15 @@ export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // nearby thread usually reuses an already-hot subscription.
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export type SidebarNewThreadEnvMode = "local" | "worktree";
+export type SymphonySidebarRunClickTarget =
+  | {
+      kind: "thread";
+      threadId: NonNullable<SymphonyRun["threadId"]>;
+    }
+  | {
+      kind: "details";
+      runId: SymphonyRun["runId"];
+    };
 type SidebarProject = {
   id: string;
   name: string;
@@ -213,6 +222,51 @@ export function resolveSidebarNewThreadSeedContext(input: {
   return {
     envMode: input.defaultEnvMode,
   };
+}
+
+export function symphonyRunIsSidebarActive(
+  run: Pick<SymphonyRun, "status" | "archivedAt">,
+): boolean {
+  if (run.archivedAt !== null) return false;
+  return run.status === "planning" || run.status === "implementing" || run.status === "in-review";
+}
+
+export function resolveSymphonySidebarRunClickTarget(
+  run: Pick<SymphonyRun, "runId" | "threadId">,
+): SymphonySidebarRunClickTarget {
+  if (run.threadId) {
+    return {
+      kind: "thread",
+      threadId: run.threadId,
+    };
+  }
+  return {
+    kind: "details",
+    runId: run.runId,
+  };
+}
+
+export type SymphonySidebarRunDigestInput = Pick<
+  SymphonyRun,
+  "archivedAt" | "runId" | "status" | "threadId"
+> & {
+  issue: Pick<SymphonyRun["issue"], "id" | "identifier" | "title">;
+};
+
+export function buildSymphonySidebarRunsDigest(
+  runs: readonly SymphonySidebarRunDigestInput[],
+): string {
+  return JSON.stringify(
+    runs.map((run) => ({
+      archivedAt: run.archivedAt,
+      issueId: run.issue.id,
+      issueIdentifier: run.issue.identifier,
+      issueTitle: run.issue.title,
+      runId: run.runId,
+      status: run.status,
+      threadId: run.threadId,
+    })),
+  );
 }
 
 export function orderItemsByPreferredIds<TItem, TId>(input: {

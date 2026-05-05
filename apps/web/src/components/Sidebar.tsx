@@ -39,6 +39,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   type DesktopUpdateState,
+  type EnvironmentId,
   ProjectId,
   type ScopedThreadRef,
   type ServerProvider,
@@ -157,11 +158,14 @@ import {
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarThreadProviderBadge,
+  resolveSymphonySidebarRunClickTarget,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  buildSymphonySidebarRunsDigest,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
+  symphonyRunIsSidebarActive,
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
@@ -189,7 +193,7 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { STATUS_BADGE_CLASSNAME, TARGET_LABEL, formatStatus } from "./symphony/symphonyDisplay";
+import { PHASE_BADGE_CLASSNAME, formatLifecyclePhase } from "./symphony/symphonyDisplay";
 const THREAD_PREVIEW_LIMIT = 6;
 const SYMPHONY_THREAD_ID_PREFIX = "symphony-thread-";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
@@ -275,10 +279,10 @@ function isSymphonyThread(thread: Pick<SidebarThreadSummary, "id">): boolean {
 
 function flattenSymphonyRuns(snapshot: SymphonySnapshot): SymphonyRun[] {
   const runs = [
-    ...snapshot.queues.pendingTarget,
-    ...snapshot.queues.running,
-    ...snapshot.queues.retrying,
-    ...snapshot.queues.eligible,
+    ...snapshot.queues.intake,
+    ...snapshot.queues.planning,
+    ...snapshot.queues.implementing,
+    ...snapshot.queues["in-review"],
     ...snapshot.queues.failed,
     ...snapshot.queues.canceled,
     ...snapshot.queues.completed,
@@ -293,15 +297,32 @@ function flattenSymphonyRuns(snapshot: SymphonySnapshot): SymphonyRun[] {
   });
 }
 
+interface SidebarSymphonyProjection {
+  digest: string;
+  runs: readonly SymphonyRun[];
+}
+
 interface SidebarSymphonySnapshotEntry {
   member: SidebarProjectGroupMember;
-  snapshot: SymphonySnapshot;
+  runs: readonly SymphonyRun[];
+}
+
+function buildSidebarSymphonyProjection(snapshot: SymphonySnapshot): SidebarSymphonyProjection {
+  const runs = flattenSymphonyRuns(snapshot).filter((run) => run.archivedAt === null);
+  return {
+    digest: buildSymphonySidebarRunsDigest(runs),
+    runs,
+  };
 }
 
 function useProjectSymphonySnapshots(
   members: readonly SidebarProjectGroupMember[],
 ): readonly SidebarSymphonySnapshotEntry[] {
-  const [snapshotsByKey, setSnapshotsByKey] = useState<Record<string, SymphonySnapshot>>({});
+  const [snapshotsByKey, setSnapshotsByKey] = useState<Record<string, SidebarSymphonyProjection>>(
+    {},
+  );
+  const membersRef = useRef(members);
+  membersRef.current = members;
   const memberKeys = useMemo(
     () =>
       members
@@ -314,8 +335,17 @@ function useProjectSymphonySnapshots(
     let disposed = false;
     const unsubscribes: Array<() => void> = [];
     setSnapshotsByKey({});
+    const updateProjection = (key: string, snapshot: SymphonySnapshot) => {
+      const nextProjection = buildSidebarSymphonyProjection(snapshot);
+      setSnapshotsByKey((current) => {
+        if (current[key]?.digest === nextProjection.digest) {
+          return current;
+        }
+        return { ...current, [key]: nextProjection };
+      });
+    };
 
-    for (const member of members) {
+    for (const member of membersRef.current) {
       const api = readEnvironmentApi(member.environmentId);
       if (!api) {
         continue;
@@ -325,13 +355,15 @@ function useProjectSymphonySnapshots(
         .getSnapshot({ projectId: member.id })
         .then((snapshot) => {
           if (!disposed) {
-            setSnapshotsByKey((current) => ({ ...current, [key]: snapshot }));
+            updateProjection(key, snapshot);
           }
         })
         .catch(() => undefined);
       unsubscribes.push(
         api.symphony.subscribe({ projectId: member.id }, (event) => {
-          setSnapshotsByKey((current) => ({ ...current, [key]: event.snapshot }));
+          if (!disposed) {
+            updateProjection(key, event.snapshot);
+          }
         }),
       );
     }
@@ -342,67 +374,46 @@ function useProjectSymphonySnapshots(
         unsubscribe();
       }
     };
-  }, [memberKeys, members]);
+  }, [memberKeys]);
 
   return useMemo(
     () =>
       members.flatMap((member) => {
         const key = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
-        const snapshot = snapshotsByKey[key];
-        return snapshot ? [{ member, snapshot }] : [];
+        const projection = snapshotsByKey[key];
+        return projection ? [{ member, runs: projection.runs }] : [];
       }),
     [members, snapshotsByKey],
-  );
-}
-
-function openExternalUrl(url: string): void {
-  const api = readLocalApi();
-  if (api) {
-    void api.shell.openExternal(url).catch((error) => {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Unable to open link",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-    });
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function symphonyRunIsActive(run: SymphonyRun): boolean {
-  return (
-    run.status === "target-pending" ||
-    run.status === "eligible" ||
-    run.status === "running" ||
-    run.status === "retry-queued" ||
-    run.status === "cloud-submitted"
   );
 }
 
 function SidebarSymphonySection({
   expanded,
   activeRouteThreadKey,
+  activeRouteSymphonyProjectKey,
   snapshotEntries,
   symphonyThreads,
   onToggle,
   navigateToThread,
+  navigateToSymphonyRunDetails,
 }: {
   expanded: boolean;
   activeRouteThreadKey: string | null;
+  activeRouteSymphonyProjectKey: string | null;
   snapshotEntries: readonly SidebarSymphonySnapshotEntry[];
   symphonyThreads: readonly SidebarThreadSummary[];
   onToggle: () => void;
   navigateToThread: (threadRef: ScopedThreadRef) => void;
+  navigateToSymphonyRunDetails: (input: {
+    member: SidebarProjectGroupMember;
+    run: SymphonyRun;
+  }) => void;
 }) {
   const runEntries = useMemo(
     () =>
       snapshotEntries.flatMap((entry) =>
-        flattenSymphonyRuns(entry.snapshot).map((run) => ({
+        entry.runs.map((run) => ({
           member: entry.member,
-          snapshot: entry.snapshot,
           run,
         })),
       ),
@@ -417,7 +428,7 @@ function SidebarSymphonySection({
     [runThreadIds, symphonyThreads],
   );
   const hasRows = runEntries.length + orphanThreads.length > 0;
-  const hasActiveSymphony = runEntries.some((entry) => symphonyRunIsActive(entry.run));
+  const hasActiveSymphony = runEntries.some((entry) => symphonyRunIsSidebarActive(entry.run));
   const buttonRender = useMemo(() => <button type="button" />, []);
 
   if (!hasRows) {
@@ -466,16 +477,11 @@ function SidebarSymphonySection({
             const threadKey = run.threadId
               ? scopedThreadKey(scopeThreadRef(member.environmentId, run.threadId))
               : null;
-            const taskUrl =
-              run.executionTarget === "codex-cloud"
-                ? (run.cloudTask?.taskUrl ?? run.issue.url)
-                : null;
-            const clickable = threadKey !== null || taskUrl !== null;
+            const projectKey = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
+            const clickTarget = resolveSymphonySidebarRunClickTarget(run);
             return (
               <SidebarMenuSubItem
-                key={`${scopedProjectKey(scopeProjectRef(member.environmentId, member.id))}:${
-                  run.runId
-                }`}
+                key={`${projectKey}:${run.runId}`}
                 className="w-full"
                 data-thread-selection-safe
               >
@@ -483,17 +489,17 @@ function SidebarSymphonySection({
                   render={buttonRender}
                   data-thread-selection-safe
                   size="sm"
-                  isActive={threadKey !== null && activeRouteThreadKey === threadKey}
+                  isActive={
+                    (threadKey !== null && activeRouteThreadKey === threadKey) ||
+                    (clickTarget.kind === "details" && activeRouteSymphonyProjectKey === projectKey)
+                  }
                   className="h-7 w-full translate-x-0 justify-start gap-2 px-2 text-left"
-                  aria-disabled={!clickable}
                   onClick={() => {
-                    if (run.threadId) {
-                      navigateToThread(scopeThreadRef(member.environmentId, run.threadId));
+                    if (clickTarget.kind === "thread") {
+                      navigateToThread(scopeThreadRef(member.environmentId, clickTarget.threadId));
                       return;
                     }
-                    if (taskUrl) {
-                      openExternalUrl(taskUrl);
-                    }
+                    navigateToSymphonyRunDetails({ member, run });
                   }}
                 >
                   <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -504,15 +510,12 @@ function SidebarSymphonySection({
                       {run.issue.title}
                     </span>
                   </span>
-                  <span className="shrink-0 font-mono text-[9px] uppercase text-muted-foreground/65">
-                    {run.executionTarget ? TARGET_LABEL[run.executionTarget] : "Choose"}
-                  </span>
                   <span
                     className={`inline-flex h-4 shrink-0 items-center border px-1 font-mono text-[9px] uppercase ${
-                      STATUS_BADGE_CLASSNAME[run.status]
+                      PHASE_BADGE_CLASSNAME[run.status]
                     }`}
                   >
-                    {formatStatus(run.status)}
+                    {formatLifecyclePhase(run.status)}
                   </span>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>
@@ -1198,6 +1201,7 @@ interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
+  activeRouteSymphonyProjectKey: string | null;
   newThreadShortcutLabel: string | null;
   handleNewThread: ReturnType<typeof useNewThreadHandler>["handleNewThread"];
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
@@ -1218,6 +1222,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     project,
     isThreadListExpanded,
     activeRouteThreadKey,
+    activeRouteSymphonyProjectKey,
     newThreadShortcutLabel,
     handleNewThread,
     archiveThread,
@@ -1361,6 +1366,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (state) => state.symphonyExpandedByProjectKey[project.projectKey] ?? false,
   );
   const toggleSymphonyExpanded = useUiStateStore((state) => state.toggleSymphonyExpanded);
+  const setSelectedSymphonyRun = useUiStateStore((state) => state.setSelectedSymphonyRun);
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
       projectThreads.map(
@@ -1856,6 +1862,20 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       });
     },
     [clearSelection, router, setSelectionAnchor],
+  );
+  const navigateToSymphonyRunDetails = useCallback(
+    ({ member, run }: { member: SidebarProjectGroupMember; run: SymphonyRun }) => {
+      const projectKey = scopedProjectKey(scopeProjectRef(member.environmentId, member.id));
+      setSelectedSymphonyRun(projectKey, run.runId);
+      void router.navigate({
+        to: "/$environmentId/project/$projectId/symphony",
+        params: {
+          environmentId: member.environmentId,
+          projectId: member.id,
+        },
+      });
+    },
+    [router, setSelectedSymphonyRun],
   );
 
   const handleThreadClick = useCallback(
@@ -2374,10 +2394,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         <SidebarSymphonySection
           expanded={symphonyExpanded}
           activeRouteThreadKey={activeRouteThreadKey}
+          activeRouteSymphonyProjectKey={activeRouteSymphonyProjectKey}
           snapshotEntries={symphonySnapshotEntries}
           symphonyThreads={symphonyThreads}
           onToggle={() => toggleSymphonyExpanded(project.projectKey)}
           navigateToThread={navigateToThread}
+          navigateToSymphonyRunDetails={navigateToSymphonyRunDetails}
         />
       ) : null}
 
@@ -2788,6 +2810,7 @@ interface SidebarProjectsContentProps {
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
   routeThreadKey: string | null;
+  routeSymphonyProjectKey: string | null;
   newThreadShortcutLabel: string | null;
   commandPaletteShortcutLabel: string | null;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
@@ -2828,6 +2851,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     expandedThreadListsByProject,
     activeRouteProjectKey,
     routeThreadKey,
+    routeSymphonyProjectKey,
     newThreadShortcutLabel,
     commandPaletteShortcutLabel,
     threadJumpLabelByKey,
@@ -2962,6 +2986,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
                         }
+                        activeRouteSymphonyProjectKey={
+                          activeRouteProjectKey === project.projectKey
+                            ? routeSymphonyProjectKey
+                            : null
+                        }
                         newThreadShortcutLabel={newThreadShortcutLabel}
                         handleNewThread={handleNewThread}
                         archiveThread={archiveThread}
@@ -2993,6 +3022,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
+                }
+                activeRouteSymphonyProjectKey={
+                  activeRouteProjectKey === project.projectKey ? routeSymphonyProjectKey : null
                 }
                 newThreadShortcutLabel={newThreadShortcutLabel}
                 handleNewThread={handleNewThread}
@@ -3045,7 +3077,17 @@ export default function Sidebar() {
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
   });
+  const routeSymphonyProjectRef = useParams({
+    strict: false,
+    select: (params) =>
+      params.environmentId && params.projectId
+        ? scopeProjectRef(params.environmentId as EnvironmentId, ProjectId.make(params.projectId))
+        : null,
+  });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  const routeSymphonyProjectKey = routeSymphonyProjectRef
+    ? scopedProjectKey(routeSymphonyProjectRef)
+    : null;
   const keybindings = useServerKeybindings();
   const openAddProjectCommandPalette = useCommandPaletteStore((store) => store.openAddProject);
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -3129,6 +3171,11 @@ export default function Sidebar() {
   // Resolve the active route's project key to a logical key so it matches the
   // sidebar's grouped project entries.
   const activeRouteProjectKey = useMemo(() => {
+    if (routeSymphonyProjectRef) {
+      const scopedKey = scopedProjectKey(routeSymphonyProjectRef);
+      const physicalKey = projectPhysicalKeyByScopedRef.get(scopedKey) ?? scopedKey;
+      return physicalToLogicalKey.get(physicalKey) ?? physicalKey;
+    }
     if (!routeThreadKey) {
       return null;
     }
@@ -3139,7 +3186,13 @@ export default function Sidebar() {
         scopedProjectKey(scopeProjectRef(activeThread.environmentId, activeThread.projectId)),
       ) ?? scopedProjectKey(scopeProjectRef(activeThread.environmentId, activeThread.projectId));
     return physicalToLogicalKey.get(physicalKey) ?? physicalKey;
-  }, [routeThreadKey, sidebarThreadByKey, physicalToLogicalKey, projectPhysicalKeyByScopedRef]);
+  }, [
+    routeSymphonyProjectRef,
+    routeThreadKey,
+    sidebarThreadByKey,
+    physicalToLogicalKey,
+    projectPhysicalKeyByScopedRef,
+  ]);
 
   // Group threads by logical project key so all threads from grouped projects
   // are displayed together.
@@ -3682,6 +3735,7 @@ export default function Sidebar() {
             expandedThreadListsByProject={expandedThreadListsByProject}
             activeRouteProjectKey={activeRouteProjectKey}
             routeThreadKey={routeThreadKey}
+            routeSymphonyProjectKey={routeSymphonyProjectKey}
             newThreadShortcutLabel={newThreadShortcutLabel}
             commandPaletteShortcutLabel={commandPaletteShortcutLabel}
             threadJumpLabelByKey={visibleThreadJumpLabelByKey}

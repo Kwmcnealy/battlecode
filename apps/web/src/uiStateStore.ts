@@ -20,6 +20,7 @@ export interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
   symphonyExpandedByProjectKey?: Record<string, boolean>;
+  selectedSymphonyRunByProjectKey?: Record<string, string>;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   threadActiveViewByKey?: Record<string, ThreadContentView>;
 }
@@ -28,6 +29,7 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   symphonyExpandedByProjectKey: Record<string, boolean>;
+  selectedSymphonyRunByProjectKey: Record<string, string>;
 }
 
 export interface UiThreadState {
@@ -57,6 +59,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   symphonyExpandedByProjectKey: {},
+  selectedSymphonyRunByProjectKey: {},
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   threadActiveViewByKey: {},
@@ -103,10 +106,25 @@ function readPersistedState(): UiState {
       symphonyExpandedByProjectKey: sanitizePersistedBooleanRecord(
         parsed.symphonyExpandedByProjectKey,
       ),
+      selectedSymphonyRunByProjectKey: sanitizePersistedStringRecord(
+        parsed.selectedSymphonyRunByProjectKey,
+      ),
     };
   } catch {
     return initialState;
   }
+}
+
+function sanitizePersistedStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        entry[0].length > 0 && typeof entry[1] === "string" && entry[1].length > 0,
+    ),
+  );
 }
 
 function sanitizePersistedBooleanRecord(value: unknown): Record<string, boolean> {
@@ -227,6 +245,7 @@ export function persistState(state: UiState): void {
         expandedProjectCwds,
         projectOrderCwds,
         symphonyExpandedByProjectKey: state.symphonyExpandedByProjectKey,
+        selectedSymphonyRunByProjectKey: state.selectedSymphonyRunByProjectKey,
         threadChangedFilesExpandedById,
         threadActiveViewByKey,
       } satisfies PersistedUiState),
@@ -685,6 +704,27 @@ export function toggleSymphonyExpanded(state: UiState, projectKey: string): UiSt
   );
 }
 
+export function setSelectedSymphonyRun(
+  state: UiState,
+  projectKey: string,
+  runId: string | null,
+): UiState {
+  const current = state.selectedSymphonyRunByProjectKey[projectKey] ?? null;
+  if (current === runId) {
+    return state;
+  }
+  const nextSelectedRunByProjectKey = { ...state.selectedSymphonyRunByProjectKey };
+  if (runId) {
+    nextSelectedRunByProjectKey[projectKey] = runId;
+  } else {
+    delete nextSelectedRunByProjectKey[projectKey];
+  }
+  return {
+    ...state,
+    selectedSymphonyRunByProjectKey: nextSelectedRunByProjectKey,
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectIds: readonly string[],
@@ -740,6 +780,7 @@ interface UiStateStore extends UiState {
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   setSymphonyExpanded: (projectKey: string, expanded: boolean) => void;
   toggleSymphonyExpanded: (projectKey: string) => void;
+  setSelectedSymphonyRun: (projectKey: string, runId: string | null) => void;
   reorderProjects: (
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
@@ -765,6 +806,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSymphonyExpanded: (projectKey, expanded) =>
     set((state) => setSymphonyExpanded(state, projectKey, expanded)),
   toggleSymphonyExpanded: (projectKey) => set((state) => toggleSymphonyExpanded(state, projectKey)),
+  setSelectedSymphonyRun: (projectKey, runId) =>
+    set((state) => setSelectedSymphonyRun(state, projectKey, runId)),
   reorderProjects: (draggedProjectIds, targetProjectIds) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectIds)),
 }));

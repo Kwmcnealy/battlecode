@@ -3,6 +3,8 @@ import type {
   SymphonyEvent,
   SymphonyIssueId,
   SymphonyRun,
+  SymphonyRunId,
+  SymphonyRunStatus,
   SymphonySettings,
   ThreadId,
 } from "@t3tools/contracts";
@@ -34,6 +36,13 @@ export interface SymphonyRepositoryShape {
   readonly listRuns: (
     projectId: ProjectId,
   ) => Effect.Effect<readonly SymphonyRun[], SymphonyRepositoryError>;
+  readonly listProjectIdsWithRunsInStatuses: (input: {
+    readonly statuses: readonly SymphonyRunStatus[];
+    readonly includeArchived?: boolean;
+  }) => Effect.Effect<readonly ProjectId[], SymphonyRepositoryError>;
+  readonly listRunsForMonitoring: (
+    projectId: ProjectId,
+  ) => Effect.Effect<readonly SymphonyRun[], SymphonyRepositoryError>;
   readonly getRunByIssue: (input: {
     readonly projectId: ProjectId;
     readonly issueId: SymphonyIssueId;
@@ -42,6 +51,15 @@ export interface SymphonyRepositoryShape {
     threadId: ThreadId,
   ) => Effect.Effect<SymphonyRun | null, SymphonyRepositoryError>;
   readonly upsertRun: (run: SymphonyRun) => Effect.Effect<SymphonyRun, SymphonyRepositoryError>;
+  /**
+   * Lightweight update that sets only the `last_error` and `updated_at` columns on a run.
+   * Used by the linear writer to surface failures without loading the full run object.
+   */
+  readonly upsertRunError: (
+    runId: SymphonyRunId,
+    lastError: string,
+    updatedAt: string,
+  ) => Effect.Effect<void, SymphonyRepositoryError>;
   readonly appendEvent: (
     event: SymphonyEvent,
   ) => Effect.Effect<SymphonyEvent, SymphonyRepositoryError>;

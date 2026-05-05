@@ -2,10 +2,18 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  classifyLinearApiKey,
   createLinearComment,
   detectLinearCodexTask,
+  fetchLinearIssueComments,
   fetchLinearCandidates,
+  fetchLinearIssuesByIds,
+  formatLinearHttpError,
   normalizeLinearIssue,
+  resolveLinearWorkflowStateId,
+  updateLinearComment,
+  updateLinearIssueState,
+  type LinearIssueWorkflowContext,
 } from "./linear.ts";
 
 afterEach(() => {
@@ -36,6 +44,37 @@ function mockLinearComments(
   );
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+function makeLinearIssueContext(
+  overrides: Partial<LinearIssueWorkflowContext> = {},
+): LinearIssueWorkflowContext {
+  return {
+    issue: {
+      id: "linear-issue-1" as never,
+      identifier: "APP-1",
+      title: "Fix dashboard",
+      description: null,
+      priority: null,
+      state: "Todo",
+      branchName: null,
+      url: null,
+      labels: [],
+      blockedBy: [],
+      createdAt: null,
+      updatedAt: null,
+    },
+    team: {
+      id: "team-1",
+      name: "App",
+      key: "APP",
+    },
+    state: {
+      id: "state-todo",
+      name: "Todo",
+    },
+    ...overrides,
+  };
 }
 
 describe("Symphony Linear helpers", () => {
@@ -137,11 +176,23 @@ describe("Symphony Linear helpers", () => {
           tracker: {
             kind: "linear",
             endpoint: "https://linear.example/graphql",
-            projectSlug: "battlecode",
-            activeStates: ["Todo", "In Progress"],
+            projectSlugId: "battlecode",
+            intakeStates: ["Todo", "todo", "Done", "Canceled"],
+            activeStates: ["In Progress", "done"],
             terminalStates: ["Done"],
+            reviewStates: ["In Review", "in progress"],
+            doneStates: ["Done"],
+            canceledStates: ["Canceled"],
+            transitionStates: {
+              started: null,
+              review: null,
+              done: null,
+              canceled: null,
+            },
           },
-          polling: { intervalMs: 30_000 },
+          polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+          concurrency: { max: 3 },
+          stall: { timeoutMs: 300_000 },
           workspace: { root: "" },
           hooks: { timeoutMs: 60_000 },
           agent: {
@@ -149,13 +200,339 @@ describe("Symphony Linear helpers", () => {
             maxTurns: 20,
             maxRetryBackoffMs: 300_000,
           },
+          codex: { runtimeMode: "full-access" },
         },
       }),
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).query).toContain("slugId");
+    const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: Record<string, unknown>;
+    };
+    expect(firstRequest.query).toContain("slugId");
+    expect(firstRequest.variables.states).toEqual(["Todo", "In Progress", "In Review"]);
     expect(issues.map((issue) => issue.identifier)).toEqual(["APP-1", "APP-2"]);
+  });
+
+  it("uses default intake candidate states when no candidate state groups are configured", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issues: {
+                nodes: [],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await Effect.runPromise(
+      fetchLinearCandidates({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        config: {
+          tracker: {
+            kind: "linear",
+            endpoint: "https://linear.example/graphql",
+            projectSlugId: "battlecode",
+            activeStates: [],
+            terminalStates: [],
+            reviewStates: [],
+            doneStates: [],
+            canceledStates: [],
+            transitionStates: {
+              started: null,
+              review: null,
+              done: null,
+              canceled: null,
+            },
+          },
+          polling: { schedulerIntervalMs: 30_000, reconcilerIntervalMs: 10_000, jitter: 0.1 },
+          concurrency: { max: 3 },
+          stall: { timeoutMs: 300_000 },
+          workspace: { root: "" },
+          hooks: { timeoutMs: 60_000 },
+          agent: {
+            maxConcurrentAgents: 3,
+            maxTurns: 20,
+            maxRetryBackoffMs: 300_000,
+          },
+          codex: { runtimeMode: "full-access" },
+        },
+      }),
+    );
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly variables: Record<string, unknown>;
+    };
+    expect(request.variables.states).toEqual(["To Do", "Todo"]);
+  });
+
+  it("fetches tracked Linear issues by id with team and state context", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issues: {
+                nodes: [
+                  {
+                    id: "linear-issue-1",
+                    identifier: "APP-1",
+                    title: "First issue",
+                    state: { id: "state-progress", name: "In Progress" },
+                    team: { id: "team-1", name: "App", key: "APP" },
+                    labels: { nodes: [] },
+                    relations: { nodes: [] },
+                    description: null,
+                    priority: null,
+                    url: null,
+                    branchName: null,
+                    createdAt: null,
+                    updatedAt: null,
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const issues = await Effect.runPromise(
+      fetchLinearIssuesByIds({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueIds: ["linear-issue-1"],
+      }),
+    );
+
+    expect(issues[0]?.issue.identifier).toBe("APP-1");
+    expect(issues[0]?.team).toEqual({ id: "team-1", name: "App", key: "APP" });
+    expect(issues[0]?.state).toEqual({ id: "state-progress", name: "In Progress" });
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+    };
+    expect(request.query).toContain("team {");
+    expect(request.query).toContain("$ids: [ID!]");
+  });
+
+  it("includes Linear GraphQL validation details in request failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              errors: [
+                {
+                  message:
+                    'Variable "$ids" of type "[String!]" used in position expecting type "[ID!]".',
+                  extensions: { code: "GRAPHQL_VALIDATION_FAILED", type: "graphql error" },
+                },
+              ],
+            }),
+            { status: 400 },
+          ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_key",
+          issueIds: ["linear-issue-1"],
+        }),
+      ),
+    ).rejects.toThrow(/expecting type/);
+  });
+
+  it("includes Linear rate-limit details in HTTP failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              errors: [
+                {
+                  message: "Rate limit exceeded.",
+                  extensions: { code: "RATE_LIMITED", retryAfter: 30 },
+                },
+              ],
+            }),
+            {
+              status: 429,
+              headers: {
+                "retry-after": "30",
+                "x-ratelimit-requests-remaining": "0",
+              },
+            },
+          ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_key",
+          issueIds: ["linear-issue-1"],
+        }),
+      ),
+    ).rejects.toThrow(/RATE_LIMITED.*retry-after=30.*x-ratelimit-requests-remaining=0/);
+  });
+
+  it("resolves Linear workflow state ids by issue team and configured name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                workflowStates: {
+                  nodes: [
+                    { id: "state-started", name: "In Progress", team: { id: "team-1" } },
+                    { id: "state-review", name: "In Review", team: { id: "team-1" } },
+                  ],
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const state = await Effect.runPromise(
+      resolveLinearWorkflowStateId({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        teamId: "team-1",
+        stateName: "in review",
+      }),
+    );
+
+    expect(state).toEqual({ id: "state-review", name: "In Review" });
+  });
+
+  it("skips Linear issue state updates when the issue is already in the target state", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await Effect.runPromise(
+      updateLinearIssueState({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issue: makeLinearIssueContext({
+          state: { id: "state-review", name: "In Review" },
+        }),
+        stateName: "in review",
+      }),
+    );
+
+    expect(result).toEqual({
+      changed: false,
+      stateId: "state-review",
+      stateName: "In Review",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails Linear issue state updates when the configured state is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                workflowStates: {
+                  nodes: [{ id: "state-progress", name: "In Progress" }],
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        updateLinearIssueState({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_key",
+          issue: makeLinearIssueContext(),
+          stateName: "In Review",
+        }),
+      ),
+    ).rejects.toThrow(/In Review/);
+  });
+
+  it("updates Linear issue state with issueUpdate when a transition is needed", async () => {
+    const fetchMock = vi.fn(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const requestBody = JSON.parse(String(init?.body)) as { readonly query: string };
+      if (requestBody.query.includes("workflowStates")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              workflowStates: {
+                nodes: [{ id: "state-review", name: "In Review" }],
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          data: {
+            issueUpdate: {
+              success: true,
+              issue: {
+                id: "linear-issue-1",
+                identifier: "APP-1",
+                state: { id: "state-review", name: "In Review" },
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await Effect.runPromise(
+      updateLinearIssueState({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issue: makeLinearIssueContext(),
+        stateName: "In Review",
+      }),
+    );
+
+    expect(result).toEqual({
+      changed: true,
+      stateId: "state-review",
+      stateName: "In Review",
+    });
+    const mutationBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: Record<string, unknown>;
+    };
+    expect(mutationBody.query).toContain("issueUpdate");
+    expect(mutationBody.variables).toEqual({
+      issueId: "linear-issue-1",
+      stateId: "state-review",
+    });
   });
 
   it("creates Linear comments for Codex Cloud delegation", async () => {
@@ -200,7 +577,124 @@ describe("Symphony Linear helpers", () => {
     });
   });
 
-  it("detects Codex Cloud task links from Linear comments", async () => {
+  it("updates managed Linear comments with commentUpdate", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              commentUpdate: {
+                success: true,
+                comment: {
+                  id: "comment-1",
+                  url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comment = await Effect.runPromise(
+      updateLinearComment({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        commentId: "comment-1",
+        body: "<!-- symphony-managed-progress v1 -->",
+      }),
+    );
+
+    expect(comment).toEqual({
+      id: "comment-1",
+      url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+    });
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: { readonly commentId: string; readonly body: string };
+    };
+    expect(requestBody.query).toContain("commentUpdate");
+    expect(requestBody.variables).toEqual({
+      commentId: "comment-1",
+      body: "<!-- symphony-managed-progress v1 -->",
+    });
+  });
+
+  it("fetches Linear issue comments with update timestamps and user names", async () => {
+    const fetchMock = vi.fn(
+      async (_url: Parameters<typeof fetch>[0], _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-1",
+                      url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+                      body: "<!-- symphony-managed-progress v1 -->",
+                      createdAt: "2026-05-02T12:00:00.000Z",
+                      updatedAt: "2026-05-02T12:05:00.000Z",
+                      user: { id: "user-1", name: "Jordan", displayName: "Jordan S." },
+                    },
+                    {
+                      id: "comment-2",
+                      url: null,
+                      body: "A teammate reply",
+                      createdAt: "2026-05-02T12:10:00.000Z",
+                      updatedAt: "2026-05-02T12:10:00.000Z",
+                      user: { id: "user-2", name: "Riley", displayName: null },
+                    },
+                    {
+                      id: null,
+                      body: "Malformed comment is skipped",
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comments = await Effect.runPromise(
+      fetchLinearIssueComments({
+        endpoint: "https://linear.example/graphql",
+        apiKey: "lin_api_key",
+        issueId: "linear-issue-1",
+      }),
+    );
+
+    expect(comments).toEqual([
+      {
+        id: "comment-1",
+        url: "https://linear.app/t3/issue/APP-1#comment-comment-1",
+        body: "<!-- symphony-managed-progress v1 -->",
+        createdAt: "2026-05-02T12:00:00.000Z",
+        updatedAt: "2026-05-02T12:05:00.000Z",
+        userName: "Jordan S.",
+      },
+      {
+        id: "comment-2",
+        url: null,
+        body: "A teammate reply",
+        createdAt: "2026-05-02T12:10:00.000Z",
+        updatedAt: "2026-05-02T12:10:00.000Z",
+        userName: "Riley",
+      },
+    ]);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      readonly query: string;
+      readonly variables: { readonly issueId: string };
+    };
+    expect(requestBody.query).toContain("updatedAt");
+    expect(requestBody.variables).toEqual({ issueId: "linear-issue-1" });
+  });
+
+  it("returns unknown for all Linear comments (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-old",
@@ -224,14 +718,14 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
-      taskUrl: "https://codex.openai.com/tasks/new",
-      linearCommentId: "comment-new",
-      status: "detected",
+      status: "unknown",
+      taskUrl: null,
+      linearCommentId: null,
       message: null,
     });
   });
 
-  it("detects Codex Cloud setup failures from Linear comments", async () => {
+  it("returns unknown for setup failure comments (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-setup",
@@ -250,14 +744,14 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
+      status: "unknown",
       taskUrl: null,
-      linearCommentId: "comment-setup",
-      status: "failed",
-      message: "No suitable environment or repository is available.",
+      linearCommentId: null,
+      message: null,
     });
   });
 
-  it("prefers post-delegation task links over earlier post-delegation setup failures", async () => {
+  it("returns unknown regardless of comment order (Codex Cloud reply detection removed)", async () => {
     mockLinearComments([
       {
         id: "comment-setup",
@@ -281,9 +775,9 @@ describe("Symphony Linear helpers", () => {
     );
 
     expect(detected).toEqual({
-      taskUrl: "https://codex.openai.com/tasks/after-setup",
-      linearCommentId: "comment-task",
-      status: "detected",
+      status: "unknown",
+      taskUrl: null,
+      linearCommentId: null,
       message: null,
     });
   });
@@ -317,5 +811,135 @@ describe("Symphony Linear helpers", () => {
       linearCommentId: null,
       message: null,
     });
+  });
+});
+
+describe("Linear API key classification", () => {
+  it("accepts a personal API key (lin_api_*) as-is", () => {
+    const result = classifyLinearApiKey("lin_api_abc123");
+    expect(result).toEqual({ kind: "personal", token: "lin_api_abc123" });
+  });
+
+  it("strips the Bearer prefix and includes a warning", () => {
+    const result = classifyLinearApiKey("Bearer lin_api_abc123");
+    expect(result.kind).toBe("personal-with-bearer-prefix");
+    if (result.kind === "personal-with-bearer-prefix") {
+      expect(result.token).toBe("lin_api_abc123");
+      expect(result.warning).toContain("Bearer");
+    }
+  });
+
+  it("flags a JWT-shaped token as OAuth and includes an error", () => {
+    const result = classifyLinearApiKey(
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+    );
+    expect(result.kind).toBe("oauth-token");
+    if (result.kind === "oauth-token") {
+      expect(result.token).toBeNull();
+      expect(result.error).toContain("OAuth");
+    }
+  });
+
+  it("returns empty for an empty string", () => {
+    const result = classifyLinearApiKey("");
+    expect(result).toEqual({ kind: "empty", token: null });
+  });
+
+  it("returns empty for a whitespace-only string", () => {
+    const result = classifyLinearApiKey("   ");
+    expect(result).toEqual({ kind: "empty", token: null });
+  });
+
+  it("fails the GraphQL request when the key is empty", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toThrow(/empty/i);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails the GraphQL request when the key is a JWT token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toThrow(/OAuth/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Linear error body logging", () => {
+  it("includes the full response body in the error message without truncation", async () => {
+    const longBody = "X".repeat(5000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(longBody, { status: 400, statusText: "Bad Request" })),
+    );
+
+    await expect(
+      Effect.runPromise(
+        fetchLinearIssuesByIds({
+          endpoint: "https://linear.example/graphql",
+          apiKey: "lin_api_abc",
+          issueIds: ["i1"],
+        }),
+      ),
+    ).rejects.toSatisfy((e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      return message.includes(longBody);
+    });
+  });
+});
+
+describe("Linear schema-deprecation hints", () => {
+  it("annotates GRAPHQL_VALIDATION_FAILED errors referencing branchName with a schema-drift hint", () => {
+    const body = JSON.stringify({
+      errors: [
+        {
+          message: 'Cannot query field "branchName" on type "Issue"',
+          extensions: { code: "GRAPHQL_VALIDATION_FAILED" },
+        },
+      ],
+    });
+    const fakeResponse = new Response(body, { status: 400 });
+    const message = formatLinearHttpError(
+      "SymphonyCandidateIssues",
+      fakeResponse,
+      JSON.parse(body),
+      body,
+    );
+    expect(message).toContain("Linear's GraphQL schema may have changed");
+    expect(message).toContain("branchName");
+  });
+
+  it("does not add a hint when the error is unrelated to known fields", () => {
+    const body = JSON.stringify({
+      errors: [{ message: "Unauthorized", extensions: { code: "UNAUTHORIZED" } }],
+    });
+    const fakeResponse = new Response(body, { status: 401 });
+    const message = formatLinearHttpError(
+      "SymphonyCandidateIssues",
+      fakeResponse,
+      JSON.parse(body),
+      body,
+    );
+    expect(message).not.toContain("schema may have changed");
   });
 });

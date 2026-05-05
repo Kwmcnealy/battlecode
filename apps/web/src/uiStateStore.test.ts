@@ -12,6 +12,7 @@ import {
   sanitizePersistedThreadActiveViewByKey,
   selectThreadActiveView,
   setProjectExpanded,
+  setSelectedSymphonyRun,
   setSymphonyExpanded,
   setThreadActiveView,
   setThreadChangedFilesExpanded,
@@ -26,6 +27,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     symphonyExpandedByProjectKey: {},
+    selectedSymphonyRunByProjectKey: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     threadActiveViewByKey: {},
@@ -93,6 +95,14 @@ describe("uiStateStore pure functions", () => {
     const expanded = toggleSymphonyExpanded(initialState, "project-1");
 
     expect(expanded.symphonyExpandedByProjectKey["project-1"]).toBe(true);
+  });
+
+  it("stores selected Symphony run by project key", () => {
+    const selected = setSelectedSymphonyRun(makeUiState(), "project-1", "run-1");
+    const cleared = setSelectedSymphonyRun(selected, "project-1", null);
+
+    expect(selected.selectedSymphonyRunByProjectKey).toEqual({ "project-1": "run-1" });
+    expect(cleared.selectedSymphonyRunByProjectKey).toEqual({});
   });
 
   it("reorderProjects is a no-op when dragged key is not in projectOrder", () => {
@@ -485,27 +495,27 @@ describe("uiStateStore pure functions", () => {
   });
 });
 
-describe("uiStateStore persistence round-trip", () => {
-  function createLocalStorageStub(): Storage {
-    const store = new Map<string, string>();
-    return {
-      clear: () => {
-        store.clear();
-      },
-      getItem: (key) => store.get(key) ?? null,
-      key: (index) => [...store.keys()][index] ?? null,
-      get length() {
-        return store.size;
-      },
-      removeItem: (key) => {
-        store.delete(key);
-      },
-      setItem: (key, value) => {
-        store.set(key, value);
-      },
-    };
-  }
+function createLocalStorageStub(): Storage {
+  const store = new Map<string, string>();
+  return {
+    clear: () => {
+      store.clear();
+    },
+    getItem: (key) => store.get(key) ?? null,
+    key: (index) => [...store.keys()][index] ?? null,
+    get length() {
+      return store.size;
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+    setItem: (key, value) => {
+      store.set(key, value);
+    },
+  };
+}
 
+describe("uiStateStore persistence round-trip", () => {
   let localStorageStub: Storage;
 
   beforeEach(() => {

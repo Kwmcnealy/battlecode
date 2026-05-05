@@ -346,6 +346,7 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
 function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   service: GitHubCliShape;
   ghCalls: string[];
+  createdPullRequests: Parameters<GitHubCliShape["createPullRequest"]>[0][];
 } {
   const prListQueue = [...(scenario.prListSequence ?? [])];
   const prListQueueByHeadSelector = new Map(
@@ -355,6 +356,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     ]),
   );
   const ghCalls: string[] = [];
+  const createdPullRequests: Parameters<GitHubCliShape["createPullRequest"]>[0][] = [];
 
   const execute: GitHubCliShape["execute"] = (input) => {
     const args = [...input.args];
@@ -543,21 +545,28 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           ),
         ),
       createPullRequest: (input) =>
-        execute({
-          cwd: input.cwd,
-          args: [
-            "pr",
-            "create",
-            "--base",
-            input.baseBranch,
-            "--head",
-            input.headSelector,
-            "--title",
-            input.title,
-            "--body-file",
-            input.bodyFile,
-          ],
-        }).pipe(Effect.asVoid),
+        Effect.sync(() => {
+          createdPullRequests.push(input);
+        }).pipe(
+          Effect.flatMap(() =>
+            execute({
+              cwd: input.cwd,
+              args: [
+                "pr",
+                "create",
+                "--base",
+                input.baseBranch,
+                "--head",
+                input.headSelector,
+                "--title",
+                input.title,
+                "--body-file",
+                input.bodyFile,
+              ],
+            }),
+          ),
+          Effect.asVoid,
+        ),
       getDefaultBranch: (input) =>
         execute({
           cwd: input.cwd,
@@ -591,6 +600,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         }).pipe(Effect.asVoid),
     },
     ghCalls,
+    createdPullRequests,
   };
 }
 
@@ -600,6 +610,7 @@ function runStackedAction(
     cwd: string;
     action: "commit" | "push" | "create_pr" | "commit_push" | "commit_push_pr";
     actionId?: string;
+    baseBranch?: string;
     commitMessage?: string;
     featureBranch?: boolean;
     filePaths?: readonly string[];
@@ -631,7 +642,11 @@ function makeManager(input?: {
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunnerShape;
 }) {
-  const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
+  const {
+    service: gitHubCli,
+    ghCalls,
+    createdPullRequests,
+  } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-git-manager-test-",
@@ -659,7 +674,7 @@ function makeManager(input?: {
 
   return makeGitManager().pipe(
     Effect.provide(managerLayer),
-    Effect.map((manager) => ({ manager, ghCalls })),
+    Effect.map((manager) => ({ manager, ghCalls, createdPullRequests })),
   );
 }
 
@@ -2047,6 +2062,51 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         ghCalls.some((call) => call.includes("pr create --base main --head feature-create-pr")),
       ).toBe(true);
       expect(ghCalls.some((call) => call.startsWith("pr view "))).toBe(false);
+    }),
+  );
+
+  it.effect("uses the explicit base branch override when creating a PR", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "development"]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature-base-override"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      fs.writeFileSync(path.join(repoDir, "changes.txt"), "change\n");
+      yield* runGit(repoDir, ["add", "changes.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Feature commit"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature-base-override"]);
+
+      const { manager, createdPullRequests } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            "[]",
+            JSON.stringify([
+              {
+                number: 189,
+                title: "Add stacked git actions",
+                url: "https://github.com/pingdotgg/codething-mvp/pull/189",
+                baseRefName: "development",
+                headRefName: "feature-base-override",
+              },
+            ]),
+          ],
+        },
+      });
+      const result = yield* runStackedAction(manager, {
+        cwd: repoDir,
+        action: "commit_push_pr",
+        baseBranch: "development",
+      });
+
+      expect(result.pr.status).toBe("created");
+      expect(result.pr.number).toBe(189);
+      expect(createdPullRequests).toHaveLength(1);
+      expect(createdPullRequests[0]).toMatchObject({
+        baseBranch: "development",
+        headSelector: "feature-base-override",
+      });
     }),
   );
 

@@ -9,6 +9,7 @@ import {
   TrimmedNonEmptyString,
   TrimmedString,
 } from "./baseSchemas.ts";
+import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./orchestration.ts";
 
 export const SYMPHONY_WS_METHODS = {
   getSettings: "symphony.getSettings",
@@ -26,10 +27,9 @@ export const SYMPHONY_WS_METHODS = {
   refresh: "symphony.refresh",
   stopIssue: "symphony.stopIssue",
   retryIssue: "symphony.retryIssue",
+  archiveIssue: "symphony.archiveIssue",
   openLinkedThread: "symphony.openLinkedThread",
   launchIssue: "symphony.launchIssue",
-  updateExecutionDefault: "symphony.updateExecutionDefault",
-  refreshCloudStatus: "symphony.refreshCloudStatus",
 } as const;
 
 export const SymphonyIssueId = TrimmedNonEmptyString.pipe(Schema.brand("SymphonyIssueId"));
@@ -53,55 +53,15 @@ export const SymphonySecretSource = Schema.Literals(["missing", "stored", "env"]
 export type SymphonySecretSource = typeof SymphonySecretSource.Type;
 
 export const SymphonyRunStatus = Schema.Literals([
-  "target-pending",
-  "eligible",
-  "running",
-  "retry-queued",
-  "cloud-submitted",
+  "intake",
+  "planning",
+  "implementing",
+  "in-review",
   "completed",
-  "failed",
   "canceled",
-  "released",
+  "failed",
 ]);
 export type SymphonyRunStatus = typeof SymphonyRunStatus.Type;
-
-export const SymphonyExecutionTarget = Schema.Literals(["local", "codex-cloud"]);
-export type SymphonyExecutionTarget = typeof SymphonyExecutionTarget.Type;
-
-export const SymphonyCloudTaskStatus = Schema.Literals([
-  "submitted",
-  "detected",
-  "completed",
-  "failed",
-  "unknown",
-]);
-export type SymphonyCloudTaskStatus = typeof SymphonyCloudTaskStatus.Type;
-
-export const SymphonyCloudTask = Schema.Struct({
-  provider: Schema.Literal("codex-cloud-linear"),
-  status: SymphonyCloudTaskStatus,
-  taskUrl: Schema.NullOr(Schema.String),
-  linearCommentId: Schema.NullOr(Schema.String),
-  linearCommentUrl: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  repository: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  repositoryUrl: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  lastMessage: Schema.NullOr(Schema.String).pipe(
-    Schema.optionalKey,
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  delegatedAt: Schema.NullOr(IsoDateTime),
-  lastCheckedAt: Schema.NullOr(IsoDateTime),
-});
-export type SymphonyCloudTask = typeof SymphonyCloudTask.Type;
 
 export const SymphonyAttemptStatus = Schema.Literals([
   "launching-agent-process",
@@ -126,22 +86,61 @@ export const SymphonyTrackerConfig = Schema.Struct({
   endpoint: TrimmedString.pipe(
     Schema.withDecodingDefault(Effect.succeed("https://api.linear.app/graphql")),
   ),
-  projectSlug: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  projectSlugId: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  intakeStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(["To Do", "Todo"])),
+  ),
   activeStates: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed(["Todo", "In Progress"])),
+    Schema.withDecodingDefault(Effect.succeed(["In Progress"])),
   ),
   terminalStates: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(
       Effect.succeed(["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]),
     ),
   ),
+  reviewStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["In Review", "Review"])),
+  ),
+  doneStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["Done", "Closed"])),
+  ),
+  canceledStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(["Canceled", "Cancelled"])),
+  ),
+  transitionStates: Schema.Struct({
+    started: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed("In Progress")),
+    ),
+    review: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed("In Review")),
+    ),
+    done: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed("Done")),
+    ),
+    canceled: Schema.NullOr(TrimmedNonEmptyString).pipe(
+      Schema.withDecodingDefault(Effect.succeed("Canceled")),
+    ),
+  }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type SymphonyTrackerConfig = typeof SymphonyTrackerConfig.Type;
 
 export const SymphonyPollingConfig = Schema.Struct({
-  intervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(30_000))),
+  schedulerIntervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(30_000))),
+  reconcilerIntervalMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(60_000))),
+  jitter: Schema.Number.pipe(Schema.withDecodingDefault(Effect.succeed(0.1))),
 });
 export type SymphonyPollingConfig = typeof SymphonyPollingConfig.Type;
+
+export const SymphonyConcurrencyConfig = Schema.Struct({
+  max: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(3))),
+});
+export type SymphonyConcurrencyConfig = typeof SymphonyConcurrencyConfig.Type;
+
+export const SymphonyStallConfig = Schema.Struct({
+  timeoutMs: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(300_000))),
+});
+export type SymphonyStallConfig = typeof SymphonyStallConfig.Type;
 
 export const SymphonyWorkspaceConfig = Schema.Struct({
   root: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -163,12 +162,51 @@ export const SymphonyAgentConfig = Schema.Struct({
 });
 export type SymphonyAgentConfig = typeof SymphonyAgentConfig.Type;
 
+export const SymphonyCodexConfig = Schema.Struct({
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+});
+export type SymphonyCodexConfig = typeof SymphonyCodexConfig.Type;
+
+export const SymphonyPullRequestConfig = Schema.Struct({
+  baseBranch: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyPullRequestConfig = typeof SymphonyPullRequestConfig.Type;
+
+export const DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT =
+  "Simplify only the code changed for this issue. Preserve behavior and UI unless a fix is required.";
+export const DEFAULT_SYMPHONY_REVIEW_PROMPT =
+  "Review the current branch for correctness, regressions, and missing validation. Return REVIEW_PASS or REVIEW_FAIL with concrete findings.";
+
+export const SymphonyQualityConfig = Schema.Struct({
+  maxReviewFixLoops: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
+  simplificationPrompt: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SYMPHONY_SIMPLIFICATION_PROMPT)),
+  ),
+  reviewPrompt: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SYMPHONY_REVIEW_PROMPT)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyQualityConfig = typeof SymphonyQualityConfig.Type;
+
 export const SymphonyWorkflowConfig = Schema.Struct({
   tracker: SymphonyTrackerConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   polling: SymphonyPollingConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  concurrency: SymphonyConcurrencyConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  stall: SymphonyStallConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   workspace: SymphonyWorkspaceConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   hooks: SymphonyHooksConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   agent: SymphonyAgentConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  codex: SymphonyCodexConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  pullRequest: SymphonyPullRequestConfig.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  quality: SymphonyQualityConfig.pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type SymphonyWorkflowConfig = typeof SymphonyWorkflowConfig.Type;
 
@@ -193,9 +231,6 @@ export const SymphonySettings = Schema.Struct({
   workflowPath: TrimmedString,
   workflowStatus: SymphonyWorkflowValidation,
   linearSecret: SymphonySecretStatus,
-  executionDefaultTarget: SymphonyExecutionTarget.pipe(
-    Schema.withDecodingDefault(Effect.succeed("local" as const)),
-  ),
   updatedAt: IsoDateTime,
 });
 export type SymphonySettings = typeof SymphonySettings.Type;
@@ -232,6 +267,66 @@ export const SymphonyRunAttempt = Schema.Struct({
 });
 export type SymphonyRunAttempt = typeof SymphonyRunAttempt.Type;
 
+export const SymphonyPullRequestSummary = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  url: Schema.String,
+  baseBranch: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  updatedAt: IsoDateTime,
+});
+export type SymphonyPullRequestSummary = typeof SymphonyPullRequestSummary.Type;
+
+export const SymphonyRunProgress = Schema.Struct({
+  source: Schema.Literals(["symphony", "linear", "local-thread", "github"]),
+  label: TrimmedNonEmptyString,
+  detail: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+export type SymphonyRunProgress = typeof SymphonyRunProgress.Type;
+
+export const SymphonyLinearProgressComment = Schema.Struct({
+  commentId: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  commentUrl: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  ownedCommentIds: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  lastRenderedHash: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastUpdatedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  lastMilestoneAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFeedbackAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyLinearProgressComment = typeof SymphonyLinearProgressComment.Type;
+
+export const SymphonyQualityGateState = Schema.Struct({
+  reviewFixLoops: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  lastReviewPassedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastReviewSummary: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastReviewFindings: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  lastReviewedCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFixCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastPublishedCommit: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  lastFeedbackFingerprint: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonyQualityGateState = typeof SymphonyQualityGateState.Type;
+
 export const SymphonyRun = Schema.Struct({
   runId: SymphonyRunId,
   projectId: ProjectId,
@@ -241,15 +336,26 @@ export const SymphonyRun = Schema.Struct({
   branchName: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
   prUrl: Schema.NullOr(Schema.String),
-  executionTarget: Schema.NullOr(SymphonyExecutionTarget).pipe(
+  pullRequest: Schema.NullOr(SymphonyPullRequestSummary).pipe(
+    Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  cloudTask: Schema.NullOr(SymphonyCloudTask).pipe(
+  currentStep: Schema.NullOr(SymphonyRunProgress).pipe(
+    Schema.optionalKey,
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  linearProgress: SymphonyLinearProgressComment.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  qualityGate: SymphonyQualityGateState.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   attempts: Schema.Array(SymphonyRunAttempt),
   nextRetryAt: Schema.NullOr(IsoDateTime),
   lastError: Schema.NullOr(Schema.String),
+  lastSeenLinearState: Schema.NullOr(Schema.String).pipe(
+    Schema.optionalKey,
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -268,26 +374,49 @@ export const SymphonyEvent = Schema.Struct({
 export type SymphonyEvent = typeof SymphonyEvent.Type;
 
 export const SymphonyQueueSnapshot = Schema.Struct({
-  pendingTarget: Schema.Array(SymphonyRun),
-  eligible: Schema.Array(SymphonyRun),
-  running: Schema.Array(SymphonyRun),
-  retrying: Schema.Array(SymphonyRun),
+  intake: Schema.Array(SymphonyRun),
+  planning: Schema.Array(SymphonyRun),
+  implementing: Schema.Array(SymphonyRun),
+  "in-review": Schema.Array(SymphonyRun),
   completed: Schema.Array(SymphonyRun),
   failed: Schema.Array(SymphonyRun),
   canceled: Schema.Array(SymphonyRun),
+  archived: Schema.Array(SymphonyRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type SymphonyQueueSnapshot = typeof SymphonyQueueSnapshot.Type;
 
 export const SymphonyTotals = Schema.Struct({
-  pendingTarget: NonNegativeInt,
-  eligible: NonNegativeInt,
-  running: NonNegativeInt,
-  retrying: NonNegativeInt,
+  intake: NonNegativeInt,
+  planning: NonNegativeInt,
+  implementing: NonNegativeInt,
+  "in-review": NonNegativeInt,
   completed: NonNegativeInt,
   failed: NonNegativeInt,
   canceled: NonNegativeInt,
+  archived: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
 });
 export type SymphonyTotals = typeof SymphonyTotals.Type;
+
+export const SymphonySnapshotDiagnosticSummary = Schema.Struct({
+  count: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  latestMessage: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonySnapshotDiagnosticSummary = typeof SymphonySnapshotDiagnosticSummary.Type;
+
+export const SymphonySnapshotDiagnostics = Schema.Struct({
+  lastPollAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  queriedStates: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  candidateCount: Schema.NullOr(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  warningSummary: SymphonySnapshotDiagnosticSummary,
+  errorSummary: SymphonySnapshotDiagnosticSummary,
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type SymphonySnapshotDiagnostics = typeof SymphonySnapshotDiagnostics.Type;
 
 export const SymphonySnapshot = Schema.Struct({
   projectId: ProjectId,
@@ -296,6 +425,7 @@ export const SymphonySnapshot = Schema.Struct({
   queues: SymphonyQueueSnapshot,
   totals: SymphonyTotals,
   events: Schema.Array(SymphonyEvent),
+  diagnostics: Schema.optionalKey(SymphonySnapshotDiagnostics),
   updatedAt: IsoDateTime,
 });
 export type SymphonySnapshot = typeof SymphonySnapshot.Type;
@@ -344,12 +474,45 @@ export type SymphonyIssueActionInput = typeof SymphonyIssueActionInput.Type;
 export const SymphonyLaunchIssueInput = Schema.Struct({
   projectId: ProjectId,
   issueId: SymphonyIssueId,
-  target: SymphonyExecutionTarget,
 });
 export type SymphonyLaunchIssueInput = typeof SymphonyLaunchIssueInput.Type;
 
-export const SymphonyUpdateExecutionDefaultInput = Schema.Struct({
-  projectId: ProjectId,
-  target: SymphonyExecutionTarget,
+export const SymphonyLinearProject = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  slugId: Schema.String,
+  teamId: Schema.String,
+  teamName: Schema.String,
 });
-export type SymphonyUpdateExecutionDefaultInput = typeof SymphonyUpdateExecutionDefaultInput.Type;
+export type SymphonyLinearProject = Schema.Schema.Type<typeof SymphonyLinearProject>;
+
+export const SymphonyLinearWorkflowState = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  type: Schema.String,
+  position: Schema.Number,
+});
+export type SymphonyLinearWorkflowState = Schema.Schema.Type<typeof SymphonyLinearWorkflowState>;
+
+export const SymphonyApplyConfigurationInput = Schema.Struct({
+  projectId: ProjectId,
+  trackerProjectSlugId: Schema.String,
+  trackerProjectName: Schema.String,
+  trackerTeamId: Schema.String,
+  states: Schema.Struct({
+    intake: Schema.Array(Schema.String),
+    active: Schema.Array(Schema.String),
+    review: Schema.Array(Schema.String),
+    done: Schema.Array(Schema.String),
+    canceled: Schema.Array(Schema.String),
+  }),
+  validation: Schema.Array(Schema.String),
+  prBaseBranch: Schema.String,
+});
+export type SymphonyApplyConfigurationInput = Schema.Schema.Type<
+  typeof SymphonyApplyConfigurationInput
+>;
+
+export const SYMPHONY_FETCH_LINEAR_PROJECTS = "symphony.fetchLinearProjects" as const;
+export const SYMPHONY_FETCH_LINEAR_WORKFLOW_STATES = "symphony.fetchLinearWorkflowStates" as const;
+export const SYMPHONY_APPLY_CONFIGURATION = "symphony.applyConfiguration" as const;

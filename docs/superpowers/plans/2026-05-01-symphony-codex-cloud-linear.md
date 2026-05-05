@@ -1,5 +1,9 @@
 # Symphony Codex Cloud Linear Implementation Plan
 
+> **SUPERSEDED** by `docs/superpowers/specs/2026-05-03-symphony-local-only-redesign-design.md`.
+> Codex Cloud delegation was removed in the local-only redesign. This document is kept as a
+> historical record only — do not implement it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Symphony cloud launches create real Codex Cloud work from Linear, with repository-aware delegation, detectable acceptance/failure states, and sidebar UI that defaults collapsed and uses red working dots for active Symphony runs.

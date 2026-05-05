@@ -13,6 +13,16 @@ import { GitHubCliLive } from "./GitHubCli.ts";
 const mockedRunProcess = vi.mocked(runProcess);
 const layer = it.layer(GitHubCliLive);
 
+function processResult(stdout: unknown) {
+  return {
+    stdout: `${typeof stdout === "string" ? stdout : (JSON.stringify(stdout) ?? "")}\n`,
+    stderr: "",
+    code: 0,
+    signal: null,
+    timedOut: false,
+  };
+}
+
 afterEach(() => {
   mockedRunProcess.mockReset();
 });
@@ -58,6 +68,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -69,9 +80,121 @@ layer("GitHubCliLive", (it) => {
           "view",
           "#42",
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
         expect.objectContaining({ cwd: "/repo" }),
+      );
+    }),
+  );
+
+  it.effect("falls back to REST when pull request view is GraphQL rate limited", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockImplementation((_command, args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return Promise.reject(new Error("GraphQL: API rate limit already exceeded"));
+        }
+        if (args[0] === "api" && args[1] === "repos/octocat/codething-mvp/pulls/42") {
+          return Promise.resolve(
+            processResult({
+              number: 42,
+              title: "Add PR thread creation",
+              html_url: "https://github.com/octocat/codething-mvp/pull/42",
+              base: { ref: "main" },
+              head: {
+                ref: "feature/pr-threads",
+                repo: { full_name: "octocat/codething-mvp" },
+                user: { login: "octocat" },
+              },
+              state: "open",
+              merged_at: null,
+              updated_at: "2026-05-03T12:00:00Z",
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected gh args: ${args.join(" ")}`));
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.getPullRequest({
+          cwd: "/repo",
+          reference: "https://github.com/octocat/codething-mvp/pull/42",
+        });
+      });
+
+      assert.deepStrictEqual(result, {
+        number: 42,
+        title: "Add PR thread creation",
+        url: "https://github.com/octocat/codething-mvp/pull/42",
+        baseRefName: "main",
+        headRefName: "feature/pr-threads",
+        state: "open",
+        updatedAt: "2026-05-03T12:00:00Z",
+        headRepositoryNameWithOwner: "octocat/codething-mvp",
+        headRepositoryOwnerLogin: "octocat",
+      });
+    }),
+  );
+
+  it.effect("falls back to REST for number references inferred from origin", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockImplementation((command, args) => {
+        if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+          return Promise.reject(new Error("GraphQL: API rate limit already exceeded"));
+        }
+        if (command === "git" && args.join(" ") === "config --get remote.origin.url") {
+          return Promise.resolve(processResult("git@github.com:octocat/codething-mvp.git"));
+        }
+        if (
+          command === "gh" &&
+          args[0] === "api" &&
+          /^repos\/octocat\/codething-mvp\/pulls\/(?:42|43)$/.test(args[1] ?? "")
+        ) {
+          const number = Number(args[1]?.split("/").at(-1));
+          return Promise.resolve(
+            processResult({
+              number,
+              title: `PR ${number}`,
+              html_url: `https://github.com/octocat/codething-mvp/pull/${number}`,
+              base: { ref: "main" },
+              head: {
+                ref: `feature/pr-${number}`,
+                repo: { full_name: "octocat/codething-mvp" },
+                user: { login: "octocat" },
+              },
+              state: "open",
+              merged_at: null,
+              updated_at: null,
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected ${command} args: ${args.join(" ")}`));
+      });
+
+      const resultFromHashReference = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.getPullRequest({
+          cwd: "/repo",
+          reference: "#42",
+        });
+      });
+      const resultFromRawNumber = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.getPullRequest({
+          cwd: "/repo",
+          reference: "43",
+        });
+      });
+
+      assert.strictEqual(resultFromHashReference.number, 42);
+      assert.strictEqual(
+        resultFromHashReference.url,
+        "https://github.com/octocat/codething-mvp/pull/42",
+      );
+      assert.strictEqual(resultFromRawNumber.number, 43);
+      assert.strictEqual(
+        resultFromRawNumber.url,
+        "https://github.com/octocat/codething-mvp/pull/43",
       );
     }),
   );
@@ -116,6 +239,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -170,6 +294,70 @@ layer("GitHubCliLive", (it) => {
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
+          updatedAt: null,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("falls back to REST when pull request list is GraphQL rate limited", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockImplementation((command, args) => {
+        if (command === "gh" && args[0] === "pr" && args[1] === "list") {
+          return Promise.reject(new Error("GraphQL: API rate limit already exceeded"));
+        }
+        if (command === "git" && args.join(" ") === "config --get remote.origin.url") {
+          return Promise.resolve(processResult("https://github.com/octocat/codething-mvp.git"));
+        }
+        if (
+          command === "gh" &&
+          args[0] === "api" &&
+          args[1] ===
+            "repos/octocat/codething-mvp/pulls?state=all&head=octocat%3Afeature%2Fpr-list&per_page=20"
+        ) {
+          return Promise.resolve(
+            processResult([
+              {
+                number: 43,
+                title: "Valid PR",
+                html_url: "https://github.com/octocat/codething-mvp/pull/43",
+                base: { ref: "main" },
+                head: {
+                  ref: "feature/pr-list",
+                  repo: { full_name: "octocat/codething-mvp" },
+                  user: { login: "octocat" },
+                },
+                state: "closed",
+                merged_at: "2026-05-03T12:00:00Z",
+                updated_at: "2026-05-03T12:01:00Z",
+              },
+            ]),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected ${command} args: ${args.join(" ")}`));
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listOpenPullRequests({
+          cwd: "/repo",
+          headSelector: "feature/pr-list",
+          state: "all",
+          limit: 20,
+        });
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          number: 43,
+          title: "Valid PR",
+          url: "https://github.com/octocat/codething-mvp/pull/43",
+          baseRefName: "main",
+          headRefName: "feature/pr-list",
+          state: "merged",
+          updatedAt: "2026-05-03T12:01:00Z",
+          headRepositoryNameWithOwner: "octocat/codething-mvp",
+          headRepositoryOwnerLogin: "octocat",
         },
       ]);
     }),

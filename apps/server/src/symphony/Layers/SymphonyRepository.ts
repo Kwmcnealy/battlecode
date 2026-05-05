@@ -1,13 +1,15 @@
 import {
   ProjectId,
   type ProjectId as ProjectIdType,
-  SymphonyCloudTask,
   SymphonyEvent,
-  SymphonyExecutionTarget,
   SymphonyIssue,
   SymphonyIssueId,
+  SymphonyLinearProgressComment,
+  SymphonyPullRequestSummary,
+  SymphonyQualityGateState,
   SymphonyRun,
   SymphonyRunAttempt,
+  SymphonyRunProgress,
   SymphonyRunId,
   SymphonySecretStatus,
   SymphonySettings,
@@ -26,13 +28,13 @@ import {
   type SymphonyRepositoryShape,
   type SymphonyRuntimeStateRow,
 } from "../Services/SymphonyRepository.ts";
+import { LINEAR_INELIGIBLE_LEGACY_ERROR, MONITORED_RUN_STATUSES } from "../lifecyclePolicy.ts";
 
 interface SettingsRow {
   readonly projectId: string;
   readonly workflowPath: string;
   readonly workflowStatus: string;
   readonly linearSecretStatus: string;
-  readonly executionDefaultTarget: string;
   readonly updatedAt: string;
 }
 
@@ -45,11 +47,15 @@ interface RunRow {
   readonly branchName: string | null;
   readonly threadId: string | null;
   readonly prUrl: string | null;
-  readonly executionTarget: string | null;
-  readonly cloudTask: string | null;
+  readonly pullRequest: string | null;
+  readonly currentStep: string | null;
+  readonly linearProgress: string | null;
+  readonly qualityGate: string | null;
+  readonly archivedAt: string | null;
   readonly attempts: string;
   readonly nextRetryAt: string | null;
   readonly lastError: string | null;
+  readonly lastSeenLinearState: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -77,10 +83,16 @@ interface ProjectWorkspaceRootRow {
   readonly workspaceRoot: string;
 }
 
+interface ProjectIdRow {
+  readonly projectId: string;
+}
+
 const decodeWorkflowValidation = Schema.decodeUnknownSync(SymphonyWorkflowValidation);
 const decodeSecretStatus = Schema.decodeUnknownSync(SymphonySecretStatus);
-const decodeExecutionTarget = Schema.decodeUnknownSync(SymphonyExecutionTarget);
-const decodeCloudTask = Schema.decodeUnknownSync(SymphonyCloudTask);
+const decodeLinearProgress = Schema.decodeUnknownSync(SymphonyLinearProgressComment);
+const decodePullRequest = Schema.decodeUnknownSync(SymphonyPullRequestSummary);
+const decodeQualityGate = Schema.decodeUnknownSync(SymphonyQualityGateState);
+const decodeRunProgress = Schema.decodeUnknownSync(SymphonyRunProgress);
 const decodeIssue = Schema.decodeUnknownSync(SymphonyIssue);
 const decodeRunAttemptArray = Schema.decodeUnknownSync(Schema.Array(SymphonyRunAttempt));
 const decodeRun = Schema.decodeUnknownSync(SymphonyRun);
@@ -150,17 +162,11 @@ function decodeSettingsRow(
       decodeSecretStatus,
       linearSecretJson,
     );
-    const executionDefaultTarget = yield* decodeWith(
-      "SymphonyRepository.settings.executionDefaultTarget.decode",
-      decodeExecutionTarget,
-      row.executionDefaultTarget,
-    );
     return {
       projectId: yield* decodeProjectId(row.projectId),
       workflowPath: row.workflowPath,
       workflowStatus,
       linearSecret,
-      executionDefaultTarget,
       updatedAt: row.updatedAt,
     };
   });
@@ -170,32 +176,54 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
   return Effect.gen(function* () {
     const issueJson = yield* decodeJson("SymphonyRepository.run.issue", row.issue);
     const attemptsJson = yield* decodeJson("SymphonyRepository.run.attempts", row.attempts);
-    const cloudTaskJson =
-      row.cloudTask === null
+    const pullRequestJson =
+      row.pullRequest === null
         ? null
-        : yield* decodeJson("SymphonyRepository.run.cloudTask", row.cloudTask);
+        : yield* decodeJson("SymphonyRepository.run.pullRequest", row.pullRequest);
+    const currentStepJson =
+      row.currentStep === null
+        ? null
+        : yield* decodeJson("SymphonyRepository.run.currentStep", row.currentStep);
+    const linearProgressJson =
+      row.linearProgress === null
+        ? {}
+        : yield* decodeJson("SymphonyRepository.run.linearProgress", row.linearProgress);
+    const qualityGateJson =
+      row.qualityGate === null
+        ? {}
+        : yield* decodeJson("SymphonyRepository.run.qualityGate", row.qualityGate);
     const issue = yield* decodeWith("SymphonyRepository.run.issue.decode", decodeIssue, issueJson);
     const attempts = yield* decodeWith(
       "SymphonyRepository.run.attempts.decode",
       decodeRunAttemptArray,
       attemptsJson,
     );
-    const executionTarget =
-      row.executionTarget === null
+    const pullRequest =
+      pullRequestJson === null
         ? null
         : yield* decodeWith(
-            "SymphonyRepository.run.executionTarget.decode",
-            decodeExecutionTarget,
-            row.executionTarget,
+            "SymphonyRepository.run.pullRequest.decode",
+            decodePullRequest,
+            pullRequestJson,
           );
-    const cloudTask =
-      cloudTaskJson === null
+    const currentStep =
+      currentStepJson === null
         ? null
         : yield* decodeWith(
-            "SymphonyRepository.run.cloudTask.decode",
-            decodeCloudTask,
-            cloudTaskJson,
+            "SymphonyRepository.run.currentStep.decode",
+            decodeRunProgress,
+            currentStepJson,
           );
+    const linearProgress = yield* decodeWith(
+      "SymphonyRepository.run.linearProgress.decode",
+      decodeLinearProgress,
+      linearProgressJson,
+    );
+    const qualityGate = yield* decodeWith(
+      "SymphonyRepository.run.qualityGate.decode",
+      decodeQualityGate,
+      qualityGateJson,
+    );
     return yield* decodeWith("SymphonyRepository.decodeRunRow", decodeRun, {
       runId: yield* decodeRunId(row.runId),
       projectId: yield* decodeProjectId(row.projectId),
@@ -205,11 +233,15 @@ function decodeRunRow(row: RunRow): Effect.Effect<SymphonyRun, PersistenceDecode
       branchName: row.branchName,
       threadId: row.threadId,
       prUrl: row.prUrl,
-      executionTarget,
-      cloudTask,
+      pullRequest,
+      currentStep,
+      linearProgress,
+      qualityGate,
+      archivedAt: row.archivedAt,
       attempts,
       nextRetryAt: row.nextRetryAt,
       lastError: row.lastError,
+      lastSeenLinearState: row.lastSeenLinearState ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     });
@@ -284,7 +316,6 @@ const makeRepository = Effect.gen(function* () {
         workflow_path AS "workflowPath",
         workflow_status_json AS "workflowStatus",
         linear_secret_status_json AS "linearSecretStatus",
-        execution_default_target AS "executionDefaultTarget",
         updated_at AS "updatedAt"
       FROM symphony_settings
       WHERE project_id = ${projectId}
@@ -304,7 +335,6 @@ const makeRepository = Effect.gen(function* () {
         workflow_path,
         workflow_status_json,
         linear_secret_status_json,
-        execution_default_target,
         updated_at
       )
       VALUES (
@@ -312,14 +342,12 @@ const makeRepository = Effect.gen(function* () {
         ${settings.workflowPath},
         ${JSON.stringify(settings.workflowStatus)},
         ${JSON.stringify(settings.linearSecret)},
-        ${settings.executionDefaultTarget},
         ${settings.updatedAt}
       )
       ON CONFLICT(project_id) DO UPDATE SET
         workflow_path = excluded.workflow_path,
         workflow_status_json = excluded.workflow_status_json,
         linear_secret_status_json = excluded.linear_secret_status_json,
-        execution_default_target = excluded.execution_default_target,
         updated_at = excluded.updated_at
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertSettings")),
@@ -337,11 +365,15 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -349,6 +381,94 @@ const makeRepository = Effect.gen(function* () {
       ORDER BY updated_at DESC, issue_identifier ASC
     `.pipe(
       Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRuns")),
+      // Decode each row in isolation; skip rows that fail to decode (e.g.,
+      // legacy rows with statuses that no longer exist after the Phase 4
+      // status enum collapse). A single bad row should NOT prevent the rest
+      // of the snapshot from loading.
+      Effect.flatMap((rows) =>
+        Effect.forEach(
+          rows,
+          (row) =>
+            decodeRunRow(row).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Symphony run row failed to decode; skipping", {
+                  runId: row.runId,
+                  status: row.status,
+                  cause: cause instanceof Error ? cause.message : String(cause),
+                }).pipe(Effect.as(null as null)),
+              ),
+            ),
+          { concurrency: 8 },
+        ).pipe(
+          Effect.map((maybe) =>
+            maybe.filter((run): run is NonNullable<typeof run> => run !== null),
+          ),
+        ),
+      ),
+    );
+
+  const listProjectIdsWithRunsInStatuses: SymphonyRepositoryShape["listProjectIdsWithRunsInStatuses"] =
+    ({ statuses, includeArchived }) => {
+      if (statuses.length === 0) {
+        return Effect.succeed([]);
+      }
+      const normalStatuses = statuses.filter((status) => status !== "canceled");
+      const includeRecoverableCanceled = statuses.includes("canceled");
+      return sql<ProjectIdRow>`
+        SELECT DISTINCT project_id AS "projectId"
+        FROM symphony_runs
+        WHERE (
+            ${normalStatuses.length > 0 ? sql.in("status", normalStatuses) : sql`0 = 1`}
+            OR ${
+              includeRecoverableCanceled
+                ? sql`(status = 'canceled' AND last_error = ${LINEAR_INELIGIBLE_LEGACY_ERROR})`
+                : sql`0 = 1`
+            }
+          )
+          AND (${includeArchived === true ? 1 : 0} = 1 OR archived_at IS NULL)
+        ORDER BY project_id ASC
+      `.pipe(
+        Effect.mapError(
+          toPersistenceSqlError("SymphonyRepository.listProjectIdsWithRunsInStatuses"),
+        ),
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) => decodeProjectId(row.projectId), { concurrency: 8 }),
+        ),
+      );
+    };
+
+  const listRunsForMonitoring: SymphonyRepositoryShape["listRunsForMonitoring"] = (projectId) =>
+    sql<RunRow>`
+      SELECT
+        run_id AS "runId",
+        project_id AS "projectId",
+        issue_json AS "issue",
+        status,
+        workspace_path AS "workspacePath",
+        branch_name AS "branchName",
+        thread_id AS "threadId",
+        pr_url AS "prUrl",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
+        archived_at AS "archivedAt",
+        attempts_json AS "attempts",
+        next_retry_at AS "nextRetryAt",
+        last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM symphony_runs
+      WHERE project_id = ${projectId}
+        AND archived_at IS NULL
+        AND (
+          ${sql.in("status", MONITORED_RUN_STATUSES)}
+          OR (status = 'canceled' AND last_error = ${LINEAR_INELIGIBLE_LEGACY_ERROR})
+        )
+      ORDER BY updated_at DESC, issue_identifier ASC
+    `.pipe(
+      Effect.mapError(toPersistenceSqlError("SymphonyRepository.listRunsForMonitoring")),
       Effect.flatMap((rows) => Effect.forEach(rows, decodeRunRow, { concurrency: 8 })),
     );
 
@@ -363,11 +483,15 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -392,11 +516,15 @@ const makeRepository = Effect.gen(function* () {
         branch_name AS "branchName",
         thread_id AS "threadId",
         pr_url AS "prUrl",
-        execution_target AS "executionTarget",
-        cloud_task_json AS "cloudTask",
+        pull_request_json AS "pullRequest",
+        current_step_json AS "currentStep",
+        linear_progress_json AS "linearProgress",
+        quality_gate_json AS "qualityGate",
+        archived_at AS "archivedAt",
         attempts_json AS "attempts",
         next_retry_at AS "nextRetryAt",
         last_error AS "lastError",
+        last_seen_linear_state AS "lastSeenLinearState",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM symphony_runs
@@ -423,11 +551,15 @@ const makeRepository = Effect.gen(function* () {
         branch_name,
         thread_id,
         pr_url,
-        execution_target,
-        cloud_task_json,
+        pull_request_json,
+        current_step_json,
+        linear_progress_json,
+        quality_gate_json,
+        archived_at,
         attempts_json,
         next_retry_at,
         last_error,
+        last_seen_linear_state,
         created_at,
         updated_at
       )
@@ -442,11 +574,15 @@ const makeRepository = Effect.gen(function* () {
         ${run.branchName},
         ${run.threadId},
         ${run.prUrl},
-        ${run.executionTarget},
-        ${run.cloudTask ? JSON.stringify(run.cloudTask) : null},
+        ${run.pullRequest ? JSON.stringify(run.pullRequest) : null},
+        ${run.currentStep ? JSON.stringify(run.currentStep) : null},
+        ${JSON.stringify(run.linearProgress ?? {})},
+        ${JSON.stringify(run.qualityGate ?? {})},
+        ${run.archivedAt},
         ${JSON.stringify(run.attempts)},
         ${run.nextRetryAt},
         ${run.lastError},
+        ${run.lastSeenLinearState ?? null},
         ${run.createdAt},
         ${run.updatedAt}
       )
@@ -458,13 +594,27 @@ const makeRepository = Effect.gen(function* () {
         branch_name = excluded.branch_name,
         thread_id = excluded.thread_id,
         pr_url = excluded.pr_url,
-        execution_target = excluded.execution_target,
-        cloud_task_json = excluded.cloud_task_json,
+        pull_request_json = excluded.pull_request_json,
+        current_step_json = excluded.current_step_json,
+        linear_progress_json = excluded.linear_progress_json,
+        quality_gate_json = excluded.quality_gate_json,
+        archived_at = excluded.archived_at,
         attempts_json = excluded.attempts_json,
         next_retry_at = excluded.next_retry_at,
         last_error = excluded.last_error,
+        last_seen_linear_state = excluded.last_seen_linear_state,
         updated_at = excluded.updated_at
     `.pipe(Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRun")), Effect.as(run));
+
+  const upsertRunError: SymphonyRepositoryShape["upsertRunError"] = (runId, lastError, updatedAt) =>
+    sql`
+      UPDATE symphony_runs
+      SET last_error = ${lastError}, updated_at = ${updatedAt}
+      WHERE run_id = ${runId}
+    `.pipe(
+      Effect.mapError(toPersistenceSqlError("SymphonyRepository.upsertRunError")),
+      Effect.as(undefined),
+    );
 
   const appendEvent: SymphonyRepositoryShape["appendEvent"] = (event) =>
     sql`
@@ -582,9 +732,12 @@ const makeRepository = Effect.gen(function* () {
     getSettings,
     upsertSettings,
     listRuns,
+    listProjectIdsWithRunsInStatuses,
+    listRunsForMonitoring,
     getRunByIssue,
     getRunByThreadId,
     upsertRun,
+    upsertRunError,
     appendEvent,
     listEvents,
     getRuntimeState,

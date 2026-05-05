@@ -55,15 +55,17 @@ import type { EnvironmentId, ThreadId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 import type {
+  SymphonyApplyConfigurationInput,
   SymphonyIssueActionInput,
   SymphonyLaunchIssueInput,
+  SymphonyLinearProject,
+  SymphonyLinearWorkflowState,
   SymphonyProjectInput,
   SymphonySecretStatus,
   SymphonySetLinearApiKeyInput,
   SymphonySettings,
   SymphonySnapshot,
   SymphonySubscribeEvent,
-  SymphonyUpdateExecutionDefaultInput,
   SymphonyUpdateWorkflowPathInput,
 } from "./symphony.ts";
 
@@ -316,12 +318,21 @@ export interface EnvironmentApi {
     refresh: (input: SymphonyProjectInput) => Promise<SymphonySnapshot>;
     stopIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     retryIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    archiveIssue: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
     openLinkedThread: (input: SymphonyIssueActionInput) => Promise<{ threadId: ThreadId | null }>;
     launchIssue: (input: SymphonyLaunchIssueInput) => Promise<SymphonySnapshot>;
-    updateExecutionDefault: (
-      input: SymphonyUpdateExecutionDefaultInput,
-    ) => Promise<SymphonySettings>;
-    refreshCloudStatus: (input: SymphonyIssueActionInput) => Promise<SymphonySnapshot>;
+    fetchLinearProjects: (input: {
+      projectId: string;
+      apiKey: string;
+    }) => Promise<readonly SymphonyLinearProject[]>;
+    fetchLinearWorkflowStates: (input: {
+      projectId: string;
+      apiKey: string;
+      teamId: string;
+    }) => Promise<readonly SymphonyLinearWorkflowState[]>;
+    applyConfiguration: (
+      input: SymphonyApplyConfigurationInput,
+    ) => Promise<{ ok: true; reloaded: boolean } | { ok: false; error: string }>;
     subscribe: (
       input: SymphonyProjectInput,
       callback: (event: SymphonySubscribeEvent) => void,
